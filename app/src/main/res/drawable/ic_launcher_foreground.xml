@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Sword icon representing Munchkin combat -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,24
+            L60,42
+            L78,42
+            L64,52
+            L68,70
+            L54,60
+            L40,70
+            L44,52
+            L30,42
+            L48,42
+            Z"/>
+    
+    <!-- Small accent lines -->
+    <path
+        android:fillColor="#7B1FA2"
+        android:strokeColor="#7B1FA2"
+        android:strokeWidth="2"
+        android:pathData="M54,38 L54,55"/>
+    
+    <path
+        android:fillColor="#7B1FA2"
+        android:strokeColor="#7B1FA2"
+        android:strokeWidth="2"
+        android:pathData="M47,48 L61,48"/>
+</vector>

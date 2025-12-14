@@ -1,0 +1,169 @@
+<resources>
+    <string name="app_name">Munchkin Tracker</string>
+    
+    <!-- Home Screen -->
+    <string name="create_game">Crear Partida</string>
+    <string name="join_game">Unirse a Partida</string>
+    <string name="settings">Ajustes</string>
+    
+    <!-- Create Game -->
+    <string name="your_name">Tu nombre</string>
+    <string name="select_avatar">Seleccionar avatar</string>
+    <string name="gender">Género</string>
+    <string name="gender_male">Hombre</string>
+    <string name="gender_female">Mujer</string>
+    <string name="gender_na">N/A</string>
+    <string name="create">Crear</string>
+    <string name="game_code">Código de partida</string>
+    <string name="scan_to_join">Escanea para unirte</string>
+    <string name="or_enter_manually">O introduce manualmente:</string>
+    <string name="copy_code">Copiar código</string>
+    <string name="waiting_players">Esperando jugadores…</string>
+    
+    <!-- Join Game -->
+    <string name="scan_qr">Escanear QR</string>
+    <string name="manual_entry">Entrada manual</string>
+    <string name="ip_address">Dirección IP</string>
+    <string name="port">Puerto</string>
+    <string name="join_code">Código</string>
+    <string name="connect">Conectar</string>
+    <string name="connecting">Conectando…</string>
+    <string name="connection_failed">Error de conexión</string>
+    
+    <!-- Lobby -->
+    <string name="lobby">Sala de espera</string>
+    <string name="players">Jugadores</string>
+    <string name="start_game">Iniciar Partida</string>
+    <string name="leave_game">Salir</string>
+    <string name="confirm_leave">¿Seguro que quieres salir?</string>
+    <string name="host">Anfitrión</string>
+    <string name="you">Tú</string>
+    
+    <!-- Board -->
+    <string name="level">Nivel</string>
+    <string name="gear">Equipo</string>
+    <string name="power">Poder</string>
+    <string name="races">Razas</string>
+    <string name="classes">Clases</string>
+    <string name="no_race">Sin raza</string>
+    <string name="no_class">Sin clase</string>
+    <string name="half_breed">Mestizo</string>
+    <string name="super_munchkin">Super Munchkin</string>
+    <string name="combat">Combate</string>
+    <string name="catalog">Catálogo</string>
+    
+    <!-- Player Detail -->
+    <string name="edit_player">Editar jugador</string>
+    <string name="add_race">Añadir raza</string>
+    <string name="add_class">Añadir clase</string>
+    <string name="remove">Quitar</string>
+    <string name="level_min_warning">¡Nivel mínimo alcanzado!</string>
+    <string name="level_max_warning">¡Nivel máximo alcanzado!</string>
+    <string name="need_half_breed">Necesitas Mestizo para tener 2 razas</string>
+    <string name="need_super_munchkin">Necesitas Super Munchkin para tener 2 clases</string>
+    
+    <!-- Combat -->
+    <string name="combat_title">Calculadora de Combate</string>
+    <string name="heroes">Héroes</string>
+    <string name="monsters">Monstruos</string>
+    <string name="main_player">Luchador principal</string>
+    <string name="helper">Ayudante</string>
+    <string name="add_helper">Añadir ayudante</string>
+    <string name="add_monster">Añadir monstruo</string>
+    <string name="monster_name">Nombre del monstruo</string>
+    <string name="monster_level">Nivel</string>
+    <string name="modifier">Modificador</string>
+    <string name="add_condition">Añadir condición</string>
+    <string name="condition_race">Contra raza…</string>
+    <string name="condition_class">Contra clase…</string>
+    <string name="condition_gender">Contra género…</string>
+    <string name="applies_to">Se aplica a</string>
+    <string name="scope">Alcance</string>
+    <string name="scope_main_only">Solo principal</string>
+    <string name="scope_helper_only">Solo ayudante</string>
+    <string name="scope_any">Cualquiera</string>
+    <string name="temp_bonus">Bonus temporal</string>
+    <string name="add_bonus">Añadir bonus</string>
+    <string name="result_win">¡VICTORIA!</string>
+    <string name="result_lose">DERROTA</string>
+    <string name="win_by">Ganas por %1$d</string>
+    <string name="lose_by">Pierdes por %1$d</string>
+    <string name="tie_monsters_win">Empate: ganan los monstruos</string>
+    <string name="end_combat">Finalizar combate</string>
+    
+    <!-- Catalog -->
+    <string name="catalog_title">Catálogo</string>
+    <string name="search">Buscar</string>
+    <string name="create_new">Crear nuevo</string>
+    <string name="create_entry">Crear \"%1$s\"</string>
+    <string name="archive">Archivar</string>
+    <string name="show_archived">Mostrar archivados</string>
+    <string name="name_required">Nombre requerido (2-24 caracteres)</string>
+    <string name="name_exists">Ya existe una entrada con ese nombre</string>
+    <string name="created_by">Creado por %1$s</string>
+    
+    <!-- Settings -->
+    <string name="settings_title">Ajustes</string>
+    <string name="audio">Audio</string>
+    <string name="sound_effects">Efectos de sonido</string>
+    <string name="volume">Volumen</string>
+    <string name="vibration">Vibración</string>
+    <string name="display">Pantalla</string>
+    <string name="theme">Tema</string>
+    <string name="theme_auto">Automático</string>
+    <string name="theme_light">Claro</string>
+    <string name="theme_dark">Oscuro</string>
+    <string name="large_numbers">Números grandes</string>
+    <string name="animations">Animaciones</string>
+    <string name="animations_full">Completas</string>
+    <string name="animations_reduced">Reducidas</string>
+    <string name="animations_off">Desactivadas</string>
+    <string name="tabletop_mode">Modo mesa</string>
+    <string name="keep_screen_on">Mantener pantalla encendida</string>
+    <string name="lock_orientation">Bloquear orientación</string>
+    <string name="orientation_auto">Automático</string>
+    <string name="orientation_portrait">Vertical</string>
+    <string name="orientation_landscape">Horizontal</string>
+    <string name="confirm_exit">Confirmar al salir</string>
+    <string name="about">Acerca de</string>
+    <string name="version">Versión</string>
+    <string name="check_updates">Buscar actualizaciones</string>
+    <string name="licenses">Licencias</string>
+    
+    <!-- Updates -->
+    <string name="updates_title">Actualizaciones</string>
+    <string name="current_version">Versión actual</string>
+    <string name="latest_version">Última versión</string>
+    <string name="update_available">¡Actualización disponible!</string>
+    <string name="up_to_date">Estás al día</string>
+    <string name="download">Descargar</string>
+    <string name="downloading">Descargando…</string>
+    <string name="install">Instalar</string>
+    <string name="changelog">Cambios</string>
+    <string name="check_failed">Error al comprobar actualizaciones</string>
+    
+    <!-- Connection -->
+    <string name="reconnecting">Reconectando…</string>
+    <string name="connection_lost">Conexión perdida</string>
+    <string name="host_left">El anfitrión ha salido</string>
+    <string name="new_host">Nuevo anfitrión: %1$s</string>
+    <string name="handover_in_progress">Transferencia de host en curso…</string>
+    
+    <!-- Errors -->
+    <string name="error">Error</string>
+    <string name="error_unknown">Error desconocido</string>
+    <string name="error_network">Error de red</string>
+    <string name="error_invalid_code">Código inválido</string>
+    <string name="error_game_full">Partida llena (máximo 6 jugadores)</string>
+    <string name="error_game_started">La partida ya ha comenzado</string>
+    <string name="error_permission_denied">Permiso denegado</string>
+    
+    <!-- Common -->
+    <string name="ok">Aceptar</string>
+    <string name="cancel">Cancelar</string>
+    <string name="save">Guardar</string>
+    <string name="close">Cerrar</string>
+    <string name="back">Atrás</string>
+    <string name="yes">Sí</string>
+    <string name="no">No</string>
+</resources>
