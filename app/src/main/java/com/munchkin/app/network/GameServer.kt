@@ -82,9 +82,25 @@ class GameServer(
     
     /**
      * Stop the WebSocket server.
+     * @param graceful If true, broadcast handover to next host candidate before stopping
      */
-    suspend fun stop() = withContext(Dispatchers.IO) {
+    suspend fun stop(graceful: Boolean = false, nextHostWsUrl: String? = null) = withContext(Dispatchers.IO) {
         try {
+            // Graceful handover - notify clients of new host
+            if (graceful && nextHostWsUrl != null) {
+                val newHostId = selectNextHost()
+                if (newHostId != null) {
+                    val handoverMsg = HandoverInitMessage(
+                        newHostId = newHostId,
+                        newEpoch = (gameEngine.gameState.value?.epoch ?: 0) + 1,
+                        wsUrl = nextHostWsUrl
+                    )
+                    broadcastMessage(handoverMsg)
+                    Log.i(TAG, "Broadcasted handover to $newHostId at $nextHostWsUrl")
+                    delay(500) // Give clients time to process
+                }
+            }
+            
             clients.values.forEach { session ->
                 try {
                     session.close(CloseReason(CloseReason.Codes.GOING_AWAY, "Server stopping"))
@@ -101,6 +117,30 @@ class GameServer(
             Log.i(TAG, "Server stopped")
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping server", e)
+        }
+    }
+    
+    /**
+     * Select next host candidate based on join order.
+     */
+    private fun selectNextHost(): PlayerId? {
+        val state = gameEngine.gameState.value ?: return null
+        return state.players.values
+            .filter { it.isConnected && clients.containsKey(it.playerId) }
+            .firstOrNull()?.playerId
+    }
+    
+    /**
+     * Broadcast a message to all connected clients.
+     */
+    private suspend fun broadcastMessage(message: WsMessage) {
+        val msgText = json.encodeToString<WsMessage>(message)
+        clients.values.forEach { session ->
+            try {
+                session.send(msgText)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to send to client", e)
+            }
         }
     }
     
