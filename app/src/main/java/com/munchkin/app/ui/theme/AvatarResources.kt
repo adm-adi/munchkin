@@ -1,45 +1,34 @@
 package com.munchkin.app.ui.theme
 
-import com.munchkin.app.R
-
 /**
  * Avatar resource helper.
- * Maps avatar IDs to drawable resources.
+ * Uses color-based avatars instead of image drawables.
  */
 object AvatarResources {
-    
-    /**
-     * Get the drawable resource ID for an avatar.
-     */
-    fun getAvatarDrawable(avatarId: Int): Int {
-        return when (avatarId % 6) {
-            0 -> R.drawable.avatar_warrior
-            1 -> R.drawable.avatar_wizard
-            2 -> R.drawable.avatar_thief
-            3 -> R.drawable.avatar_cleric
-            4 -> R.drawable.avatar_elf
-            5 -> R.drawable.avatar_dwarf
-            else -> R.drawable.avatar_warrior
-        }
-    }
     
     /**
      * Get avatar display name.
      */
     fun getAvatarName(avatarId: Int): String {
-        return when (avatarId % 6) {
+        return when (avatarId % 12) {
             0 -> "Guerrero"
             1 -> "Mago"
             2 -> "Ladrón"
             3 -> "Clérigo"
             4 -> "Elfo"
             5 -> "Enano"
-            else -> "Guerrero"
+            6 -> "Bárbaro"
+            7 -> "Bardo"
+            8 -> "Druida"
+            9 -> "Monje"
+            10 -> "Paladín"
+            11 -> "Ranger"
+            else -> "Aventurero"
         }
     }
     
     /**
-     * Total number of available avatars.
+     * Total number of available avatars (matches AvatarColors list).
      */
-    const val AVATAR_COUNT = 6
+    const val AVATAR_COUNT = 12
 }

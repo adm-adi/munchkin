@@ -132,14 +132,21 @@ fun CreateGameScreen(
                             .clickable { selectedAvatarId = avatarId }
                             .padding(8.dp)
                     ) {
-                        Image(
-                            painter = painterResource(id = AvatarResources.getAvatarDrawable(avatarId)),
-                            contentDescription = AvatarResources.getAvatarName(avatarId),
+                        // Color-based avatar with initial letter
+                        Box(
                             modifier = Modifier
                                 .size(56.dp)
-                                .clip(CircleShape),
-                            contentScale = ContentScale.Crop
-                        )
+                                .clip(CircleShape)
+                                .background(getAvatarColor(avatarId)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = AvatarResources.getAvatarName(avatarId).first().toString(),
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = AvatarResources.getAvatarName(avatarId),

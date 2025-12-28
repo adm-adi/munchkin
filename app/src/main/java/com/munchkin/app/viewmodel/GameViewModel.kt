@@ -9,6 +9,9 @@ import com.munchkin.app.core.*
 import com.munchkin.app.data.GameRepository
 import com.munchkin.app.data.SavedGame
 import com.munchkin.app.network.*
+import com.munchkin.app.update.UpdateChecker
+import com.munchkin.app.update.UpdateInfo
+import com.munchkin.app.update.UpdateResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -37,6 +40,16 @@ class GameViewModel : ViewModel() {
     private val _latencyMs = MutableStateFlow(0L)
     val latencyMs: StateFlow<Long> = _latencyMs.asStateFlow()
     
+    // ============== Update State ==============
+    
+    private val _updateInfo = MutableStateFlow<UpdateInfo?>(null)
+    val updateInfo: StateFlow<UpdateInfo?> = _updateInfo.asStateFlow()
+    
+    private val _isDownloading = MutableStateFlow(false)
+    val isDownloading: StateFlow<Boolean> = _isDownloading.asStateFlow()
+    
+    private var updateChecker: UpdateChecker? = null
+    
     // ============== Game Components ==============
     
     private var gameEngine: GameEngine? = null
@@ -53,6 +66,7 @@ class GameViewModel : ViewModel() {
     init {
         initRepository()
         loadSavedGame()
+        checkForUpdates()
     }
     
     private fun initRepository() {
@@ -146,6 +160,54 @@ class GameViewModel : ViewModel() {
             gameRepository?.deleteAllSavedGames()
             _savedGame.value = null
         }
+    }
+    
+    // ============== Update Methods ==============
+    
+    /**
+     * Check GitHub for available updates.
+     */
+    private fun checkForUpdates() {
+        if (updateChecker == null) {
+            updateChecker = UpdateChecker(MunchkinApp.context)
+        }
+        viewModelScope.launch {
+            when (val result = updateChecker?.checkForUpdate()) {
+                is UpdateResult.UpdateAvailable -> {
+                    _updateInfo.value = result.info
+                }
+                is UpdateResult.NoUpdate -> {
+                    _updateInfo.value = null
+                }
+                is UpdateResult.Error -> {
+                    android.util.Log.w("GameViewModel", "Update check failed: ${result.message}")
+                }
+                null -> {}
+            }
+        }
+    }
+    
+    /**
+     * Dismiss update dialog.
+     */
+    fun dismissUpdate() {
+        _updateInfo.value = null
+    }
+    
+    /**
+     * Download and install update.
+     */
+    fun downloadUpdate() {
+        val info = _updateInfo.value ?: return
+        _isDownloading.value = true
+        
+        updateChecker?.downloadAndInstall(
+            updateInfo = info,
+            onProgress = { /* Could update progress here */ },
+            onComplete = {
+                _isDownloading.value = false
+            }
+        )
     }
     
     /**

@@ -21,6 +21,7 @@ import com.munchkin.app.R
 import com.munchkin.app.data.SavedGame
 import com.munchkin.app.ui.components.*
 import com.munchkin.app.ui.theme.*
+import com.munchkin.app.update.UpdateInfo
 
 /**
  * Modern Luma-inspired home screen.
@@ -28,13 +29,38 @@ import com.munchkin.app.ui.theme.*
 @Composable
 fun HomeScreen(
     savedGame: SavedGame?,
+    updateInfo: UpdateInfo?,
+    isDownloading: Boolean,
     onCreateGame: () -> Unit,
     onJoinGame: () -> Unit,
     onResumeGame: () -> Unit,
     onDeleteSavedGame: () -> Unit,
+    onDownloadUpdate: () -> Unit,
+    onDismissUpdate: () -> Unit,
     onSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Show update dialog if update available
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    
+    LaunchedEffect(updateInfo) {
+        if (updateInfo != null) {
+            showUpdateDialog = true
+        }
+    }
+    
+    if (showUpdateDialog && updateInfo != null) {
+        UpdateDialog(
+            updateInfo = updateInfo,
+            isDownloading = isDownloading,
+            onDownload = onDownloadUpdate,
+            onDismiss = {
+                showUpdateDialog = false
+                onDismissUpdate()
+            }
+        )
+    }
+    
     Box(
         modifier = modifier
             .fillMaxSize()

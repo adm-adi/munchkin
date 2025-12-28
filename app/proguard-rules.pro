@@ -26,3 +26,11 @@
 # Netty
 -dontwarn io.netty.**
 -keep class io.netty.** { *; }
+
+# SLF4J
+-dontwarn org.slf4j.**
+-keep class org.slf4j.** { *; }
+
+# OkHttp (for GitHub API calls)
+-dontwarn okhttp3.**
+-dontwarn okio.**

@@ -61,12 +61,18 @@ class MainActivity : ComponentActivity() {
                         when (screen) {
                             Screen.HOME -> {
                                 val savedGame by viewModel.savedGame.collectAsState()
+                                val updateInfo by viewModel.updateInfo.collectAsState()
+                                val isDownloading by viewModel.isDownloading.collectAsState()
                                 HomeScreen(
                                     savedGame = savedGame,
+                                    updateInfo = updateInfo,
+                                    isDownloading = isDownloading,
                                     onCreateGame = { viewModel.navigateTo(Screen.CREATE_GAME) },
                                     onJoinGame = { viewModel.navigateTo(Screen.JOIN_GAME) },
                                     onResumeGame = { viewModel.resumeSavedGame() },
                                     onDeleteSavedGame = { viewModel.deleteSavedGame() },
+                                    onDownloadUpdate = { viewModel.downloadUpdate() },
+                                    onDismissUpdate = { viewModel.dismissUpdate() },
                                     onSettings = { viewModel.navigateTo(Screen.SETTINGS) }
                                 )
                             }
