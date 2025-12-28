@@ -200,9 +200,9 @@ fun PlayerCard(
 ) {
     val borderColor by animateColorAsState(
         targetValue = when {
-            isMe -> MaterialTheme.colorScheme.primary
-            isHost -> MaterialTheme.colorScheme.tertiary
-            else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+            isMe -> com.munchkin.app.ui.theme.LumaPrimary
+            isHost -> com.munchkin.app.ui.theme.LumaAccent
+            else -> com.munchkin.app.ui.theme.LumaGray700
         },
         label = "borderColor"
     )
@@ -213,29 +213,42 @@ fun PlayerCard(
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         colors = CardDefaults.cardColors(
             containerColor = if (isMe) 
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                com.munchkin.app.ui.theme.DarkCardSurface
             else 
-                MaterialTheme.colorScheme.surface
+                com.munchkin.app.ui.theme.LumaGray900
         ),
         border = CardDefaults.outlinedCardBorder().copy(
             width = if (isMe) 2.dp else 1.dp,
             brush = androidx.compose.ui.graphics.SolidColor(borderColor)
-        )
+        ),
+        shape = RoundedCornerShape(16.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Avatar
-            PlayerAvatar(
-                player = player,
-                size = 48,
-                showBorder = isMe
-            )
+            // Avatar with glow for current player
+            Box {
+                if (isMe) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .background(
+                                com.munchkin.app.ui.theme.LumaPrimary.copy(alpha = 0.2f),
+                                CircleShape
+                            )
+                    )
+                }
+                PlayerAvatar(
+                    player = player,
+                    size = 48,
+                    showBorder = isMe
+                )
+            }
             
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(16.dp))
             
             // Name and traits
             Column(modifier = Modifier.weight(1f)) {
@@ -243,58 +256,84 @@ fun PlayerCard(
                     Text(
                         text = player.name,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = if (isMe) FontWeight.Bold else FontWeight.Normal
+                        fontWeight = if (isMe) FontWeight.SemiBold else FontWeight.Normal,
+                        color = com.munchkin.app.ui.theme.LumaGray100
                     )
                     if (isHost) {
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "👑",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
                     if (isMe) {
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "(Tú)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = com.munchkin.app.ui.theme.LumaPrimary.copy(alpha = 0.2f)
+                        ) {
+                            Text(
+                                text = "TÚ",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = com.munchkin.app.ui.theme.LumaPrimary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
                     }
                 }
                 
                 // Connection status
                 if (!player.isConnected) {
-                    Text(
-                        text = "Desconectado",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .background(com.munchkin.app.ui.theme.LumaError, CircleShape)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Desconectado",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = com.munchkin.app.ui.theme.LumaError
+                        )
+                    }
                 }
             }
             
-            // Stats
+            // Stats column
             Column(horizontalAlignment = Alignment.End) {
-                // Level
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Nv.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "${player.level}",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                // Level with highlight
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = com.munchkin.app.ui.theme.LumaPrimary.copy(alpha = 0.15f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Nv",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = com.munchkin.app.ui.theme.LumaGray400
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "${player.level}",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = com.munchkin.app.ui.theme.LumaPrimary
+                        )
+                    }
                 }
+                
+                Spacer(modifier = Modifier.height(4.dp))
                 
                 // Combat power
                 Text(
-                    text = "Poder: ${player.combatPower}",
+                    text = "⚔️ ${player.combatPower}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = com.munchkin.app.ui.theme.LumaGray500
                 )
             }
         }

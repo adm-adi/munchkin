@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.munchkin.app.MunchkinApp
 import com.munchkin.app.core.*
+import com.munchkin.app.data.GameRepository
+import com.munchkin.app.data.SavedGame
 import com.munchkin.app.network.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
@@ -26,11 +28,22 @@ class GameViewModel : ViewModel() {
     private val _events = MutableSharedFlow<GameUiEvent>()
     val events: SharedFlow<GameUiEvent> = _events.asSharedFlow()
     
+    private val _discoveredGames = MutableStateFlow<List<DiscoveredGame>>(emptyList())
+    val discoveredGames: StateFlow<List<DiscoveredGame>> = _discoveredGames.asStateFlow()
+    
+    private val _savedGame = MutableStateFlow<SavedGame?>(null)
+    val savedGame: StateFlow<SavedGame?> = _savedGame.asStateFlow()
+    
+    private val _latencyMs = MutableStateFlow(0L)
+    val latencyMs: StateFlow<Long> = _latencyMs.asStateFlow()
+    
     // ============== Game Components ==============
     
     private var gameEngine: GameEngine? = null
     private var gameServer: GameServer? = null
     private var gameClient: GameClient? = null
+    private var nsdHelper: NsdHelper? = null
+    private var gameRepository: GameRepository? = null
     
     private var myPlayerId: PlayerId? = null
     private var isHost: Boolean = false
@@ -38,7 +51,101 @@ class GameViewModel : ViewModel() {
     // ============== Initialization ==============
     
     init {
-        // Nothing to initialize initially
+        initRepository()
+        loadSavedGame()
+    }
+    
+    private fun initRepository() {
+        try {
+            gameRepository = GameRepository(MunchkinApp.context)
+        } catch (e: Exception) {
+            android.util.Log.e("GameViewModel", "Failed to init repository", e)
+        }
+    }
+    
+    private fun loadSavedGame() {
+        viewModelScope.launch {
+            gameRepository?.getLatestSavedGame()?.collect { saved ->
+                _savedGame.value = saved
+            }
+        }
+    }
+    
+    /**
+     * Start NSD discovery for nearby games.
+     */
+    fun startDiscovery() {
+        if (nsdHelper == null) {
+            nsdHelper = NsdHelper(MunchkinApp.context)
+        }
+        nsdHelper?.startDiscovery()
+        viewModelScope.launch {
+            nsdHelper?.discoveredGames?.collect { games ->
+                _discoveredGames.value = games
+            }
+        }
+    }
+    
+    /**
+     * Stop NSD discovery.
+     */
+    fun stopDiscovery() {
+        nsdHelper?.stopDiscovery()
+    }
+    
+    /**
+     * Resume a saved game.
+     */
+    fun resumeSavedGame() {
+        val saved = _savedGame.value ?: return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    screen = if (saved.gameState.phase == GamePhase.LOBBY) Screen.LOBBY else Screen.BOARD,
+                    gameState = saved.gameState,
+                    myPlayerId = saved.myPlayerId,
+                    isHost = saved.isHost
+                )
+            }
+            
+            myPlayerId = saved.myPlayerId
+            isHost = saved.isHost
+            
+            if (saved.isHost) {
+                // Recreate engine and server
+                val engine = GameEngine()
+                engine.loadState(saved.gameState)
+                gameEngine = engine
+                
+                val server = GameServer(engine)
+                viewModelScope.launch(Dispatchers.IO) {
+                    server.start()
+                    gameServer = server
+                    
+                    // Publish via NSD
+                    if (nsdHelper == null) {
+                        nsdHelper = NsdHelper(MunchkinApp.context)
+                    }
+                    val localIp = getLocalIpAddress()
+                    nsdHelper?.publishGame(
+                        hostName = saved.gameState.players[saved.myPlayerId]?.name ?: "Host",
+                        joinCode = saved.gameState.joinCode,
+                        port = 8765
+                    )
+                }
+                observeGameState()
+            }
+        }
+    }
+    
+    /**
+     * Delete saved game.
+     */
+    fun deleteSavedGame() {
+        viewModelScope.launch {
+            gameRepository?.deleteAllSavedGames()
+            _savedGame.value = null
+        }
     }
     
     /**
@@ -92,6 +199,19 @@ class GameViewModel : ViewModel() {
                                 gameServer = server
                                 serverStarted = true
                                 android.util.Log.d("GameViewModel", "Server started successfully!")
+                                
+                                // Publish via NSD for discovery
+                                if (nsdHelper == null) {
+                                    nsdHelper = NsdHelper(MunchkinApp.context)
+                                }
+                                nsdHelper?.publishGame(
+                                    hostName = name,
+                                    joinCode = initialState.joinCode,
+                                    port = 8765
+                                )
+                                
+                                // Save initial state
+                                gameRepository?.saveGame(initialState, playerId, true)
                             } else {
                                 android.util.Log.w("GameViewModel", "Server start returned failure: ${result.exceptionOrNull()?.message}")
                             }
@@ -482,6 +602,10 @@ class GameViewModel : ViewModel() {
      */
     fun leaveGame() {
         viewModelScope.launch {
+            // Stop NSD publishing/discovery
+            nsdHelper?.cleanup()
+            nsdHelper = null
+            
             gameServer?.stop()
             gameServer = null
             gameClient?.disconnect()
@@ -496,6 +620,7 @@ class GameViewModel : ViewModel() {
     
     override fun onCleared() {
         super.onCleared()
+        nsdHelper?.cleanup()
         viewModelScope.launch {
             gameServer?.stop()
             gameClient?.disconnect()
@@ -536,6 +661,11 @@ class GameViewModel : ViewModel() {
                     // Check for phase change
                     if (s.phase == GamePhase.IN_GAME && _uiState.value.screen == Screen.LOBBY) {
                         _uiState.update { it.copy(screen = Screen.BOARD) }
+                    }
+                    
+                    // Auto-save state
+                    myPlayerId?.let { pid ->
+                        gameRepository?.saveGame(s, pid, isHost)
                     }
                 }
             }

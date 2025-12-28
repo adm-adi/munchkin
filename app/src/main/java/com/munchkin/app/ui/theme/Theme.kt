@@ -14,58 +14,86 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-// Dark color scheme
-private val DarkColorScheme = darkColorScheme(
-    primary = Gold60,
-    onPrimary = Color.Black,
-    primaryContainer = GoldDark,
+/**
+ * Luma-inspired modern dark color scheme.
+ * Focus on elegance, minimal design, and vibrant accents.
+ */
+private val LumaDarkColorScheme = darkColorScheme(
+    // Primary - Vibrant purple
+    primary = LumaPrimary,
+    onPrimary = Color.White,
+    primaryContainer = LumaPrimaryDark,
     onPrimaryContainer = Color.White,
-    secondary = Purple60,
-    onSecondary = Color.Black,
-    secondaryContainer = PurpleDark,
-    onSecondaryContainer = Color.White,
-    tertiary = HeroGreen,
-    onTertiary = Color.Black,
-    tertiaryContainer = HeroGreenDark,
+    
+    // Secondary - Purple lighter
+    secondary = LumaPrimaryLight,
+    onSecondary = Color.White,
+    secondaryContainer = LumaGray800,
+    onSecondaryContainer = LumaGray100,
+    
+    // Tertiary - Accent orange
+    tertiary = LumaAccent,
+    onTertiary = Color.White,
+    tertiaryContainer = LumaAccentDark,
     onTertiaryContainer = Color.White,
-    error = Error,
+    
+    // Error
+    error = LumaError,
     onError = Color.White,
-    errorContainer = ErrorDark,
+    errorContainer = LumaErrorLight,
     onErrorContainer = Color.White,
-    background = DarkBackground,
-    onBackground = DarkOnBackground,
-    surface = DarkSurface,
-    onSurface = DarkOnSurface,
-    surfaceVariant = DarkSurfaceVariant,
-    onSurfaceVariant = DarkOnSurfaceVariant,
-    outline = DarkOutline
+    
+    // Backgrounds - True black for OLED
+    background = LumaGray950,
+    onBackground = LumaGray50,
+    
+    // Surfaces - Subtle elevation with gray
+    surface = LumaGray900,
+    onSurface = LumaGray100,
+    surfaceVariant = LumaGray800,
+    onSurfaceVariant = LumaGray400,
+    
+    // Outline
+    outline = LumaGray700,
+    outlineVariant = LumaGray800,
+    
+    // Inverse
+    inverseSurface = LumaGray100,
+    inverseOnSurface = LumaGray900,
+    inversePrimary = LumaPrimaryDark,
+    
+    // Scrim
+    scrim = Color.Black.copy(alpha = 0.5f)
 )
 
-// Light color scheme
-private val LightColorScheme = lightColorScheme(
-    primary = Gold40,
-    onPrimary = Color.Black,
-    primaryContainer = Gold80,
-    onPrimaryContainer = Color.Black,
-    secondary = Purple40,
+/**
+ * Light color scheme (optional, dark is default)
+ */
+private val LumaLightColorScheme = lightColorScheme(
+    primary = LumaPrimary,
+    onPrimary = Color.White,
+    primaryContainer = LumaPrimaryLight.copy(alpha = 0.2f),
+    onPrimaryContainer = LumaPrimaryDark,
+    secondary = LumaPrimaryLight,
     onSecondary = Color.White,
-    secondaryContainer = Purple80,
-    onSecondaryContainer = Color.Black,
-    tertiary = HeroGreen,
+    secondaryContainer = LumaGray200,
+    onSecondaryContainer = LumaGray800,
+    tertiary = LumaAccent,
     onTertiary = Color.White,
-    tertiaryContainer = HeroGreenDark,
-    onTertiaryContainer = Color.White,
-    error = Error,
+    tertiaryContainer = LumaAccentLight.copy(alpha = 0.2f),
+    onTertiaryContainer = LumaAccentDark,
+    error = LumaError,
     onError = Color.White,
-    errorContainer = ErrorDark,
-    onErrorContainer = Color.White,
-    background = LightBackground,
-    onBackground = LightOnBackground,
-    surface = LightSurface,
-    onSurface = LightOnSurface,
-    surfaceVariant = LightSurfaceVariant,
-    onSurfaceVariant = LightOnSurfaceVariant,
-    outline = LightOutline
+    errorContainer = LumaErrorLight.copy(alpha = 0.2f),
+    onErrorContainer = LumaError,
+    background = LumaGray50,
+    onBackground = LumaGray900,
+    surface = Color.White,
+    onSurface = LumaGray900,
+    surfaceVariant = LumaGray100,
+    onSurfaceVariant = LumaGray600,
+    outline = LumaGray300,
+    outlineVariant = LumaGray200
 )
 
 // Combat colors provider
@@ -84,10 +112,14 @@ val LocalCombatColors = staticCompositionLocalOf {
 // Large numbers mode provider
 val LocalLargeNumbersMode = staticCompositionLocalOf { false }
 
+/**
+ * Munchkin theme with Luma-inspired design.
+ * Dark mode by default for modern, premium feel.
+ */
 @Composable
 fun MunchkinTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false,  // Disabled for consistent branding
+    darkTheme: Boolean = true,  // Default to dark theme for Luma-style
+    dynamicColor: Boolean = false,
     largeNumbersMode: Boolean = false,
     content: @Composable () -> Unit
 ) {
@@ -96,22 +128,18 @@ fun MunchkinTheme(
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
+        darkTheme -> LumaDarkColorScheme
+        else -> LumaLightColorScheme
     }
     
-    val combatColors = if (darkTheme) {
-        CombatColors(HeroGreen, MonsterRed)
-    } else {
-        CombatColors(HeroGreenDark, MonsterRedDark)
-    }
-    
+    val combatColors = CombatColors(HeroGreen, MonsterRed)
     val typography = if (largeNumbersMode) LargeNumbersTypography else Typography
     
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
+            // Edge-to-edge with transparent bars
             window.statusBarColor = Color.Transparent.toArgb()
             window.navigationBarColor = Color.Transparent.toArgb()
             WindowCompat.getInsetsController(window, view).apply {
@@ -133,7 +161,7 @@ fun MunchkinTheme(
     }
 }
 
-// Extension property to access combat colors
+// Extension property to access custom theme values
 object MunchkinTheme {
     val combatColors: CombatColors
         @Composable

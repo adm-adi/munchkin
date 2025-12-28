@@ -9,6 +9,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -59,9 +60,13 @@ class MainActivity : ComponentActivity() {
                     ) { screen ->
                         when (screen) {
                             Screen.HOME -> {
+                                val savedGame by viewModel.savedGame.collectAsState()
                                 HomeScreen(
+                                    savedGame = savedGame,
                                     onCreateGame = { viewModel.navigateTo(Screen.CREATE_GAME) },
                                     onJoinGame = { viewModel.navigateTo(Screen.JOIN_GAME) },
+                                    onResumeGame = { viewModel.resumeSavedGame() },
+                                    onDeleteSavedGame = { viewModel.deleteSavedGame() },
                                     onSettings = { viewModel.navigateTo(Screen.SETTINGS) }
                                 )
                             }
@@ -172,20 +177,16 @@ class MainActivity : ComponentActivity() {
                             
                             Screen.CATALOG -> {
                                 // TODO: Implement CatalogScreen
-                                HomeScreen(
-                                    onCreateGame = { },
-                                    onJoinGame = { },
-                                    onSettings = { viewModel.goBack() }
-                                )
+                                Surface { 
+                                    Text("Catálogo - Próximamente") 
+                                }
                             }
                             
                             Screen.SETTINGS -> {
                                 // TODO: Implement SettingsScreen
-                                HomeScreen(
-                                    onCreateGame = { },
-                                    onJoinGame = { },
-                                    onSettings = { viewModel.goBack() }
-                                )
+                                Surface { 
+                                    Text("Configuración - Próximamente") 
+                                }
                             }
                         }
                     }

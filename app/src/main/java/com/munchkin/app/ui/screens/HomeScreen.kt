@@ -10,25 +10,28 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.munchkin.app.R
-import com.munchkin.app.ui.theme.Gold40
-import com.munchkin.app.ui.theme.Gold60
-import com.munchkin.app.ui.theme.Purple40
-import com.munchkin.app.ui.theme.Purple60
+import com.munchkin.app.data.SavedGame
+import com.munchkin.app.ui.components.*
+import com.munchkin.app.ui.theme.*
 
 /**
- * Home screen with Create/Join game options.
+ * Modern Luma-inspired home screen.
  */
 @Composable
 fun HomeScreen(
+    savedGame: SavedGame?,
     onCreateGame: () -> Unit,
     onJoinGame: () -> Unit,
+    onResumeGame: () -> Unit,
+    onDeleteSavedGame: () -> Unit,
     onSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -38,99 +41,177 @@ fun HomeScreen(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        MaterialTheme.colorScheme.background,
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        LumaGray950,
+                        LumaGray900.copy(alpha = 0.95f),
+                        LumaGray950
                     )
                 )
             )
     ) {
+        // Ambient glow effect (top)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = (-100).dp)
+                .size(400.dp)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            LumaPrimary.copy(alpha = 0.15f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+        
         // Settings button
         IconButton(
             onClick = onSettings,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(16.dp)
+                .statusBarsPadding()
         ) {
             Icon(
                 Icons.Default.Settings,
-                contentDescription = stringResource(R.string.settings)
+                contentDescription = stringResource(R.string.settings),
+                tint = LumaGray400
             )
         }
         
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp),
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Logo/Title
-            Text(
-                text = "⚔️",
-                style = MaterialTheme.typography.displayLarge
-            )
+            Spacer(modifier = Modifier.weight(0.3f))
             
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            Text(
-                text = "Munchkin",
-                style = MaterialTheme.typography.displayMedium.copy(
-                    fontWeight = FontWeight.Bold
-                ),
-                color = MaterialTheme.colorScheme.primary
-            )
-            
-            Text(
-                text = "Mesa Tracker",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            
-            Spacer(modifier = Modifier.height(64.dp))
-            
-            // Create Game Button
-            Button(
-                onClick = onCreateGame,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(64.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary
-                )
+            // Logo with glow
+            Box(
+                contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    Icons.Default.Add,
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp)
+                // Glow behind emoji
+                Box(
+                    modifier = Modifier
+                        .size(120.dp)
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    LumaPrimary.copy(alpha = 0.3f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
                 )
-                Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = stringResource(R.string.create_game),
-                    style = MaterialTheme.typography.titleMedium
+                    text = "⚔️",
+                    fontSize = 72.sp
                 )
             }
             
             Spacer(modifier = Modifier.height(16.dp))
             
-            // Join Game Button
-            OutlinedButton(
+            // Title with gradient
+            Text(
+                text = "Munchkin",
+                style = MaterialTheme.typography.displayMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-1).sp
+                ),
+                color = LumaGray50
+            )
+            
+            Text(
+                text = "Mesa Tracker",
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontWeight = FontWeight.Light,
+                    letterSpacing = 2.sp
+                ),
+                color = LumaGray500
+            )
+            
+            Spacer(modifier = Modifier.height(48.dp))
+            
+            // Main actions
+            GradientButton(
+                text = stringResource(R.string.create_game),
+                onClick = onCreateGame,
+                modifier = Modifier.fillMaxWidth(),
+                icon = Icons.Default.Add,
+                gradientColors = listOf(LumaPrimary, GradientPurpleEnd)
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            GlassOutlinedButton(
+                text = stringResource(R.string.join_game),
                 onClick = onJoinGame,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(64.dp),
-                shape = RoundedCornerShape(16.dp)
+                modifier = Modifier.fillMaxWidth(),
+                icon = Icons.Default.QrCodeScanner
+            )
+            
+            // Saved game section
+            AnimatedVisibility(
+                visible = savedGame != null,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
             ) {
-                Icon(
-                    Icons.Default.QrCodeScanner,
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    text = stringResource(R.string.join_game),
-                    style = MaterialTheme.typography.titleMedium
-                )
+                savedGame?.let { saved ->
+                    Column {
+                        Spacer(modifier = Modifier.height(32.dp))
+                        
+                        GlassCard(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Partida guardada",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = LumaGray100
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "${saved.gameState.players.size} jugadores • ${saved.gameState.joinCode}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = LumaGray500
+                                    )
+                                }
+                                
+                                IconButton(
+                                    onClick = onDeleteSavedGame,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Eliminar",
+                                        tint = LumaGray500,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            GradientButton(
+                                text = "Continuar",
+                                onClick = onResumeGame,
+                                modifier = Modifier.fillMaxWidth(),
+                                icon = Icons.Default.PlayArrow,
+                                gradientColors = listOf(LumaAccent, GradientOrangeEnd)
+                            )
+                        }
+                    }
+                }
             }
             
             Spacer(modifier = Modifier.weight(1f))
@@ -139,8 +220,10 @@ fun HomeScreen(
             Text(
                 text = "v1.0.0",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                color = LumaGray700
             )
+            
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
