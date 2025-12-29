@@ -90,17 +90,19 @@ class GameClient {
                     session = this
                     DLog.i(TAG, "Connected, sending CreateGame...")
                     
-                    // Send create game message
-                    val createMsg = mapOf(
-                        "type" to "CreateGameMessage",
-                        "playerMeta" to mapOf(
-                            "playerId" to playerMeta.playerId.value,
-                            "name" to playerMeta.name,
-                            "avatarId" to playerMeta.avatarId,
-                            "gender" to playerMeta.gender.name
-                        )
-                    )
-                    send(kotlinx.serialization.json.Json.encodeToString(createMsg))
+                    // Build JSON manually to avoid serialization issues
+                    val createMsgJson = """
+                        {
+                            "type": "CreateGameMessage",
+                            "playerMeta": {
+                                "playerId": "${playerMeta.playerId.value}",
+                                "name": "${playerMeta.name}",
+                                "avatarId": ${playerMeta.avatarId},
+                                "gender": "${playerMeta.gender.name}"
+                            }
+                        }
+                    """.trimIndent()
+                    send(createMsgJson)
                     DLog.i(TAG, "Waiting for welcome...")
                     
                     // Wait for welcome
