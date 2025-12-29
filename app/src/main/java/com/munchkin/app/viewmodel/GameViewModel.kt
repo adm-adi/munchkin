@@ -172,6 +172,38 @@ class GameViewModel : ViewModel() {
     }
     
     /**
+     * Force check for updates from Settings screen.
+     */
+    fun forceCheckUpdate() {
+        if (updateChecker == null) {
+            updateChecker = UpdateChecker(MunchkinApp.context)
+        }
+        
+        _uiState.update { it.copy(isCheckingUpdate = true) }
+        
+        viewModelScope.launch {
+            try {
+                when (val result = updateChecker?.checkForUpdate()) {
+                    is UpdateResult.UpdateAvailable -> {
+                        _updateInfo.value = result.info
+                        _events.emit(GameUiEvent.ShowMessage("Nueva versión ${result.info.version} disponible"))
+                    }
+                    is UpdateResult.NoUpdate -> {
+                        _updateInfo.value = null
+                        _events.emit(GameUiEvent.ShowMessage("Ya tienes la última versión"))
+                    }
+                    is UpdateResult.Error -> {
+                        _events.emit(GameUiEvent.ShowMessage("Error: ${result.message}"))
+                    }
+                    null -> {}
+                }
+            } finally {
+                _uiState.update { it.copy(isCheckingUpdate = false) }
+            }
+        }
+    }
+    
+    /**
      * Dismiss update dialog.
      */
     fun dismissUpdate() {
@@ -821,7 +853,8 @@ data class GameUiState(
     val connectionInfo: ConnectionInfo? = null,
     val connectionState: ConnectionState = ConnectionState.DISCONNECTED,
     val discoveredGames: List<com.munchkin.app.ui.screens.DiscoveredGame> = emptyList(),
-    val isDiscovering: Boolean = false
+    val isDiscovering: Boolean = false,
+    val isCheckingUpdate: Boolean = false
 ) {
     val myPlayer: PlayerState?
         get() = myPlayerId?.let { gameState?.players?.get(it) }
@@ -849,5 +882,6 @@ enum class Screen {
 sealed class GameUiEvent {
     data class ShowError(val message: String) : GameUiEvent()
     data class ShowSuccess(val message: String) : GameUiEvent()
+    data class ShowMessage(val message: String) : GameUiEvent()
     data object PlaySound : GameUiEvent()
 }

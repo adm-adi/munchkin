@@ -189,10 +189,11 @@ class MainActivity : ComponentActivity() {
                             }
                             
                             Screen.SETTINGS -> {
-                                // TODO: Implement SettingsScreen
-                                Surface { 
-                                    Text("Configuración - Próximamente") 
-                                }
+                                SettingsScreen(
+                                    isCheckingUpdate = uiState.isCheckingUpdate,
+                                    onBack = { viewModel.navigateTo(Screen.HOME) },
+                                    onCheckUpdate = { viewModel.forceCheckUpdate() }
+                                )
                             }
                         }
                     }
