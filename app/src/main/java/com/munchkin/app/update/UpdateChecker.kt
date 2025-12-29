@@ -25,7 +25,6 @@ class UpdateChecker(private val context: Context) {
     companion object {
         private const val TAG = "UpdateChecker"
         private const val GITHUB_API_URL = "https://api.github.com/repos/adm-adi/munchkin/releases/latest"
-        private const val CURRENT_VERSION = "2.0.0"
     }
     
     private val json = Json { 
@@ -39,13 +38,16 @@ class UpdateChecker(private val context: Context) {
      */
     suspend fun checkForUpdate(): UpdateResult = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Checking for updates...")
+            // Get actual version from package info (NOT hardcoded)
+            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            val currentVersion = packageInfo.versionName ?: "0.0.0"
             
+            Log.d(TAG, "Checking for updates... Current installed: $currentVersion")
+            
+            // Fetch latest release from GitHub
             val response = URL(GITHUB_API_URL).readText()
             val release = json.decodeFromString<GitHubRelease>(response)
-            
             val latestVersion = release.tagName.removePrefix("v")
-            val currentVersion = CURRENT_VERSION
             
             Log.d(TAG, "Current: $currentVersion, Latest: $latestVersion")
             

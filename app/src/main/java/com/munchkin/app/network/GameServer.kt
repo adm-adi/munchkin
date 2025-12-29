@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.concurrent.ConcurrentHashMap
+import com.munchkin.app.ui.components.DebugLogManager as DLog
 
 /**
  * WebSocket server for the game host.
@@ -46,6 +47,7 @@ class GameServer(
     suspend fun start(): Result<String> = withContext(Dispatchers.IO) {
         try {
             _serverState.value = ServerState.STARTING
+            DLog.i(TAG, "Starting server on 0.0.0.0:$port")
             Log.i(TAG, "Creating CIO server on 0.0.0.0:$port...")
             
             // IMPORTANT: host = "0.0.0.0" allows connections from OTHER devices on LAN
@@ -65,6 +67,7 @@ class GameServer(
                 }
             }
             
+            DLog.i(TAG, "Server created, starting...")
             Log.i(TAG, "Starting server...")
             server?.start(wait = false)
             
@@ -72,10 +75,12 @@ class GameServer(
             delay(100)
             
             _serverState.value = ServerState.RUNNING
+            DLog.i(TAG, "✅ Server RUNNING on port $port")
             Log.i(TAG, "Server started successfully on port $port")
             
             Result.success("ws://localhost:$port/game")
         } catch (e: Exception) {
+            DLog.e(TAG, "❌ Server FAILED: ${e.message}")
             Log.e(TAG, "Failed to start server", e)
             _serverState.value = ServerState.ERROR
             Result.failure(e)
