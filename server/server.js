@@ -1,6 +1,9 @@
 /**
  * Munchkin Tracker - WebSocket Server
  * Runs on Hetzner VPS (23.88.48.58:8765)
+ * 
+ * IMPORTANT: This server must send JSON that matches the kotlinx.serialization
+ * format expected by the Android client (Protocol.kt / Models.kt)
  */
 
 const WebSocket = require('ws');
@@ -15,14 +18,16 @@ const games = new Map();
 const clientGames = new Map();
 
 class GameRoom {
-    constructor(hostId, joinCode, hostName) {
+    constructor(hostId, joinCode, hostName, avatarId, gender) {
         this.id = uuidv4();
         this.joinCode = joinCode;
         this.hostId = hostId;
         this.hostName = hostName;
+        this.hostAvatarId = avatarId;
+        this.hostGender = gender;
         this.players = new Map(); // playerId -> { ws, name, avatarId, gender, level, gear }
-        this.gameState = null;
         this.seq = 0;
+        this.epoch = 0;
         this.createdAt = Date.now();
     }
 
@@ -35,21 +40,45 @@ class GameRoom {
         }
     }
 
-    getPlayerList() {
-        const list = {};
+    // Build GameState in the format expected by kotlinx.serialization
+    buildGameState() {
+        const players = {};
         for (const [playerId, player] of this.players) {
-            list[playerId] = {
-                playerId,
-                name: player.name,
-                avatarId: player.avatarId,
-                gender: player.gender,
+            players[playerId] = {
+                playerId: { value: playerId },
+                meta: {
+                    playerId: { value: playerId },
+                    name: player.name,
+                    avatarId: player.avatarId,
+                    gender: player.gender
+                },
                 level: player.level || 1,
                 gear: player.gear || 0,
+                races: [],
+                classes: [],
                 isAlive: true,
-                isHost: playerId === this.hostId
+                joinedAt: player.joinedAt || Date.now()
             };
         }
-        return list;
+
+        return {
+            gameId: { value: this.id },
+            joinCode: this.joinCode,
+            epoch: this.epoch,
+            seq: this.seq,
+            hostId: { value: this.hostId },
+            players: players,
+            races: {},
+            classes: {},
+            combat: null,
+            phase: "LOBBY",
+            createdAt: this.createdAt,
+            settings: {
+                maxLevel: 10,
+                allowNegativeGear: true,
+                autoNextTurn: false
+            }
+        };
     }
 }
 
@@ -66,7 +95,7 @@ function generateJoinCode() {
 // Find game by join code
 function findGameByCode(joinCode) {
     for (const game of games.values()) {
-        if (game.joinCode === joinCode) {
+        if (game.joinCode.toUpperCase() === joinCode.toUpperCase()) {
             return game;
         }
     }
@@ -104,6 +133,7 @@ function handleMessage(ws, message) {
     console.log('📨 Received:', message.type);
 
     switch (message.type) {
+        case 'HELLO':
         case 'HelloMessage':
             handleHello(ws, message);
             break;
@@ -112,12 +142,14 @@ function handleMessage(ws, message) {
             handleCreateGame(ws, message);
             break;
 
+        case 'EVENT_REQUEST':
         case 'EventMessage':
             handleEvent(ws, message);
             break;
 
+        case 'PING':
         case 'PingMessage':
-            ws.send(JSON.stringify({ type: 'PongMessage', timestamp: Date.now() }));
+            ws.send(JSON.stringify({ type: 'PONG', timestamp: Date.now() }));
             break;
 
         default:
@@ -130,37 +162,33 @@ function handleCreateGame(ws, message) {
     const joinCode = generateJoinCode();
     const playerId = playerMeta.playerId || uuidv4();
 
-    const game = new GameRoom(playerId, joinCode, playerMeta.name);
+    console.log(`🎲 Creating game for ${playerMeta.name} with playerId: ${playerId}`);
+
+    const game = new GameRoom(playerId, joinCode, playerMeta.name, playerMeta.avatarId, playerMeta.gender);
     game.players.set(playerId, {
         ws,
         name: playerMeta.name,
-        avatarId: playerMeta.avatarId,
-        gender: playerMeta.gender,
+        avatarId: playerMeta.avatarId || 0,
+        gender: playerMeta.gender || "MALE",
         level: 1,
-        gear: 0
+        gear: 0,
+        joinedAt: Date.now()
     });
-
-    game.gameState = {
-        gameId: game.id,
-        joinCode: game.joinCode,
-        phase: 'LOBBY',
-        players: game.getPlayerList(),
-        currentPlayerId: playerId,
-        turnNumber: 0,
-        seq: 0
-    };
 
     games.set(game.id, game);
     clientGames.set(ws, { gameId: game.id, playerId });
 
-    console.log(`🎲 Game created: ${joinCode} by ${playerMeta.name}`);
+    console.log(`✅ Game created: ${joinCode} by ${playerMeta.name}`);
 
-    // Send welcome with game state
-    ws.send(JSON.stringify({
-        type: 'WelcomeMessage',
-        yourPlayerId: playerId,
-        gameState: game.gameState
-    }));
+    // Send welcome with game state - use "WELCOME" type to match @SerialName
+    const response = {
+        type: "WELCOME",
+        gameState: game.buildGameState(),
+        yourPlayerId: { value: playerId }
+    };
+
+    console.log('📤 Sending WELCOME:', JSON.stringify(response, null, 2));
+    ws.send(JSON.stringify(response));
 }
 
 function handleHello(ws, message) {
@@ -168,11 +196,13 @@ function handleHello(ws, message) {
     const game = findGameByCode(joinCode);
 
     if (!game) {
+        console.log(`❌ Invalid join code: ${joinCode}`);
         sendError(ws, 'INVALID_JOIN_CODE', 'Código de partida inválido');
         return;
     }
 
-    const playerId = playerMeta.playerId || uuidv4();
+    const playerId = playerMeta.playerId?.value || playerMeta.playerId || uuidv4();
+    console.log(`👤 Player ${playerMeta.name} joining ${joinCode} with id: ${playerId}`);
 
     // Check if reconnecting
     if (game.players.has(playerId)) {
@@ -182,8 +212,8 @@ function handleHello(ws, message) {
         clientGames.set(ws, { gameId: game.id, playerId });
 
         ws.send(JSON.stringify({
-            type: 'StateSnapshotMessage',
-            gameState: game.gameState,
+            type: "STATE_SNAPSHOT",
+            gameState: game.buildGameState(),
             seq: game.seq
         }));
 
@@ -195,39 +225,36 @@ function handleHello(ws, message) {
     game.players.set(playerId, {
         ws,
         name: playerMeta.name,
-        avatarId: playerMeta.avatarId,
-        gender: playerMeta.gender,
+        avatarId: playerMeta.avatarId || 0,
+        gender: playerMeta.gender || "MALE",
         level: 1,
-        gear: 0
+        gear: 0,
+        joinedAt: Date.now()
     });
 
     clientGames.set(ws, { gameId: game.id, playerId });
-
-    // Update game state
-    game.gameState.players = game.getPlayerList();
     game.seq++;
-    game.gameState.seq = game.seq;
 
-    console.log(`👤 Player ${playerMeta.name} joined ${joinCode}`);
+    console.log(`✅ Player ${playerMeta.name} joined ${joinCode}`);
 
     // Send welcome to new player
     ws.send(JSON.stringify({
-        type: 'WelcomeMessage',
-        yourPlayerId: playerId,
-        gameState: game.gameState
+        type: "WELCOME",
+        yourPlayerId: { value: playerId },
+        gameState: game.buildGameState()
     }));
 
     // Broadcast player joined to others
     game.broadcast({
-        type: 'PlayerStatusMessage',
-        playerId,
-        status: 'CONNECTED'
+        type: "PLAYER_STATUS",
+        playerId: { value: playerId },
+        status: "CONNECTED"
     }, playerId);
 
     // Send updated state to all
     game.broadcast({
-        type: 'StateSnapshotMessage',
-        gameState: game.gameState,
+        type: "STATE_SNAPSHOT",
+        gameState: game.buildGameState(),
         seq: game.seq
     });
 }
@@ -240,25 +267,25 @@ function handleEvent(ws, message) {
     if (!game) return;
 
     const { event } = message;
-    console.log(`🎯 Event: ${event.type} from ${clientData.playerId}`);
+    const playerId = clientData.playerId;
+    console.log(`🎯 Event: ${event.type} from ${playerId}`);
 
     // Apply event to game state
-    applyEvent(game, event, clientData.playerId);
+    applyEvent(game, event, playerId);
 
     game.seq++;
-    game.gameState.seq = game.seq;
 
     // Broadcast event to all players
     game.broadcast({
-        type: 'EventBroadcastMessage',
+        type: "EVENT_BROADCAST",
         event,
-        fromPlayerId: clientData.playerId,
+        fromPlayerId: { value: playerId },
         seq: game.seq
     });
 }
 
 function applyEvent(game, event, playerId) {
-    const player = game.gameState.players[playerId];
+    const player = game.players.get(playerId);
     if (!player) return;
 
     switch (event.type) {
@@ -281,7 +308,7 @@ function applyEvent(game, event, playerId) {
             player.gear = event.gear;
             break;
         case 'StartGame':
-            game.gameState.phase = 'PLAYING';
+            // Note: would need to update phase handling
             break;
     }
 }
@@ -296,9 +323,9 @@ function handleDisconnect(ws) {
 
         // Broadcast disconnect
         game.broadcast({
-            type: 'PlayerStatusMessage',
-            playerId: clientData.playerId,
-            status: 'DISCONNECTED'
+            type: "PLAYER_STATUS",
+            playerId: { value: clientData.playerId },
+            status: "DISCONNECTED"
         });
 
         // If host left and no players, delete game
@@ -313,7 +340,7 @@ function handleDisconnect(ws) {
 
 function sendError(ws, code, message) {
     ws.send(JSON.stringify({
-        type: 'ErrorMessage',
+        type: "ERROR",
         code,
         message
     }));
