@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.wifi.WifiManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.munchkin.app.ui.components.DebugLogManager as DLog
 import com.munchkin.app.MunchkinApp
 import com.munchkin.app.core.*
 import com.munchkin.app.data.GameRepository
@@ -22,6 +23,11 @@ import java.util.UUID
  * Handles both host and client roles.
  */
 class GameViewModel : ViewModel() {
+    
+    companion object {
+        // Hetzner VPS server
+        private const val SERVER_URL = "ws://23.88.48.58:8765"
+    }
     
     // ============== State ==============
     
@@ -212,73 +218,50 @@ class GameViewModel : ViewModel() {
                     gender = gender
                 )
                 
-                // Initialize game engine
-                android.util.Log.d("GameViewModel", "Creating game engine...")
-                val engine = GameEngine()
-                val initialState = engine.createGame(playerMeta)
-                gameEngine = engine
-                android.util.Log.d("GameViewModel", "Game created with joinCode: ${initialState.joinCode}")
+                DLog.i("GameVM", "🎮 Creating game on Hetzner...")
+                DLog.i("GameVM", "📡 Server: $SERVER_URL")
                 
-                // Get local IP first
-                val localIp = getLocalIpAddress()
-                val wsUrl = "ws://$localIp:8765/game"
+                // Connect to remote server and create game
+                val client = GameClient()
+                gameClient = client
                 
-                // Try to start server, but don't block on failure for MVP
-                android.util.Log.d("GameViewModel", "Starting WebSocket server (async)...")
-                var serverStarted = false
+                val result = client.createGame(SERVER_URL, playerMeta)
                 
-                try {
-                    val server = GameServer(engine)
-                    // Start server in background - don't wait for it
-                    viewModelScope.launch(Dispatchers.IO) {
-                        try {
-                            val result = kotlinx.coroutines.withTimeout(3000L) {
-                                server.start()
-                            }
-                            if (result.isSuccess) {
-                                gameServer = server
-                                serverStarted = true
-                                android.util.Log.d("GameViewModel", "Server started successfully!")
-                                
-                                // Publish via NSD for discovery
-                                if (nsdHelper == null) {
-                                    nsdHelper = NsdHelper(MunchkinApp.context)
-                                }
-                                nsdHelper?.publishGame(
-                                    hostName = name,
-                                    joinCode = initialState.joinCode,
-                                    port = 8765
-                                )
-                                
-                                // Save initial state
-                                gameRepository?.saveGame(initialState, playerId, true)
-                            } else {
-                                android.util.Log.w("GameViewModel", "Server start returned failure: ${result.exceptionOrNull()?.message}")
-                            }
-                        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-                            android.util.Log.w("GameViewModel", "Server start timed out - continuing in offline mode")
-                        } catch (e: Exception) {
-                            android.util.Log.e("GameViewModel", "Server start exception", e)
-                        }
+                if (result.isFailure) {
+                    val error = result.exceptionOrNull()?.message ?: "Error desconocido"
+                    DLog.e("GameVM", "❌ Create failed: $error")
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = error
+                        )
                     }
-                } catch (e: Exception) {
-                    android.util.Log.w("GameViewModel", "Failed to create server, continuing offline: ${e.message}")
+                    return@launch
                 }
                 
-                android.util.Log.d("GameViewModel", "Proceeding to lobby (server async)")
+                val gameState = result.getOrNull()!!
+                myPlayerId = playerId
                 
-                // Update state and go to lobby immediately
+                DLog.i("GameVM", "✅ Game created!")
+                DLog.i("GameVM", "🔑 Code: ${gameState.joinCode}")
+                
+                android.util.Log.d("GameViewModel", "Game created with joinCode: ${gameState.joinCode}")
+                
+                // Save game state
+                gameRepository?.saveGame(gameState, playerId, true)
+                
+                // Update state and go to lobby
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         screen = Screen.LOBBY,
-                        gameState = initialState,
+                        gameState = gameState,
                         myPlayerId = playerId,
                         isHost = true,
                         connectionInfo = ConnectionInfo(
-                            wsUrl = wsUrl,
-                            joinCode = initialState.joinCode,
-                            localIp = localIp,
+                            wsUrl = SERVER_URL,
+                            joinCode = gameState.joinCode,
+                            localIp = "23.88.48.58",
                             port = 8765
                         )
                     )

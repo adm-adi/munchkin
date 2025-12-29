@@ -50,6 +50,99 @@ class GameClient {
     }
     
     /**
+     * Create a new game on the remote server.
+     */
+    suspend fun createGame(
+        serverUrl: String,
+        playerMeta: PlayerMeta
+    ): Result<GameState> = withContext(Dispatchers.IO) {
+        try {
+            DLog.i(TAG, "Creating game on $serverUrl")
+            _connectionState.value = ConnectionState.CONNECTING
+            
+            // Store for reconnection
+            lastUrl = serverUrl
+            lastPlayerMeta = playerMeta
+            
+            // Create HTTP client
+            client = HttpClient(CIO) {
+                install(WebSockets) {
+                    pingInterval = 15_000
+                }
+            }
+            
+            // Parse URL
+            val urlParts = parseWsUrl(serverUrl)
+            if (urlParts == null) {
+                DLog.e(TAG, "Invalid URL: $serverUrl")
+                _connectionState.value = ConnectionState.DISCONNECTED
+                return@withContext Result.failure(Exception("URL inválida: $serverUrl"))
+            }
+            
+            val (host, port, path) = urlParts
+            DLog.i(TAG, "Connecting to $host:$port$path")
+            
+            scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+            var connectionError: Exception? = null
+            
+            try {
+                client!!.webSocket(host = host, port = port, path = path ?: "/") {
+                    session = this
+                    DLog.i(TAG, "Connected, sending CreateGame...")
+                    
+                    // Send create game message
+                    val createMsg = mapOf(
+                        "type" to "CreateGameMessage",
+                        "playerMeta" to mapOf(
+                            "playerId" to playerMeta.playerId.value,
+                            "name" to playerMeta.name,
+                            "avatarId" to playerMeta.avatarId,
+                            "gender" to playerMeta.gender.name
+                        )
+                    )
+                    send(kotlinx.serialization.json.Json.encodeToString(createMsg))
+                    DLog.i(TAG, "Waiting for welcome...")
+                    
+                    // Wait for welcome
+                    val welcomeResult = waitForWelcome()
+                    
+                    if (welcomeResult.isFailure) {
+                        DLog.e(TAG, "Welcome failed: ${welcomeResult.exceptionOrNull()?.message}")
+                        connectionError = welcomeResult.exceptionOrNull() as? Exception
+                        _connectionState.value = ConnectionState.DISCONNECTED
+                        return@webSocket
+                    }
+                    
+                    DLog.i(TAG, "✅ Welcome received!")
+                    _connectionState.value = ConnectionState.CONNECTED
+                    lastJoinCode = _gameState.value?.joinCode
+                    
+                    // Start message loop
+                    handleIncomingMessages()
+                }
+            } catch (e: Exception) {
+                DLog.e(TAG, "Connection error: ${e.message}")
+                connectionError = e
+            }
+            
+            if (connectionError != null) {
+                return@withContext Result.failure(connectionError!!)
+            }
+            
+            val state = _gameState.value
+            if (state != null) {
+                Result.success(state)
+            } else {
+                Result.failure(Exception("No se recibió estado del servidor"))
+            }
+        } catch (e: Exception) {
+            DLog.e(TAG, "CreateGame failed: ${e.message}")
+            _connectionState.value = ConnectionState.DISCONNECTED
+            Result.failure(e)
+        }
+    }
+    
+    /**
      * Connect to a game server.
      */
     suspend fun connect(

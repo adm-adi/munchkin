@@ -1,0 +1,13 @@
+{
+  "name": "munchkin-server",
+  "version": "1.0.0",
+  "description": "WebSocket server for Munchkin Tracker multiplayer",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.14.2",
+    "uuid": "^9.0.0"
+  }
+}
