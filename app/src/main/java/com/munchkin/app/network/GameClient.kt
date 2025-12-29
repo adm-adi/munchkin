@@ -57,6 +57,7 @@ class GameClient {
         playerMeta: PlayerMeta
     ): Result<GameState> = withContext(Dispatchers.IO) {
         try {
+            Log.i(TAG, "Connecting to $wsUrl with code $joinCode")
             _connectionState.value = ConnectionState.CONNECTING
             
             // Store for reconnection
@@ -74,48 +75,69 @@ class GameClient {
             // Parse URL
             val urlParts = parseWsUrl(wsUrl)
             if (urlParts == null) {
+                Log.e(TAG, "Invalid URL format: $wsUrl")
                 _connectionState.value = ConnectionState.DISCONNECTED
-                return@withContext Result.failure(Exception("URL inválida"))
+                return@withContext Result.failure(Exception("URL inválida: $wsUrl"))
             }
             
             val (host, port, path) = urlParts
+            Log.i(TAG, "Parsed URL -> host=$host, port=$port, path=$path")
             
             // Connect
             scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
             
-            client!!.webSocket(host = host, port = port, path = path) {
-                session = this
-                
-                // Send hello
-                val hello = HelloMessage(
-                    gameId = "",  // Will be validated by join code
-                    joinCode = joinCode,
-                    playerMeta = playerMeta
-                )
-                send(json.encodeToString<WsMessage>(hello))
-                
-                // Wait for welcome or error
-                val welcomeResult = waitForWelcome()
-                
-                if (welcomeResult.isFailure) {
-                    _connectionState.value = ConnectionState.DISCONNECTED
-                    return@webSocket
+            var connectionError: Exception? = null
+            
+            try {
+                Log.i(TAG, "Opening WebSocket connection...")
+                client!!.webSocket(host = host, port = port, path = path) {
+                    session = this
+                    Log.i(TAG, "WebSocket connected, sending hello...")
+                    
+                    // Send hello
+                    val hello = HelloMessage(
+                        gameId = "",  // Will be validated by join code
+                        joinCode = joinCode,
+                        playerMeta = playerMeta
+                    )
+                    send(json.encodeToString<WsMessage>(hello))
+                    Log.i(TAG, "Hello sent, waiting for welcome...")
+                    
+                    // Wait for welcome or error
+                    val welcomeResult = waitForWelcome()
+                    
+                    if (welcomeResult.isFailure) {
+                        Log.e(TAG, "Welcome failed: ${welcomeResult.exceptionOrNull()?.message}")
+                        connectionError = welcomeResult.exceptionOrNull() as? Exception
+                        _connectionState.value = ConnectionState.DISCONNECTED
+                        return@webSocket
+                    }
+                    
+                    Log.i(TAG, "Welcome received! GameState set.")
+                    _connectionState.value = ConnectionState.CONNECTED
+                    
+                    // Start message loop
+                    handleIncomingMessages()
                 }
-                
-                _connectionState.value = ConnectionState.CONNECTED
-                
-                // Start message loop
-                handleIncomingMessages()
+            } catch (e: Exception) {
+                Log.e(TAG, "WebSocket exception: ${e.message}", e)
+                connectionError = e
+            }
+            
+            if (connectionError != null) {
+                return@withContext Result.failure(connectionError!!)
             }
             
             val state = _gameState.value
             if (state != null) {
+                Log.i(TAG, "Connection successful, returning state")
                 Result.success(state)
             } else {
+                Log.e(TAG, "No game state received after connection")
                 Result.failure(Exception("No se recibió estado del servidor"))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Connection failed", e)
+            Log.e(TAG, "Connection failed with exception", e)
             _connectionState.value = ConnectionState.DISCONNECTED
             Result.failure(e)
         }

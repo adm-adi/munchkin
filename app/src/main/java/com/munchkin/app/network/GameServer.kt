@@ -210,13 +210,24 @@ class GameServer(
      * Handle client hello/join request.
      */
     private suspend fun handleHello(session: WebSocketSession, message: HelloMessage): PlayerId? {
+        Log.i(TAG, "Received Hello from ${message.playerMeta.name} with code ${message.joinCode}")
+        
         val gameState = gameEngine.gameState.value
         
         // Validate join code
-        if (gameState == null || gameState.joinCode != message.joinCode) {
+        if (gameState == null) {
+            Log.e(TAG, "handleHello: gameState is NULL!")
+            session.sendError(ErrorCode.INVALID_JOIN_CODE, "Partida no iniciada")
+            return null
+        }
+        
+        if (gameState.joinCode != message.joinCode) {
+            Log.e(TAG, "handleHello: Code mismatch! Expected ${gameState.joinCode}, got ${message.joinCode}")
             session.sendError(ErrorCode.INVALID_JOIN_CODE, "Código de partida inválido")
             return null
         }
+        
+        Log.i(TAG, "Join code validated successfully")
         
         // Check if this is a reconnecting player
         val existingPlayer = gameState.players[message.playerMeta.playerId]
