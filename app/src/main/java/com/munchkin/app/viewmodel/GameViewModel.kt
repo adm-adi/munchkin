@@ -86,28 +86,6 @@ class GameViewModel : ViewModel() {
     }
     
     /**
-     * Start NSD discovery for nearby games.
-     */
-    fun startDiscovery() {
-        if (nsdHelper == null) {
-            nsdHelper = NsdHelper(MunchkinApp.context)
-        }
-        nsdHelper?.startDiscovery()
-        viewModelScope.launch {
-            nsdHelper?.discoveredGames?.collect { games ->
-                _discoveredGames.value = games
-            }
-        }
-    }
-    
-    /**
-     * Stop NSD discovery.
-     */
-    fun stopDiscovery() {
-        nsdHelper?.stopDiscovery()
-    }
-    
-    /**
      * Resume a saved game.
      */
     fun resumeSavedGame() {
@@ -410,6 +388,70 @@ class GameViewModel : ViewModel() {
                 }
             }
         }
+    }
+    
+    // ============== Discovery Methods ==============
+    
+    /**
+     * Start discovering games on the local network.
+     */
+    fun startDiscovery() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isDiscovering = true, discoveredGames = emptyList()) }
+            
+            try {
+                if (nsdHelper == null) {
+                    nsdHelper = NsdHelper(MunchkinApp.context)
+                }
+                
+                nsdHelper?.startDiscovery()
+                
+                // Collect discovered games from NsdHelper
+                viewModelScope.launch {
+                    nsdHelper?.discoveredGames?.collect { games ->
+                        val discovered = games.map { game ->
+                            com.munchkin.app.ui.screens.DiscoveredGame(
+                                hostName = game.hostName,
+                                joinCode = game.joinCode,
+                                wsUrl = game.wsUrl,
+                                port = game.port
+                            )
+                        }
+                        _uiState.update { 
+                            it.copy(discoveredGames = discovered)
+                        }
+                    }
+                }
+                
+                // Wait a bit then update discovering status
+                kotlinx.coroutines.delay(3000)
+                _uiState.update { it.copy(isDiscovering = false) }
+                
+            } catch (e: Exception) {
+                android.util.Log.e("GameViewModel", "Discovery failed", e)
+                _uiState.update { it.copy(isDiscovering = false) }
+            }
+        }
+    }
+    
+    /**
+     * Join a discovered game from NSD.
+     */
+    fun joinDiscoveredGame(
+        game: com.munchkin.app.ui.screens.DiscoveredGame,
+        name: String,
+        avatarId: Int,
+        gender: Gender
+    ) {
+        joinGame(game.wsUrl, game.joinCode, name, avatarId, gender)
+    }
+    
+    /**
+     * Stop game discovery.
+     */
+    fun stopDiscovery() {
+        nsdHelper?.stopDiscovery()
+        _uiState.update { it.copy(isDiscovering = false) }
     }
     
     // ============== Player Actions ==============
@@ -794,7 +836,9 @@ data class GameUiState(
     val myPlayerId: PlayerId? = null,
     val isHost: Boolean = false,
     val connectionInfo: ConnectionInfo? = null,
-    val connectionState: ConnectionState = ConnectionState.DISCONNECTED
+    val connectionState: ConnectionState = ConnectionState.DISCONNECTED,
+    val discoveredGames: List<com.munchkin.app.ui.screens.DiscoveredGame> = emptyList(),
+    val isDiscovering: Boolean = false
 ) {
     val myPlayer: PlayerState?
         get() = myPlayerId?.let { gameState?.players?.get(it) }

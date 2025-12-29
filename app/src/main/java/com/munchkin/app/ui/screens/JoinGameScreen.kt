@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -12,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,12 +23,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.munchkin.app.R
 import com.munchkin.app.core.Gender
 import com.munchkin.app.ui.theme.getAvatarColor
+
+/**
+ * Data class for discovered games on the network.
+ */
+data class DiscoveredGame(
+    val hostName: String,
+    val joinCode: String,
+    val wsUrl: String,
+    val port: Int = 8765
+)
 
 /**
  * Screen for joining an existing game.
@@ -36,11 +49,15 @@ import com.munchkin.app.ui.theme.getAvatarColor
 fun JoinGameScreen(
     isLoading: Boolean,
     error: String?,
+    discoveredGames: List<DiscoveredGame> = emptyList(),
+    isDiscovering: Boolean = false,
     onJoinGame: (wsUrl: String, joinCode: String, name: String, avatarId: Int, gender: Gender) -> Unit,
+    onJoinDiscoveredGame: (DiscoveredGame, name: String, avatarId: Int, gender: Gender) -> Unit = { _, _, _, _ -> },
+    onStartDiscovery: () -> Unit = {},
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var selectedTab by remember { mutableIntStateOf(1) } // Default to manual entry
+    var selectedTab by remember { mutableIntStateOf(0) } // Default to discovered games
     
     // Manual entry fields
     var ipAddress by remember { mutableStateOf("") }
@@ -51,6 +68,13 @@ fun JoinGameScreen(
     var name by remember { mutableStateOf("") }
     var selectedAvatarId by remember { mutableIntStateOf(0) }
     var selectedGender by remember { mutableStateOf(Gender.NA) }
+    
+    // Start discovery when tab 0 is selected
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == 0) {
+            onStartDiscovery()
+        }
+    }
     
     Scaffold(
         modifier = modifier,
@@ -97,12 +121,18 @@ fun JoinGameScreen(
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text(stringResource(R.string.scan_qr)) },
-                    icon = { Icon(Icons.Default.QrCodeScanner, contentDescription = null) }
+                    text = { Text("Buscar") },
+                    icon = { Icon(Icons.Default.Wifi, contentDescription = null) }
                 )
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
+                    text = { Text(stringResource(R.string.scan_qr)) },
+                    icon = { Icon(Icons.Default.QrCodeScanner, contentDescription = null) }
+                )
+                Tab(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
                     text = { Text(stringResource(R.string.manual_entry)) },
                     icon = { Icon(Icons.Default.Edit, contentDescription = null) }
                 )
@@ -112,33 +142,117 @@ fun JoinGameScreen(
             
             when (selectedTab) {
                 0 -> {
-                    // QR Scanner placeholder
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                Icons.Default.QrCodeScanner,
-                                contentDescription = null,
-                                modifier = Modifier.size(64.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    // Discovered games list
+                    if (isDiscovering) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = "Escáner QR",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                text = "Buscando partidas en tu red...",
+                                style = MaterialTheme.typography.bodyMedium
                             )
-                            Text(
-                                text = "(Próximamente)",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                            )
+                        }
+                    }
+                    
+                    if (discoveredGames.isEmpty() && !isDiscovering) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(150.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    Icons.Default.SearchOff,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(48.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "No se encontraron partidas",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                                Text(
+                                    text = "Asegúrate de estar en la misma red WiFi",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                )
+                            }
+                        }
+                    } else {
+                        // Show discovered games
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(discoveredGames.size) { index ->
+                                val game = discoveredGames[index]
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { 
+                                            if (name.isNotBlank()) {
+                                                onJoinDiscoveredGame(game, name, selectedAvatarId, selectedGender)
+                                            }
+                                        },
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // Host icon
+                                        Box(
+                                            modifier = Modifier
+                                                .size(48.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primary),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Person,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimary
+                                            )
+                                        }
+                                        
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "Partida de ${game.hostName}",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "Código: ${game.joinCode}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.ArrowForward,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

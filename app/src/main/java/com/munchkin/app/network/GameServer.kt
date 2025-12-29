@@ -46,9 +46,11 @@ class GameServer(
     suspend fun start(): Result<String> = withContext(Dispatchers.IO) {
         try {
             _serverState.value = ServerState.STARTING
-            Log.i(TAG, "Creating CIO server on port $port...")
+            Log.i(TAG, "Creating CIO server on 0.0.0.0:$port...")
             
-            server = embeddedServer(CIO, port = port) {
+            // IMPORTANT: host = "0.0.0.0" allows connections from OTHER devices on LAN
+            // Default localhost only allows local connections
+            server = embeddedServer(CIO, host = "0.0.0.0", port = port) {
                 install(WebSockets) {
                     pingPeriodMillis = 15000
                     timeoutMillis = 30000

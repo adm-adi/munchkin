@@ -92,9 +92,15 @@ class MainActivity : ComponentActivity() {
                                 JoinGameScreen(
                                     isLoading = uiState.isLoading,
                                     error = uiState.error,
+                                    discoveredGames = uiState.discoveredGames,
+                                    isDiscovering = uiState.isDiscovering,
                                     onJoinGame = { wsUrl, joinCode, name, avatarId, gender ->
                                         viewModel.joinGame(wsUrl, joinCode, name, avatarId, gender)
                                     },
+                                    onJoinDiscoveredGame = { game, name, avatarId, gender ->
+                                        viewModel.joinDiscoveredGame(game, name, avatarId, gender)
+                                    },
+                                    onStartDiscovery = { viewModel.startDiscovery() },
                                     onBack = { viewModel.goBack() }
                                 )
                             }
