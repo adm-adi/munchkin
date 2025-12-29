@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -14,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.munchkin.app.network.ConnectionState
+import com.munchkin.app.ui.components.DebugLogViewer
 import com.munchkin.app.ui.screens.*
 import com.munchkin.app.ui.theme.MunchkinTheme
 import com.munchkin.app.viewmodel.GameViewModel
@@ -24,42 +26,34 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         
+        // Keep screen on during gameplay
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        
         setContent {
             val viewModel: GameViewModel = viewModel()
             val uiState by viewModel.uiState.collectAsState()
             
-            // Keep screen on when in game
-            DisposableEffect(uiState.screen) {
-                if (uiState.screen == Screen.BOARD || uiState.screen == Screen.COMBAT) {
-                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                } else {
-                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                }
-                onDispose {
-                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                }
-            }
-            
             MunchkinTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    AnimatedContent(
-                        targetState = uiState.screen,
-                        transitionSpec = {
-                            if (targetState.ordinal > initialState.ordinal) {
-                                slideInHorizontally { it } + fadeIn() togetherWith 
-                                slideOutHorizontally { -it } + fadeOut()
-                            } else {
-                                slideInHorizontally { -it } + fadeIn() togetherWith 
-                                slideOutHorizontally { it } + fadeOut()
-                            }
-                        },
-                        label = "screen"
-                    ) { screen ->
-                        when (screen) {
-                            Screen.HOME -> {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        AnimatedContent(
+                            targetState = uiState.screen,
+                            transitionSpec = {
+                                if (targetState.ordinal > initialState.ordinal) {
+                                    slideInHorizontally { it } + fadeIn() togetherWith 
+                                    slideOutHorizontally { -it } + fadeOut()
+                                } else {
+                                    slideInHorizontally { -it } + fadeIn() togetherWith 
+                                    slideOutHorizontally { it } + fadeOut()
+                                }
+                            },
+                            label = "screen"
+                        ) { screen ->
+                            when (screen) {
+                                Screen.HOME -> {
                                 val savedGame by viewModel.savedGame.collectAsState()
                                 val updateInfo by viewModel.updateInfo.collectAsState()
                                 val isDownloading by viewModel.isDownloading.collectAsState()
@@ -202,8 +196,12 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                    
+                    // Debug log viewer with floating button
+                    DebugLogViewer()
                 }
             }
         }
     }
+}
 }

@@ -10,6 +10,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import com.munchkin.app.ui.components.DebugLogManager as DLog
 
 /**
  * WebSocket client for joining a game as a non-host player.
@@ -57,6 +58,7 @@ class GameClient {
         playerMeta: PlayerMeta
     ): Result<GameState> = withContext(Dispatchers.IO) {
         try {
+            DLog.i(TAG, "Connecting to $wsUrl with code $joinCode")
             Log.i(TAG, "Connecting to $wsUrl with code $joinCode")
             _connectionState.value = ConnectionState.CONNECTING
             
@@ -75,12 +77,14 @@ class GameClient {
             // Parse URL
             val urlParts = parseWsUrl(wsUrl)
             if (urlParts == null) {
+                DLog.e(TAG, "Invalid URL format: $wsUrl")
                 Log.e(TAG, "Invalid URL format: $wsUrl")
                 _connectionState.value = ConnectionState.DISCONNECTED
                 return@withContext Result.failure(Exception("URL inválida: $wsUrl"))
             }
             
             val (host, port, path) = urlParts
+            DLog.i(TAG, "Parsed -> $host:$port$path")
             Log.i(TAG, "Parsed URL -> host=$host, port=$port, path=$path")
             
             // Connect
@@ -89,9 +93,11 @@ class GameClient {
             var connectionError: Exception? = null
             
             try {
+                DLog.i(TAG, "Opening WebSocket...")
                 Log.i(TAG, "Opening WebSocket connection...")
                 client!!.webSocket(host = host, port = port, path = path) {
                     session = this
+                    DLog.i(TAG, "WS connected, sending hello")
                     Log.i(TAG, "WebSocket connected, sending hello...")
                     
                     // Send hello
@@ -120,6 +126,7 @@ class GameClient {
                     handleIncomingMessages()
                 }
             } catch (e: Exception) {
+                DLog.e(TAG, "WS error: ${e.message}")
                 Log.e(TAG, "WebSocket exception: ${e.message}", e)
                 connectionError = e
             }
