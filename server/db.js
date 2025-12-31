@@ -73,10 +73,11 @@ function createUser(username, email, password, avatarId = 0) {
     });
 }
 
-function findUserByEmail(email) {
+function findUserByEmailOrUsername(identifier) {
     return new Promise((resolve, reject) => {
-        const sql = `SELECT * FROM users WHERE email = ?`;
-        db.get(sql, [email], (err, row) => {
+        // Search by email OR username (case insensitive for username usually better, but keeping exact for now)
+        const sql = `SELECT * FROM users WHERE email = ? OR username = ?`;
+        db.get(sql, [identifier, identifier], (err, row) => {
             if (err) {
                 reject(err);
             } else {
@@ -86,9 +87,9 @@ function findUserByEmail(email) {
     });
 }
 
-function verifyUser(email, password) {
+function verifyUser(identifier, password) {
     return new Promise((resolve, reject) => {
-        findUserByEmail(email)
+        findUserByEmailOrUsername(identifier)
             .then(user => {
                 if (!user) {
                     resolve(null); // User not found
@@ -113,6 +114,7 @@ function verifyUser(email, password) {
 module.exports = {
     db,
     createUser,
-    findUserByEmail,
+    findUserByEmail: findUserByEmailOrUsername, // Export as alias for backward compat if needed
+    findUserByEmailOrUsername,
     verifyUser
 };

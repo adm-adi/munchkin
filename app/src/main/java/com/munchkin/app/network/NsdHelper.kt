@@ -179,7 +179,6 @@ class NsdHelper(context: Context) {
                 val game = DiscoveredGame(
                     hostName = hostName,
                     joinCode = joinCode,
-                    host = info.host?.hostAddress ?: "",
                     port = info.port,
                     wsUrl = "ws://${info.host?.hostAddress}:${info.port}/game"
                 )
@@ -200,14 +199,3 @@ class NsdHelper(context: Context) {
         stopDiscovery()
     }
 }
-
-/**
- * Data class representing a discovered game on the network.
- */
-data class DiscoveredGame(
-    val hostName: String,
-    val joinCode: String,
-    val host: String,
-    val port: Int,
-    val wsUrl: String
-)

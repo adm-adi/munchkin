@@ -21,6 +21,7 @@ import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.websocket.*
 import io.ktor.websocket.*
 import java.util.UUID
+import com.munchkin.app.network.DiscoveredGame
 
 /**
  * Main ViewModel managing game state and network operations.
@@ -439,7 +440,7 @@ class GameViewModel : ViewModel() {
                         val response = json.decodeFromString<GamesListResponse>(text)
                         
                         val discovered = response.games.map { game ->
-                            com.munchkin.app.ui.screens.DiscoveredGame(
+                            DiscoveredGame(
                                 hostName = game.hostName,
                                 joinCode = game.joinCode,
                                 playerCount = game.playerCount,
@@ -466,7 +467,7 @@ class GameViewModel : ViewModel() {
      * Join a discovered game from server.
      */
     fun joinDiscoveredGame(
-        game: com.munchkin.app.ui.screens.DiscoveredGame,
+        game: DiscoveredGame,
         name: String,
         avatarId: Int,
         gender: Gender
@@ -927,7 +928,7 @@ data class GameUiState(
     val connectionInfo: ConnectionInfo? = null,
     val connectionState: ConnectionState = ConnectionState.DISCONNECTED,
 
-    val discoveredGames: List<com.munchkin.app.ui.screens.DiscoveredGame> = emptyList(),
+    val discoveredGames: List<DiscoveredGame> = emptyList(),
     val isDiscovering: Boolean = false,
     val isCheckingUpdate: Boolean = false,
     val userProfile: UserProfile? = null

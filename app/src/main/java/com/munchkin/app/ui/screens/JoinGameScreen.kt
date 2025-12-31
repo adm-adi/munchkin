@@ -30,18 +30,8 @@ import androidx.compose.ui.unit.sp
 import com.munchkin.app.R
 import com.munchkin.app.core.Gender
 import com.munchkin.app.ui.theme.getAvatarColor
-
-/**
- * Data class for discovered games from server.
- */
-data class DiscoveredGame(
-    val hostName: String,
-    val joinCode: String,
-    val playerCount: Int = 1,
-    val maxPlayers: Int = 6,
-    val wsUrl: String = "",
-    val port: Int = 8765
-)
+import com.munchkin.app.network.UserProfile
+import com.munchkin.app.network.DiscoveredGame
 
 /**
  * Screen for joining an existing game.
@@ -54,6 +44,7 @@ fun JoinGameScreen(
     error: String?,
     discoveredGames: List<DiscoveredGame> = emptyList(),
     isDiscovering: Boolean = false,
+    userProfile: UserProfile? = null,
     onJoinGame: (wsUrl: String, joinCode: String, name: String, avatarId: Int, gender: Gender) -> Unit,
     onJoinDiscoveredGame: (DiscoveredGame, name: String, avatarId: Int, gender: Gender) -> Unit = { _, _, _, _ -> },
     onStartDiscovery: () -> Unit = {},
@@ -64,9 +55,11 @@ fun JoinGameScreen(
     var joinCode by remember { mutableStateOf("") }
     
     // Player info
-    var name by remember { mutableStateOf("") }
-    var selectedAvatarId by remember { mutableIntStateOf(0) }
+    var name by remember { mutableStateOf(userProfile?.username ?: "") }
+    var selectedAvatarId by remember { mutableIntStateOf(userProfile?.avatarId ?: 0) }
     var selectedGender by remember { mutableStateOf(Gender.NA) }
+    
+    val isLocked = userProfile != null
     
     // Request available games on screen load
     LaunchedEffect(Unit) {
@@ -146,13 +139,17 @@ fun JoinGameScreen(
                     
                     OutlinedTextField(
                         value = name,
-                        onValueChange = { name = it.take(20) },
+                        onValueChange = { if (!isLocked) name = it.take(20) },
                         label = { Text(stringResource(R.string.your_name)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
+                        readOnly = isLocked,
                         leadingIcon = {
                             Icon(Icons.Default.Person, contentDescription = null)
-                        }
+                        },
+                        trailingIcon = if (isLocked) {
+                            { Icon(Icons.Default.Lock, contentDescription = "Locked", tint = MaterialTheme.colorScheme.primary) }
+                        } else null
                     )
                     
                     Spacer(modifier = Modifier.height(12.dp))
@@ -173,7 +170,7 @@ fun JoinGameScreen(
                                         .size(36.dp)
                                         .clip(CircleShape)
                                         .background(if (isSelected) color else color.copy(alpha = 0.4f))
-                                        .clickable { selectedAvatarId = avatarId },
+                                        .clickable(enabled = !isLocked) { selectedAvatarId = avatarId },
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (isSelected) {

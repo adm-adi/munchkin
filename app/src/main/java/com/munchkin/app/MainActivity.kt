@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
                                     onDismissUpdate = { viewModel.dismissUpdate() },
                                     onSettings = { viewModel.navigateTo(Screen.SETTINGS) },
                                     onAuth = { viewModel.navigateTo(Screen.AUTH) },
+                                    onLogout = { viewModel.logout() },
                                     userProfile = uiState.userProfile
                                 )
                             }
@@ -77,6 +78,7 @@ class MainActivity : ComponentActivity() {
                                 CreateGameScreen(
                                     isLoading = uiState.isLoading,
                                     error = uiState.error,
+                                    userProfile = uiState.userProfile,
                                     onCreateGame = { name, avatarId, gender ->
                                         viewModel.createGame(name, avatarId, gender)
                                     },
@@ -90,6 +92,7 @@ class MainActivity : ComponentActivity() {
                                     error = uiState.error,
                                     discoveredGames = uiState.discoveredGames,
                                     isDiscovering = uiState.isDiscovering,
+                                    userProfile = uiState.userProfile,
                                     onJoinGame = { wsUrl, joinCode, name, avatarId, gender ->
                                         viewModel.joinGame(wsUrl, joinCode, name, avatarId, gender)
                                     },

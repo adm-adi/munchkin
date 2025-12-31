@@ -39,6 +39,7 @@ fun HomeScreen(
     onDismissUpdate: () -> Unit,
     onSettings: () -> Unit,
     onAuth: () -> Unit,
+    onLogout: () -> Unit,
     userProfile: com.munchkin.app.network.UserProfile?,
     modifier: Modifier = Modifier
 ) {
@@ -102,18 +103,47 @@ fun HomeScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Auth Profile Button
-            TextButton(onClick = onAuth) {
+            Box {
+                var showMenu by remember { mutableStateOf(false) }
+                
+                TextButton(onClick = { 
+                    if (userProfile != null) {
+                        showMenu = true
+                    } else {
+                        onAuth()
+                    }
+                }) {
+                    if (userProfile != null) {
+                        Text(
+                            text = userProfile.username,
+                            color = Gold400,
+                            fontWeight = FontWeight.Bold
+                        )
+                    } else {
+                        Text(
+                            text = "Iniciar Sesión",
+                            color = LumaGray400
+                        )
+                    }
+                }
+                
                 if (userProfile != null) {
-                    Text(
-                        text = userProfile.username,
-                        color = Gold400,
-                        fontWeight = FontWeight.Bold
-                    )
-                } else {
-                    Text(
-                        text = "Iniciar Sesión",
-                        color = LumaGray400
-                    )
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false },
+                        modifier = Modifier.background(SurfaceDark)
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Cerrar sesión", color = Color.White) },
+                            onClick = {
+                                showMenu = false
+                                onLogout()
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Logout, null, tint = Color.Red)
+                            }
+                        )
+                    }
                 }
             }
             

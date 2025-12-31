@@ -29,6 +29,7 @@ import com.munchkin.app.R
 import com.munchkin.app.core.Gender
 import com.munchkin.app.ui.theme.AvatarResources
 import com.munchkin.app.ui.theme.getAvatarColor
+import com.munchkin.app.network.UserProfile
 
 /**
  * Screen for creating a new game as host.
@@ -38,13 +39,16 @@ import com.munchkin.app.ui.theme.getAvatarColor
 fun CreateGameScreen(
     isLoading: Boolean,
     error: String?,
+    userProfile: UserProfile? = null,
     onCreateGame: (name: String, avatarId: Int, gender: Gender) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var name by remember { mutableStateOf("") }
-    var selectedAvatarId by remember { mutableIntStateOf(0) }
+    var name by remember { mutableStateOf(userProfile?.username ?: "") }
+    var selectedAvatarId by remember { mutableIntStateOf(userProfile?.avatarId ?: 0) }
     var selectedGender by remember { mutableStateOf(Gender.NA) }
+    
+    val isLocked = userProfile != null
     
     Scaffold(
         modifier = modifier,
@@ -89,13 +93,17 @@ fun CreateGameScreen(
             // Name input
             OutlinedTextField(
                 value = name,
-                onValueChange = { name = it.take(20) },
+                onValueChange = { if (!isLocked) name = it.take(20) },
                 label = { Text(stringResource(R.string.your_name)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                readOnly = isLocked,
                 leadingIcon = {
                     Icon(Icons.Default.Person, contentDescription = null)
-                }
+                },
+                trailingIcon = if (isLocked) {
+                    { Icon(Icons.Default.Lock, contentDescription = "Locked", tint = MaterialTheme.colorScheme.primary) }
+                } else null
             )
             
             Spacer(modifier = Modifier.height(24.dp))
@@ -129,7 +137,7 @@ fun CreateGameScreen(
                                 else MaterialTheme.colorScheme.surfaceVariant
                             )
                             .border(2.dp, borderColor, RoundedCornerShape(12.dp))
-                            .clickable { selectedAvatarId = avatarId }
+                            .clickable(enabled = !isLocked) { selectedAvatarId = avatarId }
                             .padding(8.dp)
                     ) {
                         // Color-based avatar with initial letter

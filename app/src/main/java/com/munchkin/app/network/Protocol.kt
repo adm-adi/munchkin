@@ -141,6 +141,19 @@ data class UserProfile(
 // ============== Handover Messages ==============
 
 /**
+ * Data class for discovered games from server.
+ */
+@Serializable
+data class DiscoveredGame(
+    val hostName: String,
+    val joinCode: String,
+    val playerCount: Int = 1,
+    val maxPlayers: Int = 6,
+    val wsUrl: String = "",
+    val port: Int = 8765
+)
+
+/**
  * UDP broadcast when a new host takes over.
  */
 @Serializable
