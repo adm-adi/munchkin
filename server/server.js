@@ -33,11 +33,18 @@ class GameRoom {
 
     broadcast(message, excludePlayerId = null) {
         const data = JSON.stringify(message);
+        let sentCount = 0;
         for (const [playerId, player] of this.players) {
-            if (playerId !== excludePlayerId && player.ws.readyState === WebSocket.OPEN) {
-                player.ws.send(data);
+            if (playerId !== excludePlayerId) {
+                if (player.ws.readyState === WebSocket.OPEN) {
+                    player.ws.send(data);
+                    sentCount++;
+                } else {
+                    console.log(`⚠️ Player ${player.name} (${playerId}) ws not open, state: ${player.ws.readyState}`);
+                }
             }
         }
+        console.log(`📢 Broadcast ${message.type} to ${sentCount} players`);
     }
 
     // Build GameState in the format expected by kotlinx.serialization
