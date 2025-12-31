@@ -83,65 +83,64 @@ class GameClient {
             DLog.i(TAG, "Connecting to $host:$port$path")
             
             scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-            var connectionError: Exception? = null
             
-            try {
-                client!!.webSocket(host = host, port = port, path = path ?: "/") {
-                    session = this
-                    DLog.i(TAG, "Connected, sending CreateGame...")
-                    
-                    // Build JSON manually to avoid serialization issues
-                    val createMsgJson = """
-                        {
-                            "type": "CreateGameMessage",
-                            "playerMeta": {
-                                "playerId": "${playerMeta.playerId.value}",
-                                "name": "${playerMeta.name}",
-                                "avatarId": ${playerMeta.avatarId},
-                                "gender": "${playerMeta.gender.name}"
+            // Use Deferred to signal result while keeping connection open
+            val resultDeferred = kotlinx.coroutines.CompletableDeferred<Result<GameState>>()
+            
+            // Launch the WebSocket session in background - it will stay open
+            scope?.launch {
+                try {
+                    client!!.webSocket(host = host, port = port, path = path ?: "/") {
+                        session = this
+                        DLog.i(TAG, "Connected, sending CreateGame...")
+                        
+                        // Build JSON manually to avoid serialization issues
+                        val createMsgJson = """
+                            {
+                                "type": "CreateGameMessage",
+                                "playerMeta": {
+                                    "playerId": "${playerMeta.playerId.value}",
+                                    "name": "${playerMeta.name}",
+                                    "avatarId": ${playerMeta.avatarId},
+                                    "gender": "${playerMeta.gender.name}"
+                                }
                             }
+                        """.trimIndent()
+                        send(createMsgJson)
+                        DLog.i(TAG, "Waiting for welcome...")
+                        
+                        // Wait for welcome
+                        val welcomeResult = waitForWelcome()
+                        
+                        if (welcomeResult.isFailure) {
+                            DLog.e(TAG, "Welcome failed: ${welcomeResult.exceptionOrNull()?.message}")
+                            _connectionState.value = ConnectionState.DISCONNECTED
+                            resultDeferred.complete(Result.failure(welcomeResult.exceptionOrNull() ?: Exception("Welcome failed")))
+                            return@webSocket
                         }
-                    """.trimIndent()
-                    send(createMsgJson)
-                    DLog.i(TAG, "Waiting for welcome...")
-                    
-                    // Wait for welcome
-                    val welcomeResult = waitForWelcome()
-                    
-                    if (welcomeResult.isFailure) {
-                        DLog.e(TAG, "Welcome failed: ${welcomeResult.exceptionOrNull()?.message}")
-                        connectionError = welcomeResult.exceptionOrNull() as? Exception
-                        _connectionState.value = ConnectionState.DISCONNECTED
-                        return@webSocket
+                        
+                        DLog.i(TAG, "✅ Welcome received!")
+                        _connectionState.value = ConnectionState.CONNECTED
+                        lastJoinCode = _gameState.value?.joinCode
+                        
+                        // Signal success to caller
+                        resultDeferred.complete(Result.success(_gameState.value!!))
+                        
+                        // NOW stay in this block handling messages - keeps connection open!
+                        handleIncomingMessages()
                     }
-                    
-                    DLog.i(TAG, "✅ Welcome received!")
-                    _connectionState.value = ConnectionState.CONNECTED
-                    lastJoinCode = _gameState.value?.joinCode
-                    
-                    // Start message loop in background (don't block!)
-                    val wsSession = this
-                    scope?.launch {
-                        wsSession.handleIncomingMessages()
+                } catch (e: Exception) {
+                    DLog.e(TAG, "Connection error: ${e.message}")
+                    if (!resultDeferred.isCompleted) {
+                        resultDeferred.complete(Result.failure(e))
                     }
-                    
-                    // Return immediately - don't wait for message loop
+                    _connectionState.value = ConnectionState.DISCONNECTED
                 }
-            } catch (e: Exception) {
-                DLog.e(TAG, "Connection error: ${e.message}")
-                connectionError = e
             }
             
-            if (connectionError != null) {
-                return@withContext Result.failure(connectionError!!)
-            }
+            // Wait for result (but WebSocket stays open in background)
+            resultDeferred.await()
             
-            val state = _gameState.value
-            if (state != null) {
-                Result.success(state)
-            } else {
-                Result.failure(Exception("No se recibió estado del servidor"))
-            }
         } catch (e: Exception) {
             DLog.e(TAG, "CreateGame failed: ${e.message}")
             _connectionState.value = ConnectionState.DISCONNECTED
@@ -190,59 +189,66 @@ class GameClient {
             // Connect
             scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
             
-            var connectionError: Exception? = null
+            // Use Deferred to signal result while keeping connection open
+            val resultDeferred = kotlinx.coroutines.CompletableDeferred<Result<GameState>>()
             
-            try {
-                DLog.i(TAG, "Opening WebSocket...")
-                Log.i(TAG, "Opening WebSocket connection...")
-                client!!.webSocket(host = host, port = port, path = path) {
-                    session = this
-                    DLog.i(TAG, "WS connected, sending hello")
-                    Log.i(TAG, "WebSocket connected, sending hello...")
-                    
-                    // Send hello
-                    val hello = HelloMessage(
-                        gameId = "",  // Will be validated by join code
-                        joinCode = joinCode,
-                        playerMeta = playerMeta
-                    )
-                    send(json.encodeToString<WsMessage>(hello))
-                    Log.i(TAG, "Hello sent, waiting for welcome...")
-                    
-                    // Wait for welcome or error
-                    val welcomeResult = waitForWelcome()
-                    
-                    if (welcomeResult.isFailure) {
-                        Log.e(TAG, "Welcome failed: ${welcomeResult.exceptionOrNull()?.message}")
-                        connectionError = welcomeResult.exceptionOrNull() as? Exception
-                        _connectionState.value = ConnectionState.DISCONNECTED
-                        return@webSocket
+            // Launch the WebSocket session in background - it will stay open
+            scope?.launch {
+                try {
+                    DLog.i(TAG, "Opening WebSocket...")
+                    Log.i(TAG, "Opening WebSocket connection...")
+                    client!!.webSocket(host = host, port = port, path = path) {
+                        session = this
+                        DLog.i(TAG, "WS connected, sending hello")
+                        Log.i(TAG, "WebSocket connected, sending hello...")
+                        
+                        // Send hello
+                        val hello = HelloMessage(
+                            gameId = "",  // Will be validated by join code
+                            joinCode = joinCode,
+                            playerMeta = playerMeta
+                        )
+                        send(json.encodeToString<WsMessage>(hello))
+                        Log.i(TAG, "Hello sent, waiting for welcome...")
+                        
+                        // Wait for welcome or error
+                        val welcomeResult = waitForWelcome()
+                        
+                        if (welcomeResult.isFailure) {
+                            Log.e(TAG, "Welcome failed: ${welcomeResult.exceptionOrNull()?.message}")
+                            _connectionState.value = ConnectionState.DISCONNECTED
+                            resultDeferred.complete(Result.failure(welcomeResult.exceptionOrNull() ?: Exception("Welcome failed")))
+                            return@webSocket
+                        }
+                        
+                        Log.i(TAG, "Welcome received! GameState set.")
+                        _connectionState.value = ConnectionState.CONNECTED
+                        
+                        // Signal success to caller
+                        val state = _gameState.value
+                        if (state != null) {
+                            resultDeferred.complete(Result.success(state))
+                        } else {
+                            resultDeferred.complete(Result.failure(Exception("No game state")))
+                            return@webSocket
+                        }
+                        
+                        // NOW stay in this block handling messages - keeps connection open!
+                        handleIncomingMessages()
                     }
-                    
-                    Log.i(TAG, "Welcome received! GameState set.")
-                    _connectionState.value = ConnectionState.CONNECTED
-                    
-                    // Start message loop
-                    handleIncomingMessages()
+                } catch (e: Exception) {
+                    DLog.e(TAG, "WS error: ${e.message}")
+                    Log.e(TAG, "WebSocket exception: ${e.message}", e)
+                    if (!resultDeferred.isCompleted) {
+                        resultDeferred.complete(Result.failure(e))
+                    }
+                    _connectionState.value = ConnectionState.DISCONNECTED
                 }
-            } catch (e: Exception) {
-                DLog.e(TAG, "WS error: ${e.message}")
-                Log.e(TAG, "WebSocket exception: ${e.message}", e)
-                connectionError = e
             }
             
-            if (connectionError != null) {
-                return@withContext Result.failure(connectionError!!)
-            }
+            // Wait for result (but WebSocket stays open in background)
+            resultDeferred.await()
             
-            val state = _gameState.value
-            if (state != null) {
-                Log.i(TAG, "Connection successful, returning state")
-                Result.success(state)
-            } else {
-                Log.e(TAG, "No game state received after connection")
-                Result.failure(Exception("No se recibió estado del servidor"))
-            }
         } catch (e: Exception) {
             Log.e(TAG, "Connection failed with exception", e)
             _connectionState.value = ConnectionState.DISCONNECTED
