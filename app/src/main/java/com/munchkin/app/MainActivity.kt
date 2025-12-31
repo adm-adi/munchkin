@@ -67,7 +67,9 @@ class MainActivity : ComponentActivity() {
                                     onDeleteSavedGame = { viewModel.deleteSavedGame() },
                                     onDownloadUpdate = { viewModel.downloadUpdate() },
                                     onDismissUpdate = { viewModel.dismissUpdate() },
-                                    onSettings = { viewModel.navigateTo(Screen.SETTINGS) }
+                                    onSettings = { viewModel.navigateTo(Screen.SETTINGS) },
+                                    onAuth = { viewModel.navigateTo(Screen.AUTH) },
+                                    userProfile = uiState.userProfile
                                 )
                             }
                             
@@ -193,6 +195,16 @@ class MainActivity : ComponentActivity() {
                                     isCheckingUpdate = uiState.isCheckingUpdate,
                                     onBack = { viewModel.navigateTo(Screen.HOME) },
                                     onCheckUpdate = { viewModel.forceCheckUpdate() }
+                                )
+                            }
+                            
+                            Screen.AUTH -> {
+                                AuthScreen(
+                                    onLogin = { email, pass -> viewModel.login(email, pass) },
+                                    onRegister = { user, email, pass -> viewModel.register(user, email, pass) },
+                                    onBack = { viewModel.navigateTo(Screen.HOME) },
+                                    isLoading = uiState.isLoading,
+                                    error = uiState.error
                                 )
                             }
                         }

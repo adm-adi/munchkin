@@ -108,6 +108,10 @@ val ErrorDark = Color(0xFFDC2626)
 val Warning = LumaWarning
 val WarningDark = Color(0xFFD97706)
 
+// Authentification Colors
+val Gold400 = Color(0xFFFFC107)
+val SurfaceDark = DarkSurface
+
 /**
  * Get avatar color by index.
  */

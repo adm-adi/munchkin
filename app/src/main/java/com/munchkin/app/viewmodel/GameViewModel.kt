@@ -474,15 +474,76 @@ class GameViewModel : ViewModel() {
         joinGame(SERVER_URL, game.joinCode, name, avatarId, gender)
     }
     
-    /**
-     * Stop game discovery.
-     */
+
+    
     fun stopDiscovery() {
         nsdHelper?.stopDiscovery()
         _uiState.update { it.copy(isDiscovering = false) }
     }
     
-    // ============== Player Actions ==============
+    // ============== Auth Methods ==============
+    
+    fun register(username: String, email: String, pass: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+            try {
+                // Use a temporary client for auth if gameClient is not initialized specific for auth
+                // Or just use GameClient helper
+                val client = GameClient() // Temp instance
+                val result = client.register(SERVER_URL, username, email, pass)
+                
+                if (result.isSuccess) {
+                    val profile = result.getOrNull()
+                    _uiState.update { 
+                        it.copy(
+                            isLoading = false,
+                            userProfile = profile,
+                            screen = Screen.HOME // Go back to home after login/reg
+                        ) 
+                    }
+                    _events.emit(GameUiEvent.ShowSuccess("Bienvenido, ${profile?.username}!"))
+                } else {
+                    _uiState.update { 
+                        it.copy(isLoading = false, error = result.exceptionOrNull()?.message)
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isLoading = false, error = e.message) }
+            }
+        }
+    }
+    
+    fun login(email: String, pass: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+            try {
+                val client = GameClient()
+                val result = client.login(SERVER_URL, email, pass)
+                
+                if (result.isSuccess) {
+                    val profile = result.getOrNull()
+                    _uiState.update { 
+                        it.copy(
+                            isLoading = false,
+                            userProfile = profile,
+                            screen = Screen.HOME
+                        ) 
+                    }
+                    _events.emit(GameUiEvent.ShowSuccess("Hola de nuevo, ${profile?.username}!"))
+                } else {
+                    _uiState.update { 
+                        it.copy(isLoading = false, error = result.exceptionOrNull()?.message)
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isLoading = false, error = e.message) }
+            }
+        }
+    }
+    
+    fun logout() {
+        _uiState.update { it.copy(userProfile = null) }
+    }
     
     /**
      * Increment player level.
@@ -865,9 +926,11 @@ data class GameUiState(
     val isHost: Boolean = false,
     val connectionInfo: ConnectionInfo? = null,
     val connectionState: ConnectionState = ConnectionState.DISCONNECTED,
+
     val discoveredGames: List<com.munchkin.app.ui.screens.DiscoveredGame> = emptyList(),
     val isDiscovering: Boolean = false,
-    val isCheckingUpdate: Boolean = false
+    val isCheckingUpdate: Boolean = false,
+    val userProfile: UserProfile? = null
 ) {
     val myPlayer: PlayerState?
         get() = myPlayerId?.let { gameState?.players?.get(it) }
@@ -889,7 +952,8 @@ enum class Screen {
     PLAYER_DETAIL,
     COMBAT,
     CATALOG,
-    SETTINGS
+    SETTINGS,
+    AUTH // Login/Register
 }
 
 sealed class GameUiEvent {

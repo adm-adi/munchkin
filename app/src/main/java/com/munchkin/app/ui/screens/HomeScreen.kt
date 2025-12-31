@@ -38,6 +38,8 @@ fun HomeScreen(
     onDownloadUpdate: () -> Unit,
     onDismissUpdate: () -> Unit,
     onSettings: () -> Unit,
+    onAuth: () -> Unit,
+    userProfile: com.munchkin.app.network.UserProfile?,
     modifier: Modifier = Modifier
 ) {
     // Show update dialog if update available
@@ -91,18 +93,40 @@ fun HomeScreen(
         )
         
         // Settings button
-        IconButton(
-            onClick = onSettings,
+        // Top Bar (Auth + Settings)
+        Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(16.dp)
-                .statusBarsPadding()
+                .statusBarsPadding(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                Icons.Default.Settings,
-                contentDescription = stringResource(R.string.settings),
-                tint = LumaGray400
-            )
+            // Auth Profile Button
+            TextButton(onClick = onAuth) {
+                if (userProfile != null) {
+                    Text(
+                        text = userProfile.username,
+                        color = Gold400,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else {
+                    Text(
+                        text = "Iniciar Sesión",
+                        color = LumaGray400
+                    )
+                }
+            }
+            
+            Spacer(Modifier.width(8.dp))
+            
+            // Settings Button
+            IconButton(onClick = onSettings) {
+                Icon(
+                    Icons.Default.Settings,
+                    contentDescription = stringResource(R.string.settings),
+                    tint = LumaGray400
+                )
+            }
         }
         
         Column(

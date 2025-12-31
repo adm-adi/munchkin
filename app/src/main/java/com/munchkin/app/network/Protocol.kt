@@ -106,6 +106,38 @@ data class PlayerStatusMessage(
     val isConnected: Boolean
 ) : WsMessage()
 
+// ============== Auth Messages ==============
+
+@Serializable
+@SerialName("REGISTER")
+data class RegisterMessage(
+    val username: String,
+    val email: String,
+    val password: String, // In production should be hashed clientside or SSL
+    val avatarId: Int
+) : WsMessage()
+
+@Serializable
+@SerialName("LOGIN")
+data class LoginMessage(
+    val email: String,
+    val password: String
+) : WsMessage()
+
+@Serializable
+@SerialName("AUTH_SUCCESS")
+data class AuthSuccessMessage(
+    val user: UserProfile
+) : WsMessage()
+
+@Serializable
+data class UserProfile(
+    val id: String,
+    val username: String,
+    val email: String,
+    val avatarId: Int
+)
+
 // ============== Handover Messages ==============
 
 /**

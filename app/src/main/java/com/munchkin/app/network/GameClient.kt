@@ -478,6 +478,93 @@ class GameClient {
         _connectionState.value = ConnectionState.DISCONNECTED
     }
     
+    // ============== Auth Methods ==============
+
+    suspend fun register(
+        serverUrl: String,
+        username: String,
+        email: String,
+        password: String
+    ): Result<UserProfile> = performAuth(serverUrl) {
+        val msg = RegisterMessage(username, email, password, 0)
+        json.encodeToString(msg)
+    }
+
+    suspend fun login(
+        serverUrl: String,
+        email: String,
+        password: String
+    ): Result<UserProfile> = performAuth(serverUrl) {
+        val msg = LoginMessage(email, password)
+        json.encodeToString(msg)
+    }
+
+    private suspend fun performAuth(
+        serverUrl: String,
+        messageBuilder: () -> String
+    ): Result<UserProfile> = withContext(Dispatchers.IO) {
+        try {
+            val urlParts = parseWsUrl(serverUrl) ?: return@withContext Result.failure(Exception("URL inválida"))
+            val (host, port, _) = urlParts
+            
+            // Auth usually happens on same port but maybe different path? 
+            // For now using same path logic but we need to ensure server handles it on main connection
+            // Server just looks at message type so path / is fine.
+
+            DLog.i(TAG, "Auth: Connecting to $host:$port...")
+            
+            // Temporary client for auth
+            val authClient = HttpClient(CIO) { install(WebSockets) }
+            
+            var result: Result<UserProfile>? = null
+            
+            authClient.webSocket(host = host, port = port, path = "/") {
+                // Send auth message
+                val jsonMsg = messageBuilder()
+                // Inject type because kotlin serialization of sealed classes sometimes tricky if root is WsMessage
+                val type = if(jsonMsg.contains("REGISTER")) "REGISTER" else "LOGIN"
+                
+                // Decode and re-encode to ensure type discriminator is present if needed
+                val msgObj: WsMessage = if(type == "REGISTER") {
+                    json.decodeFromString<RegisterMessage>(jsonMsg)
+                } else {
+                    json.decodeFromString<LoginMessage>(jsonMsg)
+                }
+                
+                val finalJson = json.encodeToString(msgObj)
+                DLog.i(TAG, "Sending auth: $type")
+                send(finalJson)
+                
+                // Wait for response
+                try {
+                    val frame = incoming.receive()
+                    if (frame is Frame.Text) {
+                        val text = frame.readText()
+                        DLog.i(TAG, "Auth response: $text")
+                        
+                        val response = json.decodeFromString<WsMessage>(text)
+                        if (response is AuthSuccessMessage) {
+                            result = Result.success(response.user)
+                        } else if (response is ErrorMessage) {
+                            result = Result.failure(Exception(response.message))
+                        }
+                    }
+                } catch (e: Exception) {
+                    DLog.e(TAG, "Auth receive error: ${e.message}")
+                    result = Result.failure(e)
+                }
+                close()
+            }
+            authClient.close()
+            
+            result ?: Result.failure(Exception("No response from server"))
+            
+        } catch (e: Exception) {
+            DLog.e(TAG, "Auth error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+    
     /**
      * Parse WebSocket URL into components.
      */
