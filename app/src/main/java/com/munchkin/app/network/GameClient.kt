@@ -486,7 +486,14 @@ class GameClient {
         email: String,
         password: String
     ): Result<UserProfile> {
-        val msg = RegisterMessage(username, email, password, 0)
+        // Auto-generate dummy email if empty (Backward compatibility with older servers)
+        val finalEmail = if (email.isBlank()) {
+            val sanitized = username.lowercase().replace(Regex("[^a-z0-9]"), "")
+            "$sanitized@munchkin.local"
+        } else {
+            email
+        }
+        val msg = RegisterMessage(username, finalEmail, password, 0)
         return performAuth(serverUrl, msg)
     }
 
