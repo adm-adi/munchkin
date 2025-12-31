@@ -299,13 +299,16 @@ class GameClient {
                 when (frame) {
                     is Frame.Text -> {
                         val text = frame.readText()
+                        DLog.i(TAG, "📩 Received message: ${text.take(100)}...")
                         val message = try {
                             json.decodeFromString<WsMessage>(text)
                         } catch (e: Exception) {
+                            DLog.e(TAG, "Failed to parse: ${e.message}")
                             Log.e(TAG, "Failed to parse message", e)
                             continue
                         }
                         
+                        DLog.i(TAG, "✅ Parsed as: ${message::class.simpleName}")
                         handleMessage(message)
                     }
                     is Frame.Close -> {
