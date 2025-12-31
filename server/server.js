@@ -29,7 +29,13 @@ class GameRoom {
         this.players = new Map(); // playerId -> { ws, name, avatarId, gender, level, gear }
         this.seq = 0;
         this.epoch = 0;
+        this.seq = 0;
+        this.epoch = 0;
         this.createdAt = Date.now();
+        this.phase = "LOBBY";
+        this.phase = "LOBBY";
+        this.winnerId = null;
+        this.turnPlayerId = null;
     }
 
     broadcast(message, excludePlayerId = null) {
@@ -63,6 +69,7 @@ class GameRoom {
                 level: player.level || 1,
                 gearBonus: player.gear || 0,
                 tempCombatBonus: 0,
+                treasures: player.treasures || 0,
                 raceIds: [],
                 classIds: [],
                 hasHalfBreed: false,
@@ -82,7 +89,10 @@ class GameRoom {
             races: {},
             classes: {},
             combat: null,
-            phase: "LOBBY",
+            combat: null,
+            phase: this.phase,
+            winnerId: this.winnerId,
+            turnPlayerId: this.turnPlayerId,
             createdAt: this.createdAt,
             settings: {
                 maxLevel: 10,
@@ -176,6 +186,30 @@ function handleMessage(ws, message) {
             handleLogin(ws, message);
             break;
 
+        case 'CATALOG_SEARCH':
+            handleCatalogSearch(ws, message);
+            break;
+
+        case 'CATALOG_ADD':
+            handleCatalogAdd(ws, message);
+            break;
+
+        case 'GAME_OVER':
+            handleGameOver(ws, message);
+            break;
+
+        case 'GET_HISTORY':
+            handleGetHistory(ws, message);
+            break;
+
+        case 'GET_LEADERBOARD':
+            handleGetLeaderboard(ws);
+            break;
+
+        case 'END_TURN':
+            handleEndTurn(ws);
+            break;
+
         default:
             console.log('Unknown message type:', message.type);
     }
@@ -194,6 +228,7 @@ function handleCreateGame(ws, message) {
         name: playerMeta.name,
         avatarId: playerMeta.avatarId || 0,
         gender: playerMeta.gender || "MALE",
+        userId: playerMeta.userId || null, // Store meaningful userId
         level: 1,
         gear: 0,
         joinedAt: Date.now()
@@ -275,6 +310,7 @@ function handleHello(ws, message) {
         name: playerMeta.name,
         avatarId: playerMeta.avatarId || 0,
         gender: playerMeta.gender || "MALE",
+        userId: playerMeta.userId || null,
         level: 1,
         gear: 0,
         joinedAt: Date.now()
@@ -326,6 +362,8 @@ function handleEvent(ws, message) {
     // Broadcast event to all players
     game.broadcast({
         type: "EVENT_BROADCAST",
+        gameId: game.id,
+        epoch: game.epoch,
         event,
         fromPlayerId: playerId,
         seq: game.seq
@@ -337,26 +375,32 @@ function applyEvent(game, event, playerId) {
     if (!player) return;
 
     switch (event.type) {
-        case 'LevelUp':
-            player.level = Math.min(10, player.level + 1);
+        case 'INC_LEVEL':
+            player.level = Math.min(10, player.level + (event.amount || 1));
             break;
-        case 'LevelDown':
-            player.level = Math.max(1, player.level - 1);
+        case 'DEC_LEVEL':
+            player.level = Math.max(1, player.level - (event.amount || 1));
             break;
-        case 'GearUp':
-            player.gear = player.gear + 1;
+        case 'INC_GEAR':
+            player.gear = player.gear + (event.amount || 1);
             break;
-        case 'GearDown':
-            player.gear = player.gear - 1;
+        case 'DEC_GEAR':
+            player.gear = player.gear - (event.amount || 1);
             break;
-        case 'SetLevel':
+        case 'SET_LEVEL':
             player.level = Math.max(1, Math.min(10, event.level));
             break;
-        case 'SetGear':
+        case 'SET_GEAR':
             player.gear = event.gear;
             break;
-        case 'StartGame':
-            // Note: would need to update phase handling
+        case 'COMBAT_END':
+            if (event.outcome === 'WIN') {
+                player.level = Math.min(10, player.level + (event.levelsGained || 0));
+                player.treasures = (player.treasures || 0) + (event.treasuresGained || 0);
+            }
+            break;
+        case 'GAME_START':
+            game.phase = "IN_GAME";
             break;
     }
 }
@@ -429,6 +473,174 @@ function handleLogin(ws, message) {
         .catch(err => {
             console.error("Login error:", err);
             sendError(ws, 'LOGIN_ERROR', 'Error interno al iniciar sesión');
+        });
+}
+
+function handleGetHistory(ws, message) {
+    const { userId } = message;
+    if (!userId) return;
+
+    db.getUserHistory(userId)
+        .then(games => {
+            ws.send(JSON.stringify({
+                type: "HISTORY_RESULT",
+                games: games.map(g => ({
+                    id: g.id,
+                    endedAt: g.ended_at,
+                    winnerId: g.winner_id,
+                    playerCount: g.player_count
+                }))
+            }));
+        })
+        .catch(err => {
+            console.error("History error:", err);
+            // Optionally send error, but usually UI just shows empty
+        });
+
+}
+
+function handleGetLeaderboard(ws) {
+    db.getLeaderboard()
+        .then(rows => {
+            const leaderboard = rows.map(r => ({
+                id: r.id,
+                username: r.username,
+                avatarId: r.avatar_id,
+                wins: r.wins
+            }));
+
+            ws.send(JSON.stringify({
+                type: "LEADERBOARD_RESULT",
+                leaderboard: leaderboard
+            }));
+        })
+        .catch(err => {
+            console.error("Leaderboard error:", err);
+            sendError(ws, "LEADERBOARD_ERROR", "Error al obtener ranking");
+        });
+}
+
+function handleEndTurn(ws) {
+    const clientData = clientGames.get(ws);
+    if (!clientData) return;
+
+    const game = games.get(clientData.gameId);
+    if (!game) return;
+
+    // Only current turn player can end turn? Or host?
+    // Let's strictly allow only the turn player (or host for override, but let's stick to turn player first)
+    // Actually, usually turn player ends turn.
+    if (game.turnPlayerId !== clientData.playerId) {
+        console.log(`⚠️ Player ${clientData.playerId} tried to end turn but it is ${game.turnPlayerId}'s turn`);
+        return;
+    }
+
+    // Pass turn to next player
+    const playerIds = Array.from(game.players.keys());
+    const currentIndex = playerIds.indexOf(game.turnPlayerId);
+    let nextIndex = (currentIndex + 1) % playerIds.length;
+    game.turnPlayerId = playerIds[nextIndex];
+
+    console.log(`🔄 Turn changed: ${clientData.playerId} -> ${game.turnPlayerId}`);
+    game.broadcast(game.buildGameState());
+}
+
+function handleGameOver(ws, message) {
+    const { gameId, winnerId } = message;
+
+    // Validate host? Ideally yes.
+    const clientData = clientGames.get(ws);
+    if (!clientData) return;
+
+    const game = games.get(gameId);
+    if (!game) return;
+
+    if (game.hostId !== clientData.playerId) {
+        // Only host can end game
+        return;
+    }
+
+    // Update game state
+    game.phase = "FINISHED";
+    game.winnerId = winnerId;
+    game.seq++;
+
+    console.log(`🏁 Game Over: ${game.joinCode}, Winner: ${winnerId}`);
+
+    // Broadcast update so clients see FINISHED phase
+    game.broadcast({
+        type: "STATE_SNAPSHOT",
+        gameState: game.buildGameState(),
+        seq: game.seq
+    });
+
+    // Prepare participants list
+    const participants = [];
+    for (const [pid, p] of game.players) {
+        participants.push({
+            userId: p.userId, // Real user ID if logged in
+            playerId: pid
+            // could add final level here
+        });
+    }
+
+    db.recordGame(gameId, winnerId, game.createdAt, Date.now(), participants)
+        .then(() => {
+            console.log("💾 Game recorded successfully");
+        })
+        .catch(err => console.error("Error recording game:", err));
+
+    // Cleanup game immediately or let it linger?
+    // Usually keep it briefly for "Game Over" screen sync.
+}
+
+// ============== Catalog Handlers ==============
+
+function handleCatalogSearch(ws, message) {
+    const { query } = message;
+
+    // Allow empty query to return recent random monsters? For not, require 2 chars.
+    if (!query || query.length < 2) {
+        ws.send(JSON.stringify({
+            type: "CATALOG_SEARCH_RESULT",
+            results: []
+        }));
+        return;
+    }
+
+    db.searchMonsters(query)
+        .then(results => {
+            console.log(`🔍 Search '${query}' returned ${results.length} monsters`);
+            ws.send(JSON.stringify({
+                type: "CATALOG_SEARCH_RESULT",
+                results: results
+            }));
+        })
+        .catch(err => {
+            console.error("Search error:", err);
+            sendError(ws, "SEARCH_ERROR", "Error al buscar monstruos");
+        });
+}
+
+function handleCatalogAdd(ws, message) {
+    const { monster, userId } = message;
+
+    if (!monster || !monster.name || !monster.level) {
+        sendError(ws, "INVALID_DATA", "Datos de monstruo inválidos");
+        return;
+    }
+
+    db.addMonster(monster, userId)
+        .then(id => {
+            console.log(`🆕 Added monster: ${monster.name} (${id})`);
+            ws.send(JSON.stringify({
+                type: "CATALOG_ADD_SUCCESS",
+                monster: { ...monster, id }
+            }));
+        })
+        .catch(err => {
+            console.error("Add monster error:", err);
+            sendError(ws, "ADD_MONSTER_ERROR", "Error al guardar monstruo");
         });
 }
 
