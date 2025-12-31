@@ -44,20 +44,23 @@ class GameRoom {
     buildGameState() {
         const players = {};
         for (const [playerId, player] of this.players) {
+            // PlayerState must match Models.kt exactly:
+            // playerId, name, avatarId, gender, level, gearBonus, tempCombatBonus, 
+            // raceIds, classIds, hasHalfBreed, hasSuperMunchkin, lastKnownIp, isConnected
             players[playerId] = {
                 playerId: { value: playerId },
-                meta: {
-                    playerId: { value: playerId },
-                    name: player.name,
-                    avatarId: player.avatarId,
-                    gender: player.gender
-                },
+                name: player.name,
+                avatarId: player.avatarId || 0,
+                gender: player.gender || "NA",
                 level: player.level || 1,
-                gear: player.gear || 0,
-                races: [],
-                classes: [],
-                isAlive: true,
-                joinedAt: player.joinedAt || Date.now()
+                gearBonus: player.gear || 0,
+                tempCombatBonus: 0,
+                raceIds: [],
+                classIds: [],
+                hasHalfBreed: false,
+                hasSuperMunchkin: false,
+                lastKnownIp: null,
+                isConnected: true
             };
         }
 
