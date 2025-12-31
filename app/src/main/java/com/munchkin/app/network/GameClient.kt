@@ -119,8 +119,13 @@ class GameClient {
                     _connectionState.value = ConnectionState.CONNECTED
                     lastJoinCode = _gameState.value?.joinCode
                     
-                    // Start message loop
-                    handleIncomingMessages()
+                    // Start message loop in background (don't block!)
+                    val wsSession = this
+                    scope?.launch {
+                        wsSession.handleIncomingMessages()
+                    }
+                    
+                    // Return immediately - don't wait for message loop
                 }
             } catch (e: Exception) {
                 DLog.e(TAG, "Connection error: ${e.message}")
