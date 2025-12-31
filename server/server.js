@@ -155,6 +155,11 @@ function handleMessage(ws, message) {
             ws.send(JSON.stringify({ type: 'PONG', timestamp: Date.now() }));
             break;
 
+        case 'LIST_GAMES':
+        case 'ListGamesMessage':
+            handleListGames(ws);
+            break;
+
         default:
             console.log('Unknown message type:', message.type);
     }
@@ -192,6 +197,30 @@ function handleCreateGame(ws, message) {
 
     console.log('📤 Sending WELCOME:', JSON.stringify(response, null, 2));
     ws.send(JSON.stringify(response));
+}
+
+function handleListGames(ws) {
+    const availableGames = [];
+
+    for (const game of games.values()) {
+        // Only show games in LOBBY phase that aren't full
+        if (game.players.size < 6) {
+            availableGames.push({
+                joinCode: game.joinCode,
+                hostName: game.hostName,
+                playerCount: game.players.size,
+                maxPlayers: 6,
+                createdAt: game.createdAt
+            });
+        }
+    }
+
+    console.log(`📋 Listing ${availableGames.length} available games`);
+
+    ws.send(JSON.stringify({
+        type: "GAMES_LIST",
+        games: availableGames
+    }));
 }
 
 function handleHello(ws, message) {

@@ -16,6 +16,10 @@ import com.munchkin.app.update.UpdateResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import io.ktor.client.*
+import io.ktor.client.engine.cio.*
+import io.ktor.client.plugins.websocket.*
+import io.ktor.websocket.*
 import java.util.UUID
 
 /**
@@ -408,49 +412,58 @@ class GameViewModel : ViewModel() {
     // ============== Discovery Methods ==============
     
     /**
-     * Start discovering games on the local network.
+     * Start discovering games from the server.
      */
     fun startDiscovery() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _uiState.update { it.copy(isDiscovering = true, discoveredGames = emptyList()) }
             
             try {
-                if (nsdHelper == null) {
-                    nsdHelper = NsdHelper(MunchkinApp.context)
+                // Connect to server and request games list
+                val client = HttpClient(CIO) {
+                    install(WebSockets)
                 }
                 
-                nsdHelper?.startDiscovery()
-                
-                // Collect discovered games from NsdHelper
-                viewModelScope.launch {
-                    nsdHelper?.discoveredGames?.collect { games ->
-                        val discovered = games.map { game ->
+                client.webSocket(SERVER_URL) {
+                    // Send list games request
+                    send("{\"type\": \"LIST_GAMES\"}")
+                    
+                    // Wait for response
+                    val frame = incoming.receive()
+                    if (frame is io.ktor.websocket.Frame.Text) {
+                        val text = frame.readText()
+                        DLog.i("GameViewModel", "Games list response: $text")
+                        
+                        // Parse response
+                        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                        val response = json.decodeFromString<GamesListResponse>(text)
+                        
+                        val discovered = response.games.map { game ->
                             com.munchkin.app.ui.screens.DiscoveredGame(
                                 hostName = game.hostName,
                                 joinCode = game.joinCode,
-                                wsUrl = game.wsUrl,
-                                port = game.port
+                                playerCount = game.playerCount,
+                                maxPlayers = game.maxPlayers,
+                                wsUrl = SERVER_URL
                             )
                         }
-                        _uiState.update { 
-                            it.copy(discoveredGames = discovered)
-                        }
+                        
+                        _uiState.update { it.copy(discoveredGames = discovered) }
                     }
                 }
                 
-                // Wait a bit then update discovering status
-                kotlinx.coroutines.delay(3000)
-                _uiState.update { it.copy(isDiscovering = false) }
+                client.close()
                 
             } catch (e: Exception) {
-                android.util.Log.e("GameViewModel", "Discovery failed", e)
+                DLog.e("GameViewModel", "Discovery failed: ${e.message}")
+            } finally {
                 _uiState.update { it.copy(isDiscovering = false) }
             }
         }
     }
     
     /**
-     * Join a discovered game from NSD.
+     * Join a discovered game from server.
      */
     fun joinDiscoveredGame(
         game: com.munchkin.app.ui.screens.DiscoveredGame,
@@ -458,7 +471,7 @@ class GameViewModel : ViewModel() {
         avatarId: Int,
         gender: Gender
     ) {
-        joinGame(game.wsUrl, game.joinCode, name, avatarId, gender)
+        joinGame(SERVER_URL, game.joinCode, name, avatarId, gender)
     }
     
     /**
@@ -885,3 +898,19 @@ sealed class GameUiEvent {
     data class ShowMessage(val message: String) : GameUiEvent()
     data object PlaySound : GameUiEvent()
 }
+
+// Response from server for available games
+@kotlinx.serialization.Serializable
+data class GamesListResponse(
+    val type: String,
+    val games: List<ServerGame>
+)
+
+@kotlinx.serialization.Serializable
+data class ServerGame(
+    val joinCode: String,
+    val hostName: String,
+    val playerCount: Int,
+    val maxPlayers: Int,
+    val createdAt: Long = 0
+)

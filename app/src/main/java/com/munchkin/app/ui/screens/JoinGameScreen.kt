@@ -24,7 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.munchkin.app.R
@@ -32,17 +32,20 @@ import com.munchkin.app.core.Gender
 import com.munchkin.app.ui.theme.getAvatarColor
 
 /**
- * Data class for discovered games on the network.
+ * Data class for discovered games from server.
  */
 data class DiscoveredGame(
     val hostName: String,
     val joinCode: String,
-    val wsUrl: String,
+    val playerCount: Int = 1,
+    val maxPlayers: Int = 6,
+    val wsUrl: String = "",
     val port: Int = 8765
 )
 
 /**
  * Screen for joining an existing game.
+ * Shows available games from server + join by code option.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,11 +60,7 @@ fun JoinGameScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) } // Default to discovered games
-    
-    // Manual entry fields
-    var ipAddress by remember { mutableStateOf("") }
-    var port by remember { mutableStateOf("8765") }
+    // Join code for manual entry
     var joinCode by remember { mutableStateOf("") }
     
     // Player info
@@ -69,11 +68,9 @@ fun JoinGameScreen(
     var selectedAvatarId by remember { mutableIntStateOf(0) }
     var selectedGender by remember { mutableStateOf(Gender.NA) }
     
-    // Start discovery when tab 0 is selected
-    LaunchedEffect(selectedTab) {
-        if (selectedTab == 0) {
-            onStartDiscovery()
-        }
+    // Request available games on screen load
+    LaunchedEffect(Unit) {
+        onStartDiscovery()
     }
     
     Scaffold(
@@ -85,6 +82,19 @@ fun JoinGameScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
+                },
+                actions = {
+                    // Refresh button
+                    IconButton(onClick = onStartDiscovery) {
+                        if (isDiscovering) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(Icons.Default.Refresh, contentDescription = "Actualizar")
+                        }
+                    }
                 }
             )
         }
@@ -93,7 +103,7 @@ fun JoinGameScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 24.dp),
+                .padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Error message
@@ -116,238 +126,85 @@ fun JoinGameScreen(
                 }
             }
             
-            // Tabs
-            TabRow(selectedTabIndex = selectedTab) {
-                Tab(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    text = { Text("Buscar") },
-                    icon = { Icon(Icons.Default.Wifi, contentDescription = null) }
+            // === PLAYER INFO SECTION ===
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
                 )
-                Tab(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    text = { Text(stringResource(R.string.scan_qr)) },
-                    icon = { Icon(Icons.Default.QrCodeScanner, contentDescription = null) }
-                )
-                Tab(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    text = { Text(stringResource(R.string.manual_entry)) },
-                    icon = { Icon(Icons.Default.Edit, contentDescription = null) }
-                )
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            when (selectedTab) {
-                0 -> {
-                    // Discovered games list
-                    if (isDiscovering) {
-                        Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = "Buscando partidas en tu red...",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                    }
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Text(
+                        text = "Tu personaje",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                     
-                    if (discoveredGames.isEmpty() && !isDiscovering) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(150.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    Icons.Default.SearchOff,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(48.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "No se encontraron partidas",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                )
-                                Text(
-                                    text = "Asegúrate de estar en la misma red WiFi",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                )
-                            }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it.take(20) },
+                        label = { Text(stringResource(R.string.your_name)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(Icons.Default.Person, contentDescription = null)
                         }
-                    } else {
-                        // Show discovered games
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(discoveredGames.size) { index ->
-                                val game = discoveredGames[index]
-                                Card(
+                    )
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    // Avatar + Gender row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Avatars
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            (0..5).forEach { avatarId ->
+                                val isSelected = selectedAvatarId == avatarId
+                                val color = getAvatarColor(avatarId)
+                                Box(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { 
-                                            if (name.isNotBlank()) {
-                                                onJoinDiscoveredGame(game, name, selectedAvatarId, selectedGender)
-                                            }
-                                        },
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                                    )
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isSelected) color else color.copy(alpha = 0.4f))
+                                        .clickable { selectedAvatarId = avatarId },
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(16.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        // Host icon
-                                        Box(
-                                            modifier = Modifier
-                                                .size(48.dp)
-                                                .clip(CircleShape)
-                                                .background(MaterialTheme.colorScheme.primary),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Person,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onPrimary
-                                            )
-                                        }
-                                        
-                                        Spacer(modifier = Modifier.width(16.dp))
-                                        
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = "Partida de ${game.hostName}",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                text = "Código: ${game.joinCode}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        
+                                    if (isSelected) {
                                         Icon(
-                                            Icons.AutoMirrored.Filled.ArrowForward,
+                                            Icons.Default.Check,
                                             contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
                                         )
                                     }
                                 }
                             }
                         }
-                    }
-                }
-                1 -> {
-                    // Manual entry
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = ipAddress,
-                            onValueChange = { ipAddress = it },
-                            label = { Text(stringResource(R.string.ip_address)) },
-                            modifier = Modifier.weight(2f),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            placeholder = { Text("192.168.1.x") }
-                        )
-                        OutlinedTextField(
-                            value = port,
-                            onValueChange = { port = it.filter { c -> c.isDigit() }.take(5) },
-                            label = { Text(stringResource(R.string.port)) },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                        )
-                    }
-                    
-                    Spacer(modifier = Modifier.height(12.dp))
-                    
-                    OutlinedTextField(
-                        value = joinCode,
-                        onValueChange = { joinCode = it.uppercase().take(6) },
-                        label = { Text(stringResource(R.string.join_code)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.titleLarge.copy(
-                            fontFamily = FontFamily.Monospace,
-                            letterSpacing = 4.sp
-                        ),
-                        placeholder = { Text("ABCD12") }
-                    )
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            // Player info section
-            Text(
-                text = "Tu personaje",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.align(Alignment.Start)
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it.take(20) },
-                label = { Text(stringResource(R.string.your_name)) },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                leadingIcon = {
-                    Icon(Icons.Default.Person, contentDescription = null)
-                }
-            )
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // Avatar selection (compact)
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(6),
-                modifier = Modifier.height(56.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                itemsIndexed((0..5).toList()) { _, avatarId ->
-                    val isSelected = selectedAvatarId == avatarId
-                    val color = getAvatarColor(avatarId)
-                    
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(color)
-                            .clickable { selectedAvatarId = avatarId },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isSelected) {
-                            Icon(
-                                Icons.Default.Check,
-                                contentDescription = "Seleccionado",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
+                        
+                        // Gender chips
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Gender.entries.forEach { gender ->
+                                FilterChip(
+                                    selected = selectedGender == gender,
+                                    onClick = { selectedGender = gender },
+                                    label = {
+                                        Text(
+                                            when (gender) {
+                                                Gender.M -> "H"
+                                                Gender.F -> "M"
+                                                Gender.NA -> "?"
+                                            }
+                                        )
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -355,65 +212,169 @@ fun JoinGameScreen(
             
             Spacer(modifier = Modifier.height(16.dp))
             
-            // Gender (compact)
-            Row(
+            // === JOIN BY CODE ===
+            Card(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                )
             ) {
-                Gender.entries.forEach { gender ->
-                    FilterChip(
-                        selected = selectedGender == gender,
-                        onClick = { selectedGender = gender },
-                        label = {
-                            Text(
-                                when (gender) {
-                                    Gender.M -> "H"
-                                    Gender.F -> "M"
-                                    Gender.NA -> "N/A"
-                                },
-                                style = MaterialTheme.typography.labelMedium
-                            )
-                        },
-                        modifier = Modifier.weight(1f)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = joinCode,
+                        onValueChange = { joinCode = it.uppercase().filter { c -> c.isLetterOrDigit() }.take(6) },
+                        label = { Text("Código") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.titleMedium.copy(
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 2.sp
+                        ),
+                        placeholder = { Text("ABCD12") },
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters)
                     )
+                    
+                    Button(
+                        onClick = {
+                            // Join using server URL with code
+                            val wsUrl = "ws://23.88.48.58:8765"
+                            onJoinGame(wsUrl, joinCode, name, selectedAvatarId, selectedGender)
+                        },
+                        enabled = joinCode.length >= 4 && name.isNotBlank() && !isLoading,
+                        modifier = Modifier.height(56.dp)
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(Icons.Default.Login, contentDescription = null)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Unirse")
+                        }
+                    }
                 }
             }
             
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(16.dp))
             
-            // Connect button
-            val canConnect = ipAddress.isNotBlank() && 
-                port.isNotBlank() && 
-                joinCode.length >= 4 && 
-                name.isNotBlank()
-            
-            Button(
-                onClick = {
-                    val wsUrl = "ws://$ipAddress:$port/game"
-                    onJoinGame(wsUrl, joinCode, name, selectedAvatarId, selectedGender)
-                },
-                enabled = canConnect && !isLoading,
+            // === AVAILABLE GAMES LIST ===
+            Text(
+                text = "Partidas disponibles",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
-                    .padding(bottom = 16.dp),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp
+                    .padding(start = 4.dp, bottom = 8.dp)
+            )
+            
+            if (discoveredGames.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.connecting))
-                } else {
-                    Icon(Icons.Default.Login, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.connect))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.SearchOff,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = if (isDiscovering) "Buscando partidas..." else "No hay partidas disponibles",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (!isDiscovering) {
+                            Text(
+                                text = "Crea una partida o introduce un código",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(discoveredGames.size) { index ->
+                        val game = discoveredGames[index]
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = name.isNotBlank() && !isLoading) {
+                                    onJoinDiscoveredGame(game, name, selectedAvatarId, selectedGender)
+                                },
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Host avatar
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.Person,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                }
+                                
+                                Spacer(modifier = Modifier.width(16.dp))
+                                
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = game.hostName,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "${game.playerCount}/${game.maxPlayers} jugadores • ${game.joinCode}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
                 }
             }
+            
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
-
