@@ -8,6 +8,7 @@
 
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
+const db = require('./db');
 
 const PORT = 8765;
 
@@ -165,6 +166,14 @@ function handleMessage(ws, message) {
         case 'LIST_GAMES':
         case 'ListGamesMessage':
             handleListGames(ws);
+            break;
+
+        case 'REGISTER':
+            handleRegister(ws, message);
+            break;
+
+        case 'LOGIN':
+            handleLogin(ws, message);
             break;
 
         default:
@@ -350,6 +359,71 @@ function applyEvent(game, event, playerId) {
             // Note: would need to update phase handling
             break;
     }
+}
+
+// ============== Auth Handlers ==============
+
+function handleRegister(ws, message) {
+    const { username, email, password, avatarId } = message;
+
+    if (!username || !email || !password) {
+        sendError(ws, 'INVALID_DATA', 'Missing required fields');
+        return;
+    }
+
+    db.createUser(username, email, password, avatarId || 0)
+        .then(user => {
+            console.log(`✅ User registered: ${user.username} (${user.id})`);
+            ws.send(JSON.stringify({
+                type: 'AUTH_SUCCESS',
+                user: {
+                    id: user.id,
+                    username: user.username,
+                    email: user.email,
+                    avatarId: user.avatarId
+                }
+            }));
+        })
+        .catch(err => {
+            console.error("Register failed:", err.message);
+            if (err.message === "EMAIL_EXISTS") {
+                sendError(ws, 'EMAIL_EXISTS', 'El email ya está registrado');
+            } else {
+                sendError(ws, 'REGISTER_FAILED', 'Error al registrar usuario');
+            }
+        });
+}
+
+function handleLogin(ws, message) {
+    const { email, password } = message;
+
+    if (!email || !password) {
+        sendError(ws, 'INVALID_DATA', 'Missing email or password');
+        return;
+    }
+
+    db.verifyUser(email, password)
+        .then(user => {
+            if (user) {
+                console.log(`✅ User logged in: ${user.username}`);
+                ws.send(JSON.stringify({
+                    type: 'AUTH_SUCCESS',
+                    user: {
+                        id: user.id,
+                        username: user.username,
+                        email: user.email,
+                        avatarId: user.avatarId
+                    }
+                }));
+            } else {
+                console.log(`❌ Login failed for ${email}`);
+                sendError(ws, 'AUTH_FAILED', 'Email o contraseña incorrectos');
+            }
+        })
+        .catch(err => {
+            console.error("Login error:", err);
+            sendError(ws, 'LOGIN_ERROR', 'Error interno al iniciar sesión');
+        });
 }
 
 function handleDisconnect(ws) {
