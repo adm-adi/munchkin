@@ -9,6 +9,7 @@ import com.munchkin.app.MunchkinApp
 import com.munchkin.app.core.*
 import com.munchkin.app.data.GameRepository
 import com.munchkin.app.data.SavedGame
+import com.munchkin.app.data.SessionManager
 import com.munchkin.app.network.*
 import com.munchkin.app.update.UpdateChecker
 import com.munchkin.app.update.UpdateInfo
@@ -68,6 +69,7 @@ class GameViewModel : ViewModel() {
     private var gameClient: GameClient? = null
     private var nsdHelper: NsdHelper? = null
     private var gameRepository: GameRepository? = null
+    private var sessionManager: SessionManager? = null
     
     private var myPlayerId: PlayerId? = null
     private var isHost: Boolean = false
@@ -75,24 +77,31 @@ class GameViewModel : ViewModel() {
     // ============== Initialization ==============
     
     init {
-        initRepository()
-        loadSavedGame()
+        initData()
         checkForUpdates()
     }
     
-    private fun initRepository() {
+    private fun initData() {
         try {
-            gameRepository = GameRepository(MunchkinApp.context)
-        } catch (e: Exception) {
-            android.util.Log.e("GameViewModel", "Failed to init repository", e)
-        }
-    }
-    
-    private fun loadSavedGame() {
-        viewModelScope.launch {
-            gameRepository?.getLatestSavedGame()?.collect { saved ->
-                _savedGame.value = saved
+            val context = MunchkinApp.context
+            gameRepository = GameRepository(context)
+            sessionManager = SessionManager(context)
+            
+            // Load Saved Game
+            viewModelScope.launch {
+                gameRepository?.getLatestSavedGame()?.collect { saved ->
+                    _savedGame.value = saved
+                }
             }
+            
+            // Restore Session
+            val savedProfile = sessionManager?.getSession()
+            if (savedProfile != null) {
+                _uiState.update { it.copy(userProfile = savedProfile) }
+            }
+            
+        } catch (e: Exception) {
+            android.util.Log.e("GameViewModel", "Failed to init data", e)
         }
     }
     
@@ -495,6 +504,9 @@ class GameViewModel : ViewModel() {
                 
                 if (result.isSuccess) {
                     val profile = result.getOrNull()
+                    if (profile != null) {
+                        sessionManager?.saveSession(profile)
+                    }
                     _uiState.update { 
                         it.copy(
                             isLoading = false,
@@ -523,6 +535,9 @@ class GameViewModel : ViewModel() {
                 
                 if (result.isSuccess) {
                     val profile = result.getOrNull()
+                    if (profile != null) {
+                        sessionManager?.saveSession(profile)
+                    }
                     _uiState.update { 
                         it.copy(
                             isLoading = false,
@@ -543,6 +558,7 @@ class GameViewModel : ViewModel() {
     }
     
     fun logout() {
+        sessionManager?.clearSession()
         _uiState.update { it.copy(userProfile = null) }
     }
     
