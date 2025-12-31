@@ -186,7 +186,13 @@ enum class ErrorCode {
     VALIDATION_FAILED,
     INTERNAL_ERROR,
     CONNECTION_LOST,
-    HANDOVER_IN_PROGRESS
+    HANDOVER_IN_PROGRESS,
+    // Auth Errors
+    AUTH_FAILED,
+    EMAIL_EXISTS,
+    REGISTER_FAILED,
+    LOGIN_ERROR,
+    INVALID_DATA
 }
 
 // ============== Connection State ==============

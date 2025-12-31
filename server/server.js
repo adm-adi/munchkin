@@ -364,11 +364,17 @@ function applyEvent(game, event, playerId) {
 // ============== Auth Handlers ==============
 
 function handleRegister(ws, message) {
-    const { username, email, password, avatarId } = message;
+    let { username, email, password, avatarId } = message;
 
-    if (!username || !email || !password) {
+    if (!username || !password) {
         sendError(ws, 'INVALID_DATA', 'Missing required fields');
         return;
+    }
+
+    // Auto-generate email if not provided (User just wants username)
+    if (!email) {
+        const sanitizedParams = username.toLowerCase().replace(/[^a-z0-9]/g, '');
+        email = `${sanitizedParams}@munchkin.local`;
     }
 
     db.createUser(username, email, password, avatarId || 0)

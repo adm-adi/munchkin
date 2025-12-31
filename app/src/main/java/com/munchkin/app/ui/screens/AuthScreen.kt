@@ -102,20 +102,21 @@ fun AuthScreen(
                                     focusedLabelColor = Gold400
                                 )
                             )
-                        }
-                        
-                        OutlinedTextField(
-                            value = email,
-                            onValueChange = { email = it },
-                            label = { Text("Email") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            leadingIcon = { Icon(Icons.Default.Email, null) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Gold400,
-                                focusedLabelColor = Gold400
+                        } else {
+                            // Login requires Email
+                            OutlinedTextField(
+                                value = email,
+                                onValueChange = { email = it },
+                                label = { Text("Email (o usuario)") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                leadingIcon = { Icon(Icons.Default.Email, null) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Gold400,
+                                    focusedLabelColor = Gold400
+                                )
                             )
-                        )
+                        }
                         
                         OutlinedTextField(
                             value = password,
@@ -155,7 +156,7 @@ fun AuthScreen(
                                     onLogin(email, password)
                                 }
                             },
-                            enabled = !isLoading && email.isNotBlank() && password.isNotBlank() && (!isRegister || username.isNotBlank()),
+                            enabled = !isLoading && password.isNotBlank() && ((isRegister && username.isNotBlank()) || (!isRegister && email.isNotBlank())),
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Gold400,
