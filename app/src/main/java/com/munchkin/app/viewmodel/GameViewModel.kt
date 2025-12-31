@@ -304,8 +304,8 @@ class GameViewModel : ViewModel() {
                 }
                 android.util.Log.d("GameViewModel", "State updated, navigating to LOBBY")
                 
-                // Observe game state changes
-                observeGameState()
+                // Observe game state changes from client (since we are using server)
+                observeClientState()
                 
             } catch (e: Exception) {
                 android.util.Log.e("GameViewModel", "createGame exception", e)

@@ -287,7 +287,7 @@ function handleHello(ws, message) {
     game.broadcast({
         type: "PLAYER_STATUS",
         playerId: playerId,
-        status: "CONNECTED"
+        isConnected: true
     }, playerId);
 
     // Send updated state to all
@@ -364,7 +364,7 @@ function handleDisconnect(ws) {
         game.broadcast({
             type: "PLAYER_STATUS",
             playerId: clientData.playerId,
-            status: "DISCONNECTED"
+            isConnected: false
         });
 
         // If host left and no players, delete game
