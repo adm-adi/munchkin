@@ -41,14 +41,14 @@ class GameRoom {
     }
 
     // Build GameState in the format expected by kotlinx.serialization
+    // IMPORTANT: @JvmInline value classes serialize as raw values, NOT {value: ...}
     buildGameState() {
         const players = {};
         for (const [playerId, player] of this.players) {
-            // PlayerState must match Models.kt exactly:
-            // playerId, name, avatarId, gender, level, gearBonus, tempCombatBonus, 
-            // raceIds, classIds, hasHalfBreed, hasSuperMunchkin, lastKnownIp, isConnected
+            // PlayerState must match Models.kt exactly
+            // PlayerId is @JvmInline so it serializes as just the string
             players[playerId] = {
-                playerId: { value: playerId },
+                playerId: playerId,  // raw string, not {value: ...}
                 name: player.name,
                 avatarId: player.avatarId || 0,
                 gender: player.gender || "NA",
@@ -65,11 +65,11 @@ class GameRoom {
         }
 
         return {
-            gameId: { value: this.id },
+            gameId: this.id,  // raw string, not {value: ...}
             joinCode: this.joinCode,
             epoch: this.epoch,
             seq: this.seq,
-            hostId: { value: this.hostId },
+            hostId: this.hostId,  // raw string
             players: players,
             races: {},
             classes: {},
@@ -187,7 +187,7 @@ function handleCreateGame(ws, message) {
     const response = {
         type: "WELCOME",
         gameState: game.buildGameState(),
-        yourPlayerId: { value: playerId }
+        yourPlayerId: playerId
     };
 
     console.log('📤 Sending WELCOME:', JSON.stringify(response, null, 2));
@@ -243,14 +243,14 @@ function handleHello(ws, message) {
     // Send welcome to new player
     ws.send(JSON.stringify({
         type: "WELCOME",
-        yourPlayerId: { value: playerId },
+        yourPlayerId: playerId,
         gameState: game.buildGameState()
     }));
 
     // Broadcast player joined to others
     game.broadcast({
         type: "PLAYER_STATUS",
-        playerId: { value: playerId },
+        playerId: playerId,
         status: "CONNECTED"
     }, playerId);
 
@@ -282,7 +282,7 @@ function handleEvent(ws, message) {
     game.broadcast({
         type: "EVENT_BROADCAST",
         event,
-        fromPlayerId: { value: playerId },
+        fromPlayerId: playerId,
         seq: game.seq
     });
 }
@@ -327,7 +327,7 @@ function handleDisconnect(ws) {
         // Broadcast disconnect
         game.broadcast({
             type: "PLAYER_STATUS",
-            playerId: { value: clientData.playerId },
+            playerId: clientData.playerId,
             status: "DISCONNECTED"
         });
 
