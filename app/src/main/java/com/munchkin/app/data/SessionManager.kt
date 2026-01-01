@@ -15,6 +15,7 @@ class SessionManager(context: Context) {
 
     companion object {
         private const val KEY_USER_PROFILE = "user_profile"
+        private const val KEY_PLAYER_ID_PREFIX = "player_id_"
     }
 
     /**
@@ -46,6 +47,31 @@ class SessionManager(context: Context) {
     fun clearSession() {
         prefs.edit { 
             remove(KEY_USER_PROFILE) 
+        }
+    }
+    
+    /**
+     * Save the playerId for a specific joinCode (for reconnection).
+     */
+    fun savePlayerId(joinCode: String, playerId: String) {
+        prefs.edit {
+            putString(KEY_PLAYER_ID_PREFIX + joinCode.uppercase(), playerId)
+        }
+    }
+    
+    /**
+     * Get the saved playerId for a joinCode, or null if not found.
+     */
+    fun getPlayerId(joinCode: String): String? {
+        return prefs.getString(KEY_PLAYER_ID_PREFIX + joinCode.uppercase(), null)
+    }
+    
+    /**
+     * Clear the playerId for a specific joinCode.
+     */
+    fun clearPlayerId(joinCode: String) {
+        prefs.edit {
+            remove(KEY_PLAYER_ID_PREFIX + joinCode.uppercase())
         }
     }
 }

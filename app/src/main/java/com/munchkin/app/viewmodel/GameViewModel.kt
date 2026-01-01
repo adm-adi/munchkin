@@ -363,8 +363,17 @@ class GameViewModel : ViewModel() {
             try {
                 _uiState.update { it.copy(isLoading = true, error = null) }
                 
-                // Generate player ID
-                val playerId = PlayerId(UUID.randomUUID().toString())
+                // Check for existing playerId for this joinCode (for reconnection)
+                val existingPlayerIdStr = sessionManager?.getPlayerId(joinCode)
+                val playerId = if (existingPlayerIdStr != null) {
+                    // Reconnecting with same identity
+                    PlayerId(existingPlayerIdStr)
+                } else {
+                    // First time joining - generate new ID and save
+                    val newId = PlayerId(UUID.randomUUID().toString())
+                    sessionManager?.savePlayerId(joinCode, newId.value)
+                    newId
+                }
                 myPlayerId = playerId
                 isHost = false
                 
