@@ -10,6 +10,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -29,7 +31,7 @@ fun UpdateDialog(
     Dialog(onDismissRequest = { if (!isDownloading) onDismiss() }) {
         Surface(
             shape = RoundedCornerShape(24.dp),
-            color = LumaGray900,
+            color = NeonSurface,
             tonalElevation = 8.dp
         ) {
             Column(
@@ -43,7 +45,7 @@ fun UpdateDialog(
                     modifier = Modifier
                         .size(64.dp)
                         .background(
-                            LumaPrimary.copy(alpha = 0.2f),
+                            NeonPrimary.copy(alpha = 0.2f),
                             RoundedCornerShape(16.dp)
                         ),
                     contentAlignment = Alignment.Center
@@ -51,7 +53,7 @@ fun UpdateDialog(
                     Icon(
                         Icons.Default.SystemUpdate,
                         contentDescription = null,
-                        tint = LumaPrimary,
+                        tint = NeonPrimary,
                         modifier = Modifier.size(32.dp)
                     )
                 }
@@ -62,7 +64,7 @@ fun UpdateDialog(
                     text = "¡Nueva versión disponible!",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = LumaGray50
+                    color = NeonGray100
                 )
                 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -70,7 +72,7 @@ fun UpdateDialog(
                 Text(
                     text = "v${updateInfo.version}",
                     style = MaterialTheme.typography.titleMedium,
-                    color = LumaPrimary
+                    color = NeonPrimary
                 )
                 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -78,13 +80,13 @@ fun UpdateDialog(
                 // Release notes
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = LumaGray800,
+                    color = NeonSurfaceVariant,
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
                         text = updateInfo.releaseNotes,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = LumaGray300,
+                        color = NeonGray300,
                         modifier = Modifier.padding(12.dp)
                     )
                 }
@@ -95,7 +97,7 @@ fun UpdateDialog(
                 Text(
                     text = "Tamaño: ${formatFileSize(updateInfo.fileSize)}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = LumaGray500
+                    color = NeonGray500
                 )
                 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -120,14 +122,15 @@ fun UpdateDialog(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = LumaPrimary
+                            containerColor = NeonPrimary
                         )
                     ) {
                         if (isDownloading) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(20.dp),
                                 strokeWidth = 2.dp,
-                                color = LumaGray50
+                                color = NeonPrimary,
+                                strokeCap = StrokeCap.Round
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Descargando...")
@@ -160,7 +163,7 @@ fun UpdateBanner(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        color = LumaPrimary.copy(alpha = 0.15f)
+        color = NeonPrimary.copy(alpha = 0.15f)
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -169,7 +172,7 @@ fun UpdateBanner(
             Icon(
                 Icons.Default.NewReleases,
                 contentDescription = null,
-                tint = LumaPrimary,
+                tint = NeonPrimary,
                 modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.width(12.dp))
@@ -178,18 +181,18 @@ fun UpdateBanner(
                     text = "Nueva versión disponible",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
-                    color = LumaGray100
+                    color = NeonGray100
                 )
                 Text(
                     text = "v$version",
                     style = MaterialTheme.typography.bodySmall,
-                    color = LumaPrimary
+                    color = NeonPrimary
                 )
             }
             Icon(
                 Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = LumaGray500
+                tint = NeonGray500
             )
         }
     }

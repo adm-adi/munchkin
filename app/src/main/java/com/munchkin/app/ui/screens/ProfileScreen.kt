@@ -40,7 +40,7 @@ fun ProfileScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(LumaGray950)
+            .background(NeonBackground)
     ) {
         Column(
             modifier = Modifier
@@ -63,7 +63,7 @@ fun ProfileScreen(
                             Icon(
                                 Icons.Default.Refresh,
                                 contentDescription = "Recargar",
-                                tint = LumaGray400
+                                tint = NeonGray400
                             )
                         }
                     }
@@ -91,7 +91,7 @@ fun ProfileScreen(
                     Text(
                         text = "Historial de Partidas",
                         style = MaterialTheme.typography.titleMedium,
-                        color = LumaGray300,
+                        color = NeonGray300,
                         modifier = Modifier.padding(vertical = 8.dp)
                     )
                 }
@@ -102,7 +102,7 @@ fun ProfileScreen(
                             Text(
                                 text = "Aún no has jugado ninguna partida.",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = LumaGray500,
+                                color = NeonGray500,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(16.dp),
@@ -132,13 +132,13 @@ fun ProfileHeader(user: UserProfile) {
             Box(
                 modifier = Modifier
                     .size(64.dp)
-                    .background(LumaPrimary.copy(alpha = 0.2f), shape = MaterialTheme.shapes.medium),
+                    .background(NeonPrimary.copy(alpha = 0.2f), shape = MaterialTheme.shapes.medium),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = user.username.take(1).uppercase(),
                     style = MaterialTheme.typography.headlineMedium,
-                    color = LumaPrimary
+                    color = NeonPrimary
                 )
             }
             
@@ -148,12 +148,12 @@ fun ProfileHeader(user: UserProfile) {
                 Text(
                     text = user.username,
                     style = MaterialTheme.typography.titleLarge,
-                    color = LumaGray50
+                    color = NeonGray100
                 )
                 Text(
                     text = user.email,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = LumaGray500
+                    color = NeonGray500
                 )
             }
         }
@@ -179,7 +179,7 @@ fun StatsSummary(user: UserProfile, history: List<GameHistoryItem>) {
             label = "Victorias",
             value = wins.toString(),
             modifier = Modifier.weight(1f),
-            color = Gold400
+            color = NeonWarning
         )
         StatCard(
             label = "Win Rate",
@@ -194,7 +194,7 @@ fun StatCard(
     label: String, 
     value: String, 
     modifier: Modifier = Modifier,
-    color: Color = LumaGray50
+    color: Color = NeonGray100
 ) {
     GlassCard(modifier = modifier) {
         Column(
@@ -210,7 +210,7 @@ fun StatCard(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelMedium,
-                color = LumaGray500
+                color = NeonGray500
             )
         }
     }
@@ -224,7 +224,7 @@ fun GameHistoryCard(game: GameHistoryItem, myUserId: String) {
 
     GlassCard(
         modifier = Modifier.fillMaxWidth(),
-        borderColor = if (isWin) Gold400.copy(alpha = 0.5f) else null
+        borderColor = if (isWin) NeonWarning.copy(alpha = 0.5f) else GlassBorder
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -235,13 +235,13 @@ fun GameHistoryCard(game: GameHistoryItem, myUserId: String) {
                 Text(
                     text = if (isWin) "🏆 ¡Victoria!" else "Derrota",
                     style = MaterialTheme.typography.titleMedium,
-                    color = if (isWin) Gold400 else LumaGray300,
+                    color = if (isWin) NeonWarning else NeonGray300,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = formattedDate,
                     style = MaterialTheme.typography.bodySmall,
-                    color = LumaGray500
+                    color = NeonGray500
                 )
             }
             

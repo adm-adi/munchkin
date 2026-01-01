@@ -9,12 +9,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -22,16 +20,18 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.munchkin.app.ui.theme.*
 
 /**
- * Modern glass-effect card with subtle border and blur.
+ * Modern glass-effect card with neon glow border option.
  */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
-    cornerRadius: Dp = 20.dp,
-    borderColor: Color? = null,
+    cornerRadius: Dp = 24.dp,
+    borderColor: Color = GlassBorder,
+    containerColor: Color = GlassDark,
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -40,11 +40,11 @@ fun GlassCard(
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
             .border(
                 width = 1.dp,
-                color = borderColor ?: DarkCardBorder,
+                color = borderColor,
                 shape = RoundedCornerShape(cornerRadius)
             ),
         shape = RoundedCornerShape(cornerRadius),
-        color = DarkCardSurface.copy(alpha = 0.8f),
+        color = containerColor,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -56,7 +56,7 @@ fun GlassCard(
 }
 
 /**
- * Gradient button with vibrant colors.
+ * Gradient button with Neon gradients.
  */
 @Composable
 fun GradientButton(
@@ -65,7 +65,7 @@ fun GradientButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     icon: ImageVector? = null,
-    gradientColors: List<Color> = listOf(GradientPurpleStart, GradientPurpleEnd)
+    gradientColors: List<Color> = GradientNeonPurple
 ) {
     val alpha = if (enabled) 1f else 0.5f
     
@@ -97,7 +97,7 @@ fun GradientButton(
                 text = text,
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.Bold
             )
         }
     }
@@ -112,16 +112,17 @@ fun GlassOutlinedButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    icon: ImageVector? = null
+    icon: ImageVector? = null,
+    color: Color = NeonGray100
 ) {
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier.height(56.dp),
         shape = RoundedCornerShape(16.dp),
-        border = ButtonDefaults.outlinedButtonBorder,
+        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.5f)),
         colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = LumaGray100
+            contentColor = color
         )
     ) {
         icon?.let {
@@ -141,7 +142,7 @@ fun GlassOutlinedButton(
 }
 
 /**
- * Modern text field with dark glass style.
+ * Modern text field with dark glass style and Neon accents.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -161,22 +162,24 @@ fun GlassTextField(
         onValueChange = onValueChange,
         modifier = modifier,
         label = label?.let { { Text(it) } },
-        placeholder = placeholder?.let { { Text(it, color = LumaGray500) } },
+        placeholder = placeholder?.let { { Text(it, color = NeonGray500) } },
         leadingIcon = leadingIcon?.let { 
-            { Icon(it, contentDescription = null, tint = LumaGray400) } 
+            { Icon(it, contentDescription = null, tint = NeonGray400) } 
         },
         trailingIcon = trailingIcon,
         singleLine = singleLine,
         enabled = enabled,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = LumaPrimary,
-            unfocusedBorderColor = LumaGray700,
-            focusedLabelColor = LumaPrimary,
-            unfocusedLabelColor = LumaGray500,
-            cursorColor = LumaPrimary,
-            focusedContainerColor = LumaGray900.copy(alpha = 0.5f),
-            unfocusedContainerColor = LumaGray900.copy(alpha = 0.3f)
+            focusedBorderColor = NeonPrimary,
+            unfocusedBorderColor = NeonGray500,
+            focusedLabelColor = NeonPrimary,
+            unfocusedLabelColor = NeonGray400,
+            cursorColor = NeonPrimary,
+            focusedContainerColor = NeonSurface,
+            unfocusedContainerColor = NeonSurface.copy(alpha = 0.5f),
+            disabledContainerColor = NeonSurface.copy(alpha = 0.2f),
+            disabledBorderColor = NeonGray500.copy(alpha = 0.5f)
         )
     )
 }
@@ -192,22 +195,31 @@ fun StatCounter(
     onIncrement: () -> Unit,
     onDecrement: () -> Unit,
     modifier: Modifier = Modifier,
-    accentColor: Color = LumaPrimary,
+    accentColor: Color = NeonPrimary,
+    containerColor: Color = NeonSurface,
+    showSign: Boolean = false,
     minValue: Int = Int.MIN_VALUE,
     maxValue: Int = Int.MAX_VALUE
 ) {
-    GlassCard(modifier = modifier) {
+    GlassCard(
+        modifier = modifier,
+        containerColor = containerColor,
+        borderColor = accentColor.copy(alpha = 0.3f)
+    ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = LumaGray400
+                text = label.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                color = NeonGray400,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.5.sp
+
             )
             
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -218,14 +230,14 @@ fun StatCounter(
                     onClick = onDecrement,
                     enabled = value > minValue,
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
-                        .background(LumaGray800)
+                        .background(NeonSurfaceVariant)
                 ) {
                     Icon(
                         Icons.Default.Remove,
                         contentDescription = "Decrementar",
-                        tint = if (value > minValue) LumaGray100 else LumaGray600
+                        tint = if (value > minValue) NeonGray100 else NeonGray500
                     )
                 }
                 
@@ -234,18 +246,19 @@ fun StatCounter(
                     targetState = value,
                     transitionSpec = {
                         if (targetState > initialState) {
-                            slideInVertically { -it } + fadeIn() with
+                            slideInVertically { -it } + fadeIn() togetherWith
                             slideOutVertically { it } + fadeOut()
                         } else {
-                            slideInVertically { it } + fadeIn() with
+                            slideInVertically { it } + fadeIn() togetherWith
                             slideOutVertically { -it } + fadeOut()
                         }.using(SizeTransform(clip = false))
                     },
                     label = "value"
                 ) { animatedValue ->
+                    val displayValue = if (showSign && animatedValue > 0) "+$animatedValue" else animatedValue.toString()
                     Text(
-                        text = animatedValue.toString(),
-                        style = MaterialTheme.typography.headlineLarge,
+                        text = displayValue,
+                        style = MaterialTheme.typography.displayMedium,
                         fontWeight = FontWeight.Bold,
                         color = accentColor
                     )
@@ -256,7 +269,7 @@ fun StatCounter(
                     onClick = onIncrement,
                     enabled = value < maxValue,
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
                         .background(accentColor)
                 ) {
@@ -287,102 +300,79 @@ fun SectionHeader(
     ) {
         Text(
             text = title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = LumaGray100
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = NeonGray100
         )
         action?.invoke()
     }
 }
 
 /**
- * Modern chip with gradient background option.
+ * Modern chip for tags/traits
  */
 @Composable
-fun ModernChip(
-    text: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    leadingIcon: ImageVector? = null
+fun TraitChip(
+    name: String,
+    onRemove: () -> Unit
 ) {
-    val backgroundColor = if (selected) LumaPrimary else LumaGray800
-    val textColor = if (selected) Color.White else LumaGray300
-    
     Surface(
-        onClick = onClick,
-        modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
-        color = backgroundColor,
-        border = if (!selected) ButtonDefaults.outlinedButtonBorder else null
+        color = NeonPrimary.copy(alpha = 0.2f),
+        shape = RoundedCornerShape(50),
+        border = androidx.compose.foundation.BorderStroke(1.dp, NeonPrimary.copy(alpha = 0.5f))
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            modifier = Modifier
+                .clickable { onRemove() }
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            leadingIcon?.let {
-                Icon(
-                    imageVector = it,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = textColor
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-            }
             Text(
-                text = text,
-                style = MaterialTheme.typography.labelLarge,
-                color = textColor,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                text = name,
+                style = MaterialTheme.typography.bodyMedium,
+                color = NeonGray100
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Icon(
+                Icons.Default.Close,
+                contentDescription = "Remover",
+                modifier = Modifier.size(14.dp),
+                tint = NeonGray100
             )
         }
     }
 }
 
 /**
- * Modern glass-effect top app bar.
+ * Glass Top App Bar with Neon styling.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GlassTopAppBar(
     title: String,
-    onNavigationClick: () -> Unit,
-    navigationIcon: ImageVector = Icons.AutoMirrored.Filled.ArrowBack,
+    navigationIcon: ImageVector? = null,
+    onNavigationClick: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     CenterAlignedTopAppBar(
-        title = {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = LumaGray50
-            )
-        },
+        title = { Text(title, color = NeonGray100, fontWeight = FontWeight.Bold) },
         navigationIcon = {
-            IconButton(onClick = onNavigationClick) {
-                Icon(
-                    imageVector = navigationIcon,
-                    contentDescription = "Atrás",
-                    tint = LumaGray200
-                )
+            if (navigationIcon != null && onNavigationClick != null) {
+                IconButton(onClick = onNavigationClick) {
+                    Icon(navigationIcon, contentDescription = null, tint = NeonGray100)
+                }
             }
         },
         actions = actions,
         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
             containerColor = Color.Transparent,
-            scrolledContainerColor = Color.Transparent,
-            navigationIconContentColor = LumaGray200,
-            titleContentColor = LumaGray50,
-            actionIconContentColor = LumaGray200
+            titleContentColor = NeonGray100,
+            actionIconContentColor = NeonGray400,
+            navigationIconContentColor = NeonGray100
         ),
         modifier = Modifier.background(
             Brush.verticalGradient(
-                listOf(
-                    LumaGray950.copy(alpha = 0.9f),
-                    LumaGray950.copy(alpha = 0.7f),
-                    Color.Transparent
-                )
+                colors = listOf(NeonBackground.copy(alpha = 0.95f), NeonBackground.copy(alpha = 0.0f))
             )
         )
     )

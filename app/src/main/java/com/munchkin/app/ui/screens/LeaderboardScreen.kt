@@ -34,7 +34,7 @@ fun LeaderboardScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(LumaGray950)
+            .background(NeonBackground)
     ) {
         Column(
             modifier = Modifier
@@ -57,7 +57,7 @@ fun LeaderboardScreen(
                             Icon(
                                 Icons.Default.Refresh,
                                 contentDescription = "Recargar",
-                                tint = LumaGray400
+                                tint = NeonGray400
                             )
                         }
                     }
@@ -75,7 +75,7 @@ fun LeaderboardScreen(
                     Text(
                         text = "Top Ganadores",
                         style = MaterialTheme.typography.titleMedium,
-                        color = LumaGray300,
+                        color = NeonGray300,
                         modifier = Modifier.padding(vertical = 16.dp)
                     )
                 }
@@ -85,7 +85,7 @@ fun LeaderboardScreen(
                          GlassCard {
                              Text(
                                  text = "No hay datos aún.",
-                                 color = LumaGray500,
+                                 color = NeonGray500,
                                  modifier = Modifier.padding(16.dp)
                              )
                          }
@@ -103,10 +103,10 @@ fun LeaderboardScreen(
 @Composable
 fun LeaderboardItem(rank: Int, entry: LeaderboardEntry) {
     val rankColor = when (rank) {
-        1 -> Gold400
-        2 -> LumaGray300 // Silver-ish
-        3 -> LumaAccent // Bronze-ish substitute
-        else -> LumaGray500
+        1 -> NeonWarning
+        2 -> NeonGray300 // Silver-ish
+        3 -> NeonSecondary // Bronze-ish substitute
+        else -> NeonGray500
     }
     
     val rankSize = when (rank) {
@@ -136,12 +136,12 @@ fun LeaderboardItem(rank: Int, entry: LeaderboardEntry) {
             Box(
                  modifier = Modifier
                      .size(40.dp)
-                     .background(LumaPrimary.copy(alpha = 0.2f), shape = MaterialTheme.shapes.small),
+                     .background(NeonPrimary.copy(alpha = 0.2f), shape = MaterialTheme.shapes.small),
                  contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = entry.username.take(1).uppercase(),
-                    color = LumaPrimary,
+                    color = NeonPrimary,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -152,7 +152,7 @@ fun LeaderboardItem(rank: Int, entry: LeaderboardEntry) {
             Text(
                 text = entry.username,
                 style = MaterialTheme.typography.bodyLarge,
-                color = LumaGray50,
+                color = NeonGray100,
                 modifier = Modifier.weight(1f)
             )
             
@@ -163,13 +163,13 @@ fun LeaderboardItem(rank: Int, entry: LeaderboardEntry) {
                 Text(
                     text = "${entry.wins}",
                     style = MaterialTheme.typography.titleLarge,
-                    color = Gold400,
+                    color = NeonWarning,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = "Victorias",
                     style = MaterialTheme.typography.labelSmall,
-                    color = LumaGray600
+                    color = NeonGray500
                 )
             }
         }

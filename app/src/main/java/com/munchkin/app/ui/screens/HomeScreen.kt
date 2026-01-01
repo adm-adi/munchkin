@@ -72,9 +72,9 @@ fun HomeScreen(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        LumaGray950,
-                        LumaGray900.copy(alpha = 0.95f),
-                        LumaGray950
+                        NeonBackground,
+                        NeonBackground.copy(alpha = 0.95f),
+                        NeonBackground
                     )
                 )
             )
@@ -88,7 +88,7 @@ fun HomeScreen(
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            LumaPrimary.copy(alpha = 0.15f),
+                            NeonPrimary.copy(alpha = 0.15f),
                             Color.Transparent
                         )
                     )
@@ -118,13 +118,13 @@ fun HomeScreen(
                     if (userProfile != null) {
                         Text(
                             text = userProfile.username,
-                            color = Gold400,
+                            color = NeonSecondary,
                             fontWeight = FontWeight.Bold
                         )
                     } else {
                         Text(
                             text = "Iniciar Sesión",
-                            color = LumaGray400
+                            color = NeonGray400
                         )
                     }
                 }
@@ -133,7 +133,7 @@ fun HomeScreen(
                     DropdownMenu(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false },
-                        modifier = Modifier.background(SurfaceDark)
+                        modifier = Modifier.background(NeonSurface)
                     ) {
                         DropdownMenuItem(
                             text = { Text("Cerrar sesión", color = Color.White) },
@@ -142,7 +142,7 @@ fun HomeScreen(
                                 onLogout()
                             },
                             leadingIcon = {
-                                Icon(Icons.Default.Logout, null, tint = Color.Red)
+                                Icon(Icons.Default.Logout, null, tint = NeonError)
                             }
                         )
                         DropdownMenuItem(
@@ -152,7 +152,7 @@ fun HomeScreen(
                                 onLeaderboardClick()
                             },
                              leadingIcon = {
-                                Icon(Icons.Default.EmojiEvents, null, tint = Gold400)
+                                Icon(Icons.Default.EmojiEvents, null, tint = NeonWarning)
                             }
                         )
                         DropdownMenuItem(
@@ -163,7 +163,7 @@ fun HomeScreen(
                                 // Actually we passed standard callbacks. Let's add onProfileClick
                             },
                              leadingIcon = {
-                                Icon(Icons.Default.Person, null, tint = LumaPrimary)
+                                Icon(Icons.Default.Person, null, tint = NeonPrimary)
                             }
                         )
                     }
@@ -177,7 +177,7 @@ fun HomeScreen(
                 Icon(
                     Icons.Default.Settings,
                     contentDescription = stringResource(R.string.settings),
-                    tint = LumaGray400
+                    tint = NeonGray400
                 )
             }
         }
@@ -204,7 +204,7 @@ fun HomeScreen(
                         .background(
                             Brush.radialGradient(
                                 colors = listOf(
-                                    LumaPrimary.copy(alpha = 0.3f),
+                                    NeonPrimary.copy(alpha = 0.3f),
                                     Color.Transparent
                                 )
                             )
@@ -225,7 +225,7 @@ fun HomeScreen(
                     fontWeight = FontWeight.Bold,
                     letterSpacing = (-1).sp
                 ),
-                color = LumaGray50
+                color = NeonGray100
             )
             
             Text(
@@ -234,7 +234,7 @@ fun HomeScreen(
                     fontWeight = FontWeight.Light,
                     letterSpacing = 2.sp
                 ),
-                color = LumaGray500
+                color = NeonGray500
             )
             
             Spacer(modifier = Modifier.height(48.dp))
@@ -245,7 +245,7 @@ fun HomeScreen(
                 onClick = onCreateGame,
                 modifier = Modifier.fillMaxWidth(),
                 icon = Icons.Default.Add,
-                gradientColors = listOf(LumaPrimary, GradientPurpleEnd)
+                gradientColors = GradientNeonPurple
             )
             
             Spacer(modifier = Modifier.height(16.dp))
@@ -280,13 +280,13 @@ fun HomeScreen(
                                         text = "Partida guardada",
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = LumaGray100
+                                        color = NeonGray100
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
                                         text = "${saved.gameState.players.size} jugadores • ${saved.gameState.joinCode}",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = LumaGray500
+                                        color = NeonGray500
                                     )
                                 }
                             }
@@ -298,7 +298,7 @@ fun HomeScreen(
                                 onClick = onResumeGame,
                                 modifier = Modifier.fillMaxWidth(),
                                 icon = Icons.Default.PlayArrow,
-                                gradientColors = listOf(LumaAccent, GradientOrangeEnd)
+                                gradientColors = GradientNeonFire
                             )
                             
                             Spacer(modifier = Modifier.height(8.dp))
@@ -326,7 +326,7 @@ fun HomeScreen(
             Text(
                 text = "v1.0.0",
                 style = MaterialTheme.typography.bodySmall,
-                color = LumaGray700
+                color = NeonGray500
             )
             
             Spacer(modifier = Modifier.height(16.dp))

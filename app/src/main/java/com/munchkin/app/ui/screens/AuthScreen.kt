@@ -18,9 +18,10 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.munchkin.app.ui.components.*
-import com.munchkin.app.ui.theme.DarkBackground
-import com.munchkin.app.ui.theme.Gold400
-import com.munchkin.app.ui.theme.SurfaceDark
+import com.munchkin.app.ui.theme.NeonBackground
+import com.munchkin.app.ui.theme.NeonWarning
+import com.munchkin.app.ui.theme.NeonSurface
+import com.munchkin.app.ui.theme.NeonPrimary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,8 +56,7 @@ fun AuthScreen(
                     navigationIconContentColor = Color.White
                 )
             )
-        },
-        containerColor = DarkBackground
+        }
     ) { padding ->
         Box(
             modifier = Modifier
@@ -77,12 +77,12 @@ fun AuthScreen(
                     modifier = Modifier
                         .size(80.dp)
                         .padding(bottom = 32.dp),
-                    tint = Gold400
+                    tint = NeonWarning
                 )
                 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                    colors = CardDefaults.cardColors(containerColor = NeonSurface),
                     shape = RoundedCornerShape(16.dp)
                 ) {
                     Column(
@@ -98,8 +98,8 @@ fun AuthScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 leadingIcon = { Icon(Icons.Default.Person, null) },
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = Gold400,
-                                    focusedLabelColor = Gold400
+                                    focusedBorderColor = NeonWarning,
+                                    focusedLabelColor = NeonWarning
                                 )
                             )
                         } else {
@@ -112,8 +112,8 @@ fun AuthScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 leadingIcon = { Icon(Icons.Default.Email, null) },
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = Gold400,
-                                    focusedLabelColor = Gold400
+                                    focusedBorderColor = NeonWarning,
+                                    focusedLabelColor = NeonWarning
                                 )
                             )
                         }
@@ -135,8 +135,8 @@ fun AuthScreen(
                                 }
                             },
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Gold400,
-                                focusedLabelColor = Gold400
+                                focusedBorderColor = NeonWarning,
+                                focusedLabelColor = NeonWarning
                             )
                         )
                         
@@ -159,7 +159,7 @@ fun AuthScreen(
                             enabled = !isLoading && password.isNotBlank() && ((isRegister && username.isNotBlank()) || (!isRegister && email.isNotBlank())),
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Gold400,
+                                containerColor = NeonPrimary,
                                 contentColor = Color.Black
                             )
                         ) {

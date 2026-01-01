@@ -2,119 +2,69 @@ package com.munchkin.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ============== Luma-Inspired Modern Palette ==============
+// ============== Neon Fantasy Palette ==============
 
-// Primary - Vibrant Purple/Indigo gradient colors
-val LumaPrimary = Color(0xFF7C3AED)       // Vibrant purple
-val LumaPrimaryLight = Color(0xFF8B5CF6)  // Lighter purple
-val LumaPrimaryDark = Color(0xFF6D28D9)   // Darker purple
+// Backgrounds - Deep Slate/Blue
+val NeonBackground = Color(0xFF0F172A) // Slate 900
+val NeonSurface = Color(0xFF1E293B)    // Slate 800
+val NeonSurfaceVariant = Color(0xFF334155) // Slate 700
 
-// Secondary - Warm accent
-val LumaAccent = Color(0xFFF97316)        // Orange accent
-val LumaAccentLight = Color(0xFFFB923C)
-val LumaAccentDark = Color(0xFFEA580C)
+// Primary - Electric Violet
+val NeonPrimary = Color(0xFF8B5CF6)    // Violet 500
+val NeonPrimaryLight = Color(0xFFA78BFA) // Violet 400
+val NeonPrimaryDark = Color(0xFF7C3AED)   // Violet 600
 
-// Neutral Grays - Clean, modern look
-val LumaGray50 = Color(0xFFFAFAFA)
-val LumaGray100 = Color(0xFFF4F4F5)
-val LumaGray200 = Color(0xFFE4E4E7)
-val LumaGray300 = Color(0xFFD4D4D8)
-val LumaGray400 = Color(0xFFA1A1AA)
-val LumaGray500 = Color(0xFF71717A)
-val LumaGray600 = Color(0xFF52525B)
-val LumaGray700 = Color(0xFF3F3F46)
-val LumaGray800 = Color(0xFF27272A)
-val LumaGray900 = Color(0xFF18181B)
-val LumaGray950 = Color(0xFF09090B)
+// Secondary - Hot Pink / Fuchsia
+val NeonSecondary = Color(0xFFD946EF)  // Fuchsia 500
+val NeonSecondaryLight = Color(0xFFE879F9)
+val NeonSecondaryDark = Color(0xFFC026D3)
 
-// Glass effect colors
-val GlassWhite = Color(0x1AFFFFFF)       // 10% white
-val GlassBorder = Color(0x33FFFFFF)      // 20% white border
-val GlassDark = Color(0x1A000000)        // 10% black
+// Tertiary - Cyan (Tech accents)
+val NeonCyan = Color(0xFF06B6D4)       // Cyan 500
+val NeonCyanLight = Color(0xFF22D3EE)
+val NeonCyanDark = Color(0xFF0891B2)
 
-// Success/Error/Warning
-val LumaSuccess = Color(0xFF22C55E)
-val LumaSuccessLight = Color(0xFF4ADE80)
-val LumaError = Color(0xFFEF4444)
-val LumaErrorLight = Color(0xFFF87171)
-val LumaWarning = Color(0xFFF59E0B)
+// Neutrals
+val NeonWhite = Color(0xFFF8FAFC)      // Slate 50
+val NeonGray100 = Color(0xFFF1F5F9)
+val NeonGray200 = Color(0xFFE2E8F0)
+val NeonGray300 = Color(0xFFCBD5E1)
+val NeonGray400 = Color(0xFF94A3B8)
+val NeonGray500 = Color(0xFF64748B)
 
-// Combat specific
-val HeroGreen = Color(0xFF10B981)        // Emerald
-val HeroGreenDark = Color(0xFF059669)
-val MonsterRed = Color(0xFFEF4444)       // Red
-val MonsterRedDark = Color(0xFFDC2626)
+// Glass Effects
+val GlassWhite = Color(0x1FFFFFFF)       // ~12% white
+val GlassBorder = Color(0x33FFFFFF)      // 20% white
+val GlassDark = Color(0x4D000000)        // 30% black (darker for contrast)
 
-// ============== Gradient Colors ==============
-val GradientPurpleStart = Color(0xFF7C3AED)
-val GradientPurpleEnd = Color(0xFFDB2777)
-val GradientBlueStart = Color(0xFF3B82F6)
-val GradientBlueEnd = Color(0xFF8B5CF6)
-val GradientOrangeStart = Color(0xFFF97316)
-val GradientOrangeEnd = Color(0xFFFBBF24)
+// Functional Colors
+val NeonSuccess = Color(0xFF10B981)      // Emerald 500
+val NeonError = Color(0xFFEF4444)        // Red 500
+val NeonWarning = Color(0xFFF59E0B)      // Amber 500
 
-// ============== Light Theme Colors ==============
-val LightBackground = Color(0xFFFFFFFF)
-val LightSurface = Color(0xFFFFFFFF)
-val LightSurfaceVariant = LumaGray100
-val LightOnBackground = LumaGray900
-val LightOnSurface = LumaGray900
-val LightOnSurfaceVariant = LumaGray600
-val LightOutline = LumaGray300
+// Combat Specific
+val HeroGreen = Color(0xFF10B981)
+val MonsterRed = Color(0xFFEF4444)
 
-// ============== Dark Theme Colors (Default for Luma-style) ==============
-val DarkBackground = LumaGray950
-val DarkSurface = LumaGray900
-val DarkSurfaceVariant = LumaGray800
-val DarkOnBackground = LumaGray50
-val DarkOnSurface = LumaGray100
-val DarkOnSurfaceVariant = LumaGray400
-val DarkOutline = LumaGray700
+// Gradients
+val GradientNeonPurple = listOf(NeonPrimary, NeonSecondary)
+val GradientNeonBlue = listOf(NeonCyanDark, NeonPrimary)
+val GradientNeonFire = listOf(NeonSecondary, Color(0xFFF43F5E)) // Fuchsia to Rose
 
-// ============== Card surface with glass effect ==============
-val DarkCardSurface = Color(0xFF1E1E22)
-val DarkCardBorder = Color(0xFF2A2A2E)
+// Legacy/Compat mappings (for smoother migration if any direct refs exist)
+val LumaGray100 = NeonGray100
+val LumaGray500 = NeonGray500
+val LumaGray900 = NeonBackground
+val LumaAccent = NeonSecondary
+val GradientOrangeEnd = NeonSecondaryLight
 
-// ============== Player Avatar Colors (Modern/Vibrant) ==============
-val AvatarColors = listOf(
-    Color(0xFFF43F5E), // Rose
-    Color(0xFF8B5CF6), // Violet
-    Color(0xFF3B82F6), // Blue
-    Color(0xFF14B8A6), // Teal
-    Color(0xFF22C55E), // Green
-    Color(0xFFF97316), // Orange
-    Color(0xFFEC4899), // Pink
-    Color(0xFF6366F1), // Indigo
-    Color(0xFF06B6D4), // Cyan
-    Color(0xFFA855F7), // Purple
-    Color(0xFF10B981), // Emerald
-    Color(0xFFEAB308), // Yellow
+// Avatar Colors
+val NeonAvatarColors = listOf(
+    NeonPrimary, NeonSecondary, NeonCyan, NeonSuccess, NeonWarning, NeonError,
+    Color(0xFFEC4899), Color(0xFF8B5CF6), Color(0xFF6366F1), Color(0xFF3B82F6),
+    Color(0xFF14B8A6), Color(0xFFF59E0B)
 )
 
-// Legacy compatibility
-val Gold80 = LumaAccentLight
-val Gold60 = LumaAccent
-val Gold40 = LumaAccentDark
-val GoldDark = Color(0xFFEA580C)
-val Purple80 = LumaPrimaryLight
-val Purple60 = LumaPrimary
-val Purple40 = LumaPrimaryDark
-val PurpleDark = Color(0xFF5B21B6)
-
-val Success = LumaSuccess
-val SuccessDark = Color(0xFF16A34A)
-val Error = LumaError
-val ErrorDark = Color(0xFFDC2626)
-val Warning = LumaWarning
-val WarningDark = Color(0xFFD97706)
-
-// Authentification Colors
-val Gold400 = Color(0xFFFFC107)
-val SurfaceDark = DarkSurface
-
-/**
- * Get avatar color by index.
- */
 fun getAvatarColor(avatarId: Int): Color {
-    return AvatarColors[avatarId % AvatarColors.size]
+    return NeonAvatarColors[Math.abs(avatarId) % NeonAvatarColors.size]
 }

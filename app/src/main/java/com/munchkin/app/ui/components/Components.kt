@@ -201,10 +201,10 @@ fun PlayerCard(
 ) {
     val borderColor by animateColorAsState(
         targetValue = when {
-            isTurn -> com.munchkin.app.ui.theme.Gold400 // Current Turn = Gold
-            isMe -> com.munchkin.app.ui.theme.LumaPrimary
-            isHost -> com.munchkin.app.ui.theme.LumaAccent
-            else -> com.munchkin.app.ui.theme.LumaGray700
+            isTurn -> com.munchkin.app.ui.theme.NeonWarning // Current Turn = Gold
+            isMe -> com.munchkin.app.ui.theme.NeonPrimary
+            isHost -> com.munchkin.app.ui.theme.NeonSecondary
+            else -> com.munchkin.app.ui.theme.NeonGray500
         },
         label = "borderColor"
     )
@@ -217,11 +217,11 @@ fun PlayerCard(
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         colors = CardDefaults.cardColors(
             containerColor = if (isTurn)
-                com.munchkin.app.ui.theme.LumaGray800 // Slightly lighter for turn
+                com.munchkin.app.ui.theme.NeonSurfaceVariant // Slightly lighter for turn
             else if (isMe) 
-                com.munchkin.app.ui.theme.DarkCardSurface
+                com.munchkin.app.ui.theme.NeonSurfaceVariant
             else 
-                com.munchkin.app.ui.theme.LumaGray900
+                com.munchkin.app.ui.theme.NeonSurface
         ),
         border = CardDefaults.outlinedCardBorder().copy(
             width = borderWidth,
@@ -242,7 +242,7 @@ fun PlayerCard(
                         modifier = Modifier
                             .size(56.dp)
                             .background(
-                                com.munchkin.app.ui.theme.LumaPrimary.copy(alpha = 0.2f),
+                                com.munchkin.app.ui.theme.NeonPrimary.copy(alpha = 0.2f),
                                 CircleShape
                             )
                     )
@@ -263,7 +263,7 @@ fun PlayerCard(
                         text = player.name,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = if (isMe) FontWeight.SemiBold else FontWeight.Normal,
-                        color = com.munchkin.app.ui.theme.LumaGray100
+                        color = com.munchkin.app.ui.theme.NeonGray100
                     )
                     if (isHost) {
                         Spacer(modifier = Modifier.width(6.dp))
@@ -276,12 +276,12 @@ fun PlayerCard(
                         Spacer(modifier = Modifier.width(6.dp))
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = com.munchkin.app.ui.theme.LumaPrimary.copy(alpha = 0.2f)
+                            color = com.munchkin.app.ui.theme.NeonPrimary.copy(alpha = 0.2f)
                         ) {
                             Text(
                                 text = "TÚ",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = com.munchkin.app.ui.theme.LumaPrimary,
+                                color = com.munchkin.app.ui.theme.NeonPrimary,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
@@ -290,12 +290,12 @@ fun PlayerCard(
                         Spacer(modifier = Modifier.width(6.dp))
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = com.munchkin.app.ui.theme.Gold400.copy(alpha = 0.2f)
+                            color = com.munchkin.app.ui.theme.NeonWarning.copy(alpha = 0.2f)
                         ) {
                             Text(
                                 text = "TURNO",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = com.munchkin.app.ui.theme.Gold400,
+                                color = com.munchkin.app.ui.theme.NeonWarning,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                 fontWeight = FontWeight.Bold
                             )
@@ -310,13 +310,13 @@ fun PlayerCard(
                         Box(
                             modifier = Modifier
                                 .size(6.dp)
-                                .background(com.munchkin.app.ui.theme.LumaError, CircleShape)
+                                .background(com.munchkin.app.ui.theme.NeonError, CircleShape)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = "Desconectado",
                             style = MaterialTheme.typography.bodySmall,
-                            color = com.munchkin.app.ui.theme.LumaError
+                            color = com.munchkin.app.ui.theme.NeonError
                         )
                     }
                 }
@@ -327,7 +327,7 @@ fun PlayerCard(
                 // Level with highlight
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = com.munchkin.app.ui.theme.LumaPrimary.copy(alpha = 0.15f)
+                    color = com.munchkin.app.ui.theme.NeonPrimary.copy(alpha = 0.15f)
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -336,14 +336,14 @@ fun PlayerCard(
                         Text(
                             text = "Nv",
                             style = MaterialTheme.typography.labelSmall,
-                            color = com.munchkin.app.ui.theme.LumaGray400
+                            color = com.munchkin.app.ui.theme.NeonGray400
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = "${player.level}",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            color = com.munchkin.app.ui.theme.LumaPrimary
+                            color = com.munchkin.app.ui.theme.NeonPrimary
                         )
                     }
                 }
@@ -354,7 +354,7 @@ fun PlayerCard(
                 Text(
                     text = "⚔️ ${player.combatPower}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = com.munchkin.app.ui.theme.LumaGray500
+                    color = com.munchkin.app.ui.theme.NeonGray500
                 )
             }
         }
