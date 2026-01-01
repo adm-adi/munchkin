@@ -155,8 +155,7 @@ class MainActivity : ComponentActivity() {
                                         onLeaveGame = { viewModel.leaveGame() },
                                         onConfirmWin = { viewModel.confirmWin(it) },
                                         onDismissWin = { viewModel.dismissWinConfirmation() },
-                                        onEndTurn = { viewModel.endTurn() },
-                                        onLeaveGame = { viewModel.leaveGame() }
+                                        onEndTurn = { viewModel.endTurn() }
                                     )
                                 }
                             }

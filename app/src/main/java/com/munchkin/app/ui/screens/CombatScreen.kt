@@ -21,6 +21,8 @@ import com.munchkin.app.R
 import com.munchkin.app.core.*
 import com.munchkin.app.network.CatalogMonster
 import com.munchkin.app.ui.components.CombatResultBanner
+import com.munchkin.app.ui.components.PlayerAvatar
+import androidx.compose.foundation.clickable
 import com.munchkin.app.ui.theme.MunchkinTheme
 
 /**

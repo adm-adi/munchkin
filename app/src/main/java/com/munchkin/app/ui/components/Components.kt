@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.munchkin.app.core.Gender
 import com.munchkin.app.core.PlayerState
 import com.munchkin.app.ui.theme.getAvatarColor
 
