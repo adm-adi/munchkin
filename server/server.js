@@ -29,10 +29,7 @@ class GameRoom {
         this.players = new Map(); // playerId -> { ws, name, avatarId, gender, level, gear }
         this.seq = 0;
         this.epoch = 0;
-        this.seq = 0;
-        this.epoch = 0;
         this.createdAt = Date.now();
-        this.phase = "LOBBY";
         this.phase = "LOBBY";
         this.winnerId = null;
         this.turnPlayerId = null;
@@ -88,7 +85,6 @@ class GameRoom {
             players: players,
             races: {},
             classes: {},
-            combat: null,
             combat: null,
             phase: this.phase,
             winnerId: this.winnerId,

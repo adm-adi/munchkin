@@ -25,6 +25,9 @@ data class MonsterInstance(
     val name: String,
     val baseLevel: Int,
     val flatModifier: Int = 0,
+    val treasures: Int = 1,
+    val levels: Int = 1,
+    val isUndead: Boolean = false,
     val conditionalModifiers: List<ConditionalModifier> = emptyList()
 ) {
     /**
@@ -94,7 +97,10 @@ enum class BonusTarget {
 data class CombatResult(
     val heroesPower: Int,
     val monstersPower: Int,
-    val outcome: CombatOutcome
+    val outcome: CombatOutcome,
+    val totalTreasures: Int = 0,
+    val totalLevels: Int = 0,
+    val warriorTieBreak: Boolean = false
 ) {
     val diff: Int get() = kotlin.math.abs(heroesPower - monstersPower)
 }

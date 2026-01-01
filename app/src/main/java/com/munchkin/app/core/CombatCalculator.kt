@@ -55,14 +55,45 @@ object CombatCalculator {
         
         val monstersPower = monsterBasePower + monsterConditionalBonus + monsterTempBonus
         
-        // Determine outcome (ties go to monsters)
-        val outcome = if (heroesPower > monstersPower) {
+        // Determine outcome (ties go to monsters unless a hero is a Warrior)
+        val isWarriorInvolved = isWarrior(mainPlayer, gameState) || 
+                               (helperPlayer?.let { isWarrior(it, gameState) } ?: false)
+        
+        val outcome = if (heroesPower > monstersPower || (heroesPower == monstersPower && isWarriorInvolved)) {
             CombatOutcome.WIN
         } else {
             CombatOutcome.LOSE
         }
         
-        return CombatResult(heroesPower, monstersPower, outcome)
+        // Sum rewards if won
+        val (levels, treasures) = if (outcome == CombatOutcome.WIN) {
+            Pair(
+                combatState.monsters.sumOf { it.levels },
+                combatState.monsters.sumOf { it.treasures }
+            )
+        } else {
+            Pair(0, 0)
+        }
+        
+        return CombatResult(
+            heroesPower = heroesPower,
+            monstersPower = monstersPower,
+            outcome = outcome,
+            totalLevels = levels,
+            totalTreasures = treasures,
+            warriorTieBreak = heroesPower == monstersPower && isWarriorInvolved
+        )
+    }
+    
+    /**
+     * Check if a player has the Warrior/Guerrero class.
+     */
+    private fun isWarrior(player: PlayerState, gameState: GameState): Boolean {
+        return player.classIds.any { classId ->
+            val catalogEntry = gameState.classes[classId]
+            val normalizedName = catalogEntry?.normalizedName ?: ""
+            normalizedName.contains("guerrero") || normalizedName.contains("warrior")
+        }
     }
     
     /**

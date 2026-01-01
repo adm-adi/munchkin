@@ -49,6 +49,8 @@ class GameClient {
         classDiscriminator = "type"
     }
     
+    fun isConnected(): Boolean = _connectionState.value == ConnectionState.CONNECTED
+    
     /**
      * Create a new game on the remote server.
      */
@@ -102,7 +104,8 @@ class GameClient {
                                     "playerId": "${playerMeta.playerId.value}",
                                     "name": "${playerMeta.name}",
                                     "avatarId": ${playerMeta.avatarId},
-                                    "gender": "${playerMeta.gender.name}"
+                                    "gender": "${playerMeta.gender.name}",
+                                    "userId": ${if (playerMeta.userId != null) "\"${playerMeta.userId}\"" else "null"}
                                 }
                             }
                         """.trimIndent()
@@ -556,10 +559,138 @@ class GameClient {
             Result.failure(e)
         }
     }
-    
+
+    // ============== Catalog Methods ==============
+
+    suspend fun searchMonsters(
+        serverUrl: String,
+        query: String
+    ): Result<List<CatalogMonster>> = withContext(Dispatchers.IO) {
+        val msg = CatalogSearchRequest(query)
+        val response = sendCatalogRequest(serverUrl, msg)
+        
+        response.map {
+            if (it is CatalogSearchResult) it.results else emptyList()
+        }
+    }
+
+    suspend fun addMonsterToCatalog(
+        serverUrl: String,
+        monster: CatalogMonster,
+        userId: String
+    ): Result<CatalogMonster> = withContext(Dispatchers.IO) {
+        val msg = CatalogAddRequest(monster, userId)
+        val response = sendCatalogRequest(serverUrl, msg)
+
+        response.map {
+            if (it is CatalogAddSuccess) it.monster else monster
+        }
+    }
+
+    private suspend fun sendCatalogRequest(
+        serverUrl: String,
+        message: WsMessage
+    ): Result<WsMessage> = withContext(Dispatchers.IO) {
+        try {
+            val urlParts = parseWsUrl(serverUrl) ?: return@withContext Result.failure(Exception("URL inválida"))
+            val (host, port, _) = urlParts
+            
+            // Temporary client
+            val client = HttpClient(CIO) { install(WebSockets) }
+            var result: Result<WsMessage>? = null
+            
+            client.webSocket(host = host, port = port, path = "/") {
+                val jsonStr = json.encodeToString<WsMessage>(message)
+                send(jsonStr)
+                
+                try {
+                    val frame = incoming.receive()
+                    if (frame is Frame.Text) {
+                        val text = frame.readText()
+                        val response = json.decodeFromString<WsMessage>(text)
+                        
+                        if (response is ErrorMessage) {
+                            result = Result.failure(Exception(response.message))
+                        } else {
+                            result = Result.success(response)
+                        }
+                    }
+                } catch (e: Exception) {
+                    result = Result.failure(e)
+                }
+                close()
+            }
+            client.close()
+            
+            result ?: Result.failure(Exception("Sin respuesta del catálogo"))
+            
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // ============== History Methods ==============
+
+    suspend fun sendGameOver(
+        serverUrl: String,
+        gameId: String,
+        winnerId: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val msg = GameOverMessage(gameId, winnerId)
+        // Use temp connection or active session?
+        // Since host is likely connected, use session if available?
+        // But session logic is tied to connect() flow.
+        // It's safer to use the dedicated "sendCatalogRequest" style temp connection for these "one-off" events if we want reliable ack,
+        // OR reuse session if we are sure we are connected.
+        // However, GAME_OVER usually happens when still connected.
+        // Let's use sendCatalogRequest style for robustness or if connection drops.
+        // Actually, if we use temp connection, server handles it fine (stateless handler).
+        
+        sendOneOffRequest(serverUrl, msg).map { }
+    }
+
+    suspend fun sendEndTurn(): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            session?.send(Json.encodeToString(WsMessage.serializer(), EndTurnMessage))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getHistory(
+        serverUrl: String,
+        userId: String
+    ): Result<List<GameHistoryItem>> = withContext(Dispatchers.IO) {
+        val request = GetHistoryRequest(userId)
+        sendOneOffRequest(serverUrl, request).map { response ->
+            if (response is HistoryResult) {
+                response.games
+            } else {
+                emptyList()
+            }
+        }
+    }
+
+    suspend fun getLeaderboard(
+        serverUrl: String
+    ): Result<List<LeaderboardEntry>> = withContext(Dispatchers.IO) {
+        sendOneOffRequest(serverUrl, GetLeaderboardRequest).map { response ->
+            if (response is LeaderboardResult) {
+                response.leaderboard
+            } else {
+                emptyList()
+            }
+        }
+    }
+
     /**
-     * Parse WebSocket URL into components.
+     * Helper for "One Off" requests (connect, send, receive, close).
      */
+    private suspend fun sendOneOffRequest(
+        serverUrl: String,
+        message: WsMessage
+    ): Result<WsMessage> = sendCatalogRequest(serverUrl, message)
     private fun parseWsUrl(url: String): Triple<String, Int, String>? {
         val regex = Regex("""ws://([^:]+):(\d+)(/.*)?""")
         val match = regex.find(url) ?: return null

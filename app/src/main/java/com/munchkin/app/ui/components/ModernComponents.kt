@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,6 +31,7 @@ import com.munchkin.app.ui.theme.*
 fun GlassCard(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 20.dp,
+    borderColor: Color? = null,
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -38,7 +40,7 @@ fun GlassCard(
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
             .border(
                 width = 1.dp,
-                color = DarkCardBorder,
+                color = borderColor ?: DarkCardBorder,
                 shape = RoundedCornerShape(cornerRadius)
             ),
         shape = RoundedCornerShape(cornerRadius),
@@ -335,4 +337,53 @@ fun ModernChip(
             )
         }
     }
+}
+
+/**
+ * Modern glass-effect top app bar.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GlassTopAppBar(
+    title: String,
+    onNavigationClick: () -> Unit,
+    navigationIcon: ImageVector = Icons.AutoMirrored.Filled.ArrowBack,
+    actions: @Composable RowScope.() -> Unit = {}
+) {
+    CenterAlignedTopAppBar(
+        title = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = LumaGray50
+            )
+        },
+        navigationIcon = {
+            IconButton(onClick = onNavigationClick) {
+                Icon(
+                    imageVector = navigationIcon,
+                    contentDescription = "Atrás",
+                    tint = LumaGray200
+                )
+            }
+        },
+        actions = actions,
+        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+            containerColor = Color.Transparent,
+            scrolledContainerColor = Color.Transparent,
+            navigationIconContentColor = LumaGray200,
+            titleContentColor = LumaGray50,
+            actionIconContentColor = LumaGray200
+        ),
+        modifier = Modifier.background(
+            Brush.verticalGradient(
+                listOf(
+                    LumaGray950.copy(alpha = 0.9f),
+                    LumaGray950.copy(alpha = 0.7f),
+                    Color.Transparent
+                )
+            )
+        )
+    )
 }

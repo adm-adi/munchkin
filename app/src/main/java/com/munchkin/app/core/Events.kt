@@ -353,5 +353,6 @@ data class CombatEnd(
     override val timestamp: Long,
     override val targetPlayerId: PlayerId? = null,
     val outcome: CombatOutcome,
-    val levelsGained: Int = 0
+    val levelsGained: Int = 0,
+    val treasuresGained: Int = 0
 ) : GameEvent()

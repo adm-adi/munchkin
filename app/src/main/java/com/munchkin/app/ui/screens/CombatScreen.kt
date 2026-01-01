@@ -19,6 +19,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.munchkin.app.R
 import com.munchkin.app.core.*
+import com.munchkin.app.network.CatalogMonster
 import com.munchkin.app.ui.components.CombatResultBanner
 import com.munchkin.app.ui.theme.MunchkinTheme
 
@@ -30,19 +31,19 @@ import com.munchkin.app.ui.theme.MunchkinTheme
 fun CombatScreen(
     gameState: GameState,
     myPlayerId: PlayerId,
+    monsterSearchResults: List<CatalogMonster>,
     onStartCombat: () -> Unit,
-    onAddMonster: (name: String, level: Int, modifier: Int) -> Unit,
-    onEndCombat: (CombatOutcome, Int) -> Unit,
+    onAddMonster: (name: String, level: Int, modifier: Int, isUndead: Boolean) -> Unit,
+    onSearchMonsters: (String) -> Unit,
+    onRequestCreateGlobalMonster: (String, Int, Int, Boolean) -> Unit,
+    onEndCombat: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val combatState = gameState.combat
-    val myPlayer = gameState.players[myPlayerId]
+    // myPlayer removed - was unused
     
     // Monster input state
-    var monsterName by remember { mutableStateOf("") }
-    var monsterLevel by remember { mutableStateOf("1") }
-    var monsterModifier by remember { mutableStateOf("0") }
     var showAddMonster by remember { mutableStateOf(false) }
     
     // Calculate result
@@ -188,12 +189,9 @@ fun CombatScreen(
                 
                 // End combat button
                 item {
-                    result?.let { r ->
+                    result?.let { _ ->
                         Button(
-                            onClick = { 
-                                val levels = if (r.outcome == CombatOutcome.WIN) combatState.monsters.size else 0
-                                onEndCombat(r.outcome, levels)
-                            },
+                            onClick = onEndCombat,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(56.dp),
@@ -211,68 +209,110 @@ fun CombatScreen(
     
     // Add monster dialog
     if (showAddMonster) {
-        AlertDialog(
-            onDismissRequest = { showAddMonster = false },
-            title = { Text(stringResource(R.string.add_monster)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(
-                        value = monsterName,
-                        onValueChange = { monsterName = it },
-                        label = { Text(stringResource(R.string.monster_name)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(
-                            value = monsterLevel,
-                            onValueChange = { monsterLevel = it.filter { c -> c.isDigit() } },
-                            label = { Text(stringResource(R.string.monster_level)) },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                        )
-                        OutlinedTextField(
-                            value = monsterModifier,
-                            onValueChange = { 
-                                monsterModifier = it.filter { c -> c.isDigit() || c == '-' }
-                            },
-                            label = { Text(stringResource(R.string.modifier)) },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                        )
-                    }
-                }
+        MonsterSearchDialog(
+            searchResults = monsterSearchResults,
+            onSearch = onSearchMonsters,
+            onDismiss = { showAddMonster = false },
+            onSelectMonster = { monster ->
+                // Add local AND ensure it's in catalog (implicit by selection)
+                onAddMonster(monster.name, monster.level, monster.modifier, monster.isUndead)
+                showAddMonster = false
             },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (monsterName.isNotBlank()) {
-                            onAddMonster(
-                                monsterName,
-                                monsterLevel.toIntOrNull() ?: 1,
-                                monsterModifier.toIntOrNull() ?: 0
-                            )
-                            monsterName = ""
-                            monsterLevel = "1"
-                            monsterModifier = "0"
-                            showAddMonster = false
-                        }
-                    },
-                    enabled = monsterName.isNotBlank()
-                ) {
-                    Text(stringResource(R.string.ok))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddMonster = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
+            onCreateNew = { name, level, mod, undead ->
+                // Create global then add local (handled by ViewModel on success)
+                onRequestCreateGlobalMonster(name, level, mod, undead)
+                showAddMonster = false
             }
         )
     }
+}
+
+@Composable
+fun MonsterSearchDialog(
+    searchResults: List<CatalogMonster>,
+    onSearch: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onSelectMonster: (CatalogMonster) -> Unit,
+    onCreateNew: (String, Int, Int, Boolean) -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    var level by remember { mutableStateOf("1") }
+    
+    // Debounce search
+    LaunchedEffect(query) {
+        if (query.length >= 2) {
+            kotlinx.coroutines.delay(500)
+            onSearch(query)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Añadir Monstruo") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Buscar Monstruo (Ej: Dragón...)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                if (query.isNotEmpty() && searchResults.isNotEmpty()) {
+                    Text("Resultados:", style = MaterialTheme.typography.labelSmall)
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 150.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(searchResults) { monster ->
+                            Card(
+                                onClick = { onSelectMonster(monster) },
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(monster.name, fontWeight = FontWeight.Bold)
+                                    Text("Lvl ${monster.level}")
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                HorizontalDivider()
+                Text("O crear nuevo:", style = MaterialTheme.typography.labelSmall)
+                
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = level,
+                        onValueChange = { level = it.filter { c -> c.isDigit() } },
+                        label = { Text("Nivel") },
+                        modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (query.isNotBlank()) {
+                         // Default logic: Create new if not clicked in list
+                         onCreateNew(query, level.toIntOrNull() ?: 1, 0, false)
+                    }
+                },
+                enabled = query.isNotBlank()
+            ) {
+                Text("Crear Nuevo")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
 }
 
 @Composable

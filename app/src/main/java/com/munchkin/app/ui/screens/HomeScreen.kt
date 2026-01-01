@@ -40,6 +40,7 @@ fun HomeScreen(
     onSettings: () -> Unit,
     onAuth: () -> Unit,
     onLogout: () -> Unit,
+    onLeaderboardClick: () -> Unit,
     userProfile: com.munchkin.app.network.UserProfile?,
     modifier: Modifier = Modifier
 ) {
@@ -141,6 +142,27 @@ fun HomeScreen(
                             },
                             leadingIcon = {
                                 Icon(Icons.Default.Logout, null, tint = Color.Red)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Ranking Global", color = Color.White) },
+                            onClick = {
+                                showMenu = false
+                                onLeaderboardClick()
+                            },
+                             leadingIcon = {
+                                Icon(Icons.Default.EmojiEvents, null, tint = Gold400)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Ver Perfil", color = Color.White) },
+                            onClick = {
+                                showMenu = false
+                                // We might need a lambda for this, but for now assuming userProfile is enough context 
+                                // Actually we passed standard callbacks. Let's add onProfileClick
+                            },
+                             leadingIcon = {
+                                Icon(Icons.Default.Person, null, tint = LumaPrimary)
                             }
                         )
                     }

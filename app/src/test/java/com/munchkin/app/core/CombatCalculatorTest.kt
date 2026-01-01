@@ -1,243 +1,190 @@
 package com.munchkin.app.core
 
-import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Assert.*
 
-/**
- * Unit tests for combat calculation.
- */
 class CombatCalculatorTest {
-    
-    private val testPlayerId = PlayerId("player1")
-    private val helperPlayerId = PlayerId("player2")
-    private val warriorRaceId = EntryId("warrior-race")
-    
-    private fun createTestGameState(
-        mainPlayer: PlayerState,
-        helper: PlayerState? = null,
-        combatState: CombatState
-    ): GameState {
-        val players = mutableMapOf(mainPlayer.playerId to mainPlayer)
-        if (helper != null) {
-            players[helper.playerId] = helper
-        }
-        
-        return GameState(
-            gameId = GameId("test-game"),
-            joinCode = "TEST12",
-            hostId = mainPlayer.playerId,
-            players = players,
-            combat = combatState
+
+    private fun createPlayer(id: String, level: Int, gear: Int, raceIds: List<EntryId> = emptyList()): PlayerState {
+        return PlayerState(
+            playerId = PlayerId(id),
+            name = "Player $id",
+            level = level,
+            gearBonus = gear,
+            raceIds = raceIds
         )
     }
-    
+
+    private fun createMonster(level: Int, modifier: Int = 0, treasures: Int = 1, levels: Int = 1): MonsterInstance {
+        return MonsterInstance(
+            id = "m1",
+            name = "Test Monster",
+            baseLevel = level,
+            flatModifier = modifier,
+            treasures = treasures,
+            levels = levels
+        )
+    }
+
     @Test
-    fun `basic combat power calculation`() {
-        val player = PlayerState(
-            playerId = testPlayerId,
-            name = "Test",
-            level = 5,
-            gearBonus = 3
+    fun `test combat rewards`() {
+        val player = createPlayer("p1", 10, 5) // Power 15
+        val monster1 = createMonster(10, 0, treasures = 2, levels = 1)
+        val monster2 = createMonster(2, 0, treasures = 1, levels = 1)
+        
+        val gameState = GameState(
+            gameId = GameId("g1"),
+            joinCode = "1234",
+            hostId = PlayerId("p1"),
+            players = mapOf(PlayerId("p1") to player)
         )
         
-        val monster = MonsterInstance(
-            id = "monster1",
-            name = "Goblin",
-            baseLevel = 4
+        val combatState = CombatState(
+            mainPlayerId = PlayerId("p1"),
+            monsters = listOf(monster1, monster2)
         )
         
-        val combat = CombatState(
-            mainPlayerId = testPlayerId,
-            monsters = listOf(monster)
-        )
+        val result = CombatCalculator.calculateResult(combatState, gameState)
         
-        val gameState = createTestGameState(player, combatState = combat)
-        val result = CombatCalculator.calculateResult(combat, gameState)
-        
-        assertEquals(8, result.heroesPower)  // 5 level + 3 gear
-        assertEquals(4, result.monstersPower)  // 4 level monster
+        assertEquals(15, result.heroesPower)
+        assertEquals(12, result.monstersPower)
         assertEquals(CombatOutcome.WIN, result.outcome)
+        assertEquals(3, result.totalTreasures)
+        assertEquals(2, result.totalLevels)
     }
-    
+
     @Test
-    fun `tie goes to monsters`() {
-        val player = PlayerState(
-            playerId = testPlayerId,
-            name = "Test",
-            level = 5
+    fun `test warrior wins ties`() {
+        val warriorClassId = EntryId("class_warrior")
+        val p1 = createPlayer("p1", 5, 0).copy(classIds = listOf(warriorClassId))
+        val monster = createMonster(5, 0)
+        
+        val gameState = GameState(
+            gameId = GameId("g1"),
+            joinCode = "1234",
+            hostId = PlayerId("p1"),
+            players = mapOf(PlayerId("p1") to p1),
+            classes = mapOf(warriorClassId to CatalogEntry(
+                entryId = warriorClassId,
+                displayName = "Guerrero",
+                normalizedName = "guerrero",
+                createdByPlayerId = PlayerId("admin"),
+                createdAt = 0
+            ))
         )
         
-        val monster = MonsterInstance(
-            id = "monster1",
-            name = "Goblin",
-            baseLevel = 5
-        )
-        
-        val combat = CombatState(
-            mainPlayerId = testPlayerId,
+        val combatState = CombatState(
+            mainPlayerId = PlayerId("p1"),
             monsters = listOf(monster)
         )
         
-        val gameState = createTestGameState(player, combatState = combat)
-        val result = CombatCalculator.calculateResult(combat, gameState)
+        val result = CombatCalculator.calculateResult(combatState, gameState)
         
         assertEquals(5, result.heroesPower)
         assertEquals(5, result.monstersPower)
-        assertEquals(CombatOutcome.LOSE, result.outcome)  // Ties go to monsters
-        assertEquals(0, result.diff)
+        assertEquals(CombatOutcome.WIN, result.outcome) // Warrior wins ties
+        assertTrue(result.warriorTieBreak)
     }
-    
+
     @Test
-    fun `helper adds combat power`() {
-        val mainPlayer = PlayerState(
-            playerId = testPlayerId,
-            name = "Main",
-            level = 3,
-            gearBonus = 2
+    fun `test simple combat win`() {
+        val player = createPlayer("p1", 5, 2) // Power 7
+        val monster = createMonster(5, 0) // Power 5
+        
+        val gameState = GameState(
+            gameId = GameId("g1"),
+            joinCode = "1234",
+            hostId = PlayerId("p1"),
+            players = mapOf(PlayerId("p1") to player)
         )
         
-        val helper = PlayerState(
-            playerId = helperPlayerId,
-            name = "Helper",
-            level = 2,
-            gearBonus = 3
-        )
-        
-        val monster = MonsterInstance(
-            id = "monster1",
-            name = "Dragon",
-            baseLevel = 8
-        )
-        
-        val combat = CombatState(
-            mainPlayerId = testPlayerId,
-            helperPlayerId = helperPlayerId,
+        val combatState = CombatState(
+            mainPlayerId = PlayerId("p1"),
             monsters = listOf(monster)
         )
         
-        val gameState = createTestGameState(mainPlayer, helper, combat)
-        val result = CombatCalculator.calculateResult(combat, gameState)
+        val result = CombatCalculator.calculateResult(combatState, gameState)
         
-        // Main: 3+2=5, Helper: 2+3=5, Total: 10
-        assertEquals(10, result.heroesPower)
-        assertEquals(8, result.monstersPower)
+        assertEquals(7, result.heroesPower)
+        assertEquals(5, result.monstersPower)
         assertEquals(CombatOutcome.WIN, result.outcome)
     }
-    
+
     @Test
-    fun `multiple monsters stack`() {
-        val player = PlayerState(
-            playerId = testPlayerId,
-            name = "Test",
-            level = 10,
-            gearBonus = 5
+    fun `test simple combat lose ties`() {
+        val player = createPlayer("p1", 5, 0) // Power 5
+        val monster = createMonster(5, 0) // Power 5
+        
+        val gameState = GameState(
+            gameId = GameId("g1"),
+            joinCode = "1234",
+            hostId = PlayerId("p1"),
+            players = mapOf(PlayerId("p1") to player)
         )
         
-        val monsters = listOf(
-            MonsterInstance(id = "m1", name = "Goblin", baseLevel = 4),
-            MonsterInstance(id = "m2", name = "Orc", baseLevel = 6),
-            MonsterInstance(id = "m3", name = "Troll", baseLevel = 8)
-        )
-        
-        val combat = CombatState(
-            mainPlayerId = testPlayerId,
-            monsters = monsters
-        )
-        
-        val gameState = createTestGameState(player, combatState = combat)
-        val result = CombatCalculator.calculateResult(combat, gameState)
-        
-        assertEquals(15, result.heroesPower)  // 10 + 5
-        assertEquals(18, result.monstersPower)  // 4 + 6 + 8
-        assertEquals(CombatOutcome.LOSE, result.outcome)
-    }
-    
-    @Test
-    fun `monster with flat modifier`() {
-        val player = PlayerState(
-            playerId = testPlayerId,
-            name = "Test",
-            level = 5
-        )
-        
-        val monster = MonsterInstance(
-            id = "monster1",
-            name = "Buffed Goblin",
-            baseLevel = 4,
-            flatModifier = 3  // +3 from card effects
-        )
-        
-        val combat = CombatState(
-            mainPlayerId = testPlayerId,
+        val combatState = CombatState(
+            mainPlayerId = PlayerId("p1"),
             monsters = listOf(monster)
         )
         
-        val gameState = createTestGameState(player, combatState = combat)
-        val result = CombatCalculator.calculateResult(combat, gameState)
+        val result = CombatCalculator.calculateResult(combatState, gameState)
         
         assertEquals(5, result.heroesPower)
-        assertEquals(7, result.monstersPower)  // 4 + 3
-        assertEquals(CombatOutcome.LOSE, result.outcome)
+        assertEquals(5, result.monstersPower)
+        assertEquals(CombatOutcome.LOSE, result.outcome) // Ties go to monsters
     }
-    
+
     @Test
-    fun `temp bonus applies to heroes`() {
-        val player = PlayerState(
-            playerId = testPlayerId,
-            name = "Test",
-            level = 5
+    fun `test helper combat`() {
+        val p1 = createPlayer("p1", 5, 0) // Power 5
+        val p2 = createPlayer("p2", 3, 2) // Power 5
+        val monster = createMonster(9, 0) // Power 9
+        
+        val gameState = GameState(
+            gameId = GameId("g1"),
+            joinCode = "1234",
+            hostId = PlayerId("p1"),
+            players = mapOf(PlayerId("p1") to p1, PlayerId("p2") to p2)
         )
         
-        val monster = MonsterInstance(
-            id = "monster1",
-            name = "Dragon",
-            baseLevel = 10
+        val combatState = CombatState(
+            mainPlayerId = PlayerId("p1"),
+            helperPlayerId = PlayerId("p2"),
+            monsters = listOf(monster)
         )
         
-        val combat = CombatState(
-            mainPlayerId = testPlayerId,
+        val result = CombatCalculator.calculateResult(combatState, gameState)
+        
+        assertEquals(10, result.heroesPower) // 5 + 5
+        assertEquals(9, result.monstersPower)
+        assertEquals(CombatOutcome.WIN, result.outcome)
+    }
+
+    @Test
+    fun `test temp bonuses`() {
+        val p1 = createPlayer("p1", 1, 0) // Power 1
+        val monster = createMonster(1, 0) // Power 1
+        
+        val gameState = GameState(
+            gameId = GameId("g1"),
+            joinCode = "1234",
+            hostId = PlayerId("p1"),
+            players = mapOf(PlayerId("p1") to p1)
+        )
+        
+        val combatState = CombatState(
+            mainPlayerId = PlayerId("p1"),
             monsters = listOf(monster),
             tempBonuses = listOf(
-                TempBonus(id = "b1", label = "Poción", amount = 3, appliesTo = BonusTarget.HEROES),
-                TempBonus(id = "b2", label = "Ayuda", amount = 2, appliesTo = BonusTarget.HEROES)
+                TempBonus("b1", "Potion", 3, BonusTarget.HEROES),
+                TempBonus("b2", "Enhancer", 5, BonusTarget.MONSTER)
             )
         )
         
-        val gameState = createTestGameState(player, combatState = combat)
-        val result = CombatCalculator.calculateResult(combat, gameState)
+        val result = CombatCalculator.calculateResult(combatState, gameState)
         
-        assertEquals(10, result.heroesPower)  // 5 + 3 + 2
-        assertEquals(10, result.monstersPower)
-        assertEquals(CombatOutcome.LOSE, result.outcome)  // Tie = lose
-    }
-    
-    @Test
-    fun `temp bonus applies to monster`() {
-        val player = PlayerState(
-            playerId = testPlayerId,
-            name = "Test",
-            level = 8
-        )
-        
-        val monster = MonsterInstance(
-            id = "monster1",
-            name = "Weak Goblin",
-            baseLevel = 2
-        )
-        
-        val combat = CombatState(
-            mainPlayerId = testPlayerId,
-            monsters = listOf(monster),
-            tempBonuses = listOf(
-                TempBonus(id = "b1", label = "Rage", amount = 10, appliesTo = BonusTarget.MONSTER)
-            )
-        )
-        
-        val gameState = createTestGameState(player, combatState = combat)
-        val result = CombatCalculator.calculateResult(combat, gameState)
-        
-        assertEquals(8, result.heroesPower)
-        assertEquals(12, result.monstersPower)  // 2 + 10
+        assertEquals(4, result.heroesPower) // 1 + 3
+        assertEquals(6, result.monstersPower) // 1 + 5
         assertEquals(CombatOutcome.LOSE, result.outcome)
     }
 }

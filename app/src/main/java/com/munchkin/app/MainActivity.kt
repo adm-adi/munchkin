@@ -70,6 +70,10 @@ class MainActivity : ComponentActivity() {
                                     onSettings = { viewModel.navigateTo(Screen.SETTINGS) },
                                     onAuth = { viewModel.navigateTo(Screen.AUTH) },
                                     onLogout = { viewModel.logout() },
+                                    onLeaderboardClick = { 
+                                        viewModel.loadLeaderboard() // Load data
+                                        viewModel.navigateTo(Screen.LEADERBOARD) 
+                                    },
                                     userProfile = uiState.userProfile
                                 )
                             }
@@ -131,11 +135,15 @@ class MainActivity : ComponentActivity() {
                                         myPlayerId = myPlayerId,
                                         isHost = uiState.isHost,
                                         connectionState = uiState.connectionState,
+                                        pendingWinnerId = uiState.pendingWinnerId,
                                         onPlayerClick = { viewModel.navigateTo(Screen.PLAYER_DETAIL) },
                                         onCombatClick = { viewModel.navigateTo(Screen.COMBAT) },
                                         onCatalogClick = { viewModel.navigateTo(Screen.CATALOG) },
                                         onSettingsClick = { viewModel.navigateTo(Screen.SETTINGS) },
-                                        onLeaveGame = { viewModel.leaveGame() }
+                                        onLeaveGame = { viewModel.leaveGame() },
+                                        onConfirmWin = { viewModel.confirmWin(it) },
+                                        onDismissWin = { viewModel.dismissWinConfirmation() },
+                                        onEndTurn = { viewModel.endTurn() }
                                     )
                                 }
                             }
@@ -173,12 +181,17 @@ class MainActivity : ComponentActivity() {
                                     CombatScreen(
                                         gameState = gameState,
                                         myPlayerId = myPlayerId,
+                                        monsterSearchResults = uiState.monsterSearchResults,
                                         onStartCombat = { viewModel.startCombat() },
-                                        onAddMonster = { name, level, mod -> 
-                                            viewModel.addMonster(name, level, mod) 
+                                        onAddMonster = { name, level, mod, isUndead -> 
+                                            viewModel.addMonster(name, level, mod, isUndead) 
                                         },
-                                        onEndCombat = { outcome, levels -> 
-                                            viewModel.endCombat(outcome, levels)
+                                        onSearchMonsters = { query -> viewModel.searchMonsters(query) },
+                                        onRequestCreateGlobalMonster = { name, level, mod, isUndead ->
+                                            viewModel.requestCreateGlobalMonster(name, level, mod, isUndead)
+                                        },
+                                        onEndCombat = { 
+                                            viewModel.endCombat()
                                             viewModel.goBack()
                                         },
                                         onBack = { viewModel.goBack() }
@@ -208,6 +221,27 @@ class MainActivity : ComponentActivity() {
                                     onBack = { viewModel.navigateTo(Screen.HOME) },
                                     isLoading = uiState.isLoading,
                                     error = uiState.error
+                                )
+                            }
+
+                            Screen.PROFILE -> {
+                                uiState.userProfile?.let { user ->
+                                    ProfileScreen(
+                                        userProfile = user,
+                                        gameHistory = uiState.gameHistory,
+                                        isLoading = uiState.isLoading,
+                                        onBack = { viewModel.navigateTo(Screen.HOME) },
+                                        onRefresh = { viewModel.loadHistory() }
+                                    )
+                                }
+                            }
+
+                            Screen.LEADERBOARD -> {
+                                LeaderboardScreen(
+                                    leaderboard = uiState.leaderboard,
+                                    isLoading = uiState.isLoading,
+                                    onBack = { viewModel.navigateTo(Screen.HOME) },
+                                    onRefresh = { viewModel.loadLeaderboard() }
                                 )
                             }
                         }

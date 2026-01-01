@@ -47,6 +47,7 @@ data class PlayerState(
     val level: Int = 1,
     val gearBonus: Int = 0,
     val tempCombatBonus: Int = 0,
+    val treasures: Int = 0,
     val raceIds: List<EntryId> = emptyList(),
     val classIds: List<EntryId> = emptyList(),
     val hasHalfBreed: Boolean = false,
@@ -124,6 +125,8 @@ data class GameState(
     val classes: Map<EntryId, CatalogEntry> = emptyMap(),
     val combat: CombatState? = null,
     val phase: GamePhase = GamePhase.LOBBY,
+    val winnerId: PlayerId? = null,
+    val turnPlayerId: PlayerId? = null, // Current active player
     val createdAt: Long = System.currentTimeMillis(),
     val settings: GameSettings = GameSettings()
 ) {
@@ -174,5 +177,6 @@ data class PlayerMeta(
     val playerId: PlayerId,
     val name: String,
     val avatarId: Int,
-    val gender: Gender
+    val gender: Gender,
+    val userId: String? = null
 )

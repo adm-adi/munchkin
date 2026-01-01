@@ -138,7 +138,6 @@ class GameViewModel : ViewModel() {
                     if (nsdHelper == null) {
                         nsdHelper = NsdHelper(MunchkinApp.context)
                     }
-                    val localIp = getLocalIpAddress()
                     nsdHelper?.publishGame(
                         hostName = saved.gameState.players[saved.myPlayerId]?.name ?: "Host",
                         joinCode = saved.gameState.joinCode,
@@ -257,11 +256,13 @@ class GameViewModel : ViewModel() {
                 android.util.Log.d("GameViewModel", "Generated playerId: ${playerId.value}")
                 
                 // Create player meta
+                val user = _uiState.value.userProfile
                 val playerMeta = PlayerMeta(
                     playerId = playerId,
                     name = name.trim(),
                     avatarId = avatarId,
-                    gender = gender
+                    gender = gender,
+                    userId = user?.id
                 )
                 
                 DLog.i("GameVM", "🎮 Creating game on Hetzner...")
@@ -295,6 +296,11 @@ class GameViewModel : ViewModel() {
                 
                 // Save game state
                 gameRepository?.saveGame(gameState, playerId, true)
+                
+                // Initialize local engine for state tracking
+                val engine = GameEngine()
+                engine.loadState(gameState)
+                gameEngine = engine
                 
                 // Update state and go to lobby
                 _uiState.update {
@@ -330,24 +336,14 @@ class GameViewModel : ViewModel() {
      * Start the game (host only).
      */
     fun startGame() {
-        viewModelScope.launch {
-            if (!isHost) return@launch
-            
-            val engine = gameEngine ?: return@launch
-            val state = engine.gameState.value ?: return@launch
-            val pid = myPlayerId ?: return@launch
-            
-            val event = GameStart(
+        if (!isHost) return
+        
+        sendPlayerEvent { playerId ->
+            GameStart(
                 eventId = UUID.randomUUID().toString(),
-                actorId = pid,
-                timestamp = System.currentTimeMillis(),
-                targetPlayerId = null
+                actorId = playerId,
+                timestamp = System.currentTimeMillis()
             )
-            
-            val result = engine.processEvent(event)
-            if (result is ValidationResult.Error) {
-                _events.emit(GameUiEvent.ShowError(result.message))
-            }
         }
     }
     
@@ -373,11 +369,13 @@ class GameViewModel : ViewModel() {
                 isHost = false
                 
                 // Create player meta
+                val user = _uiState.value.userProfile
                 val playerMeta = PlayerMeta(
                     playerId = playerId,
                     name = name.trim(),
                     avatarId = avatarId,
-                    gender = gender
+                    gender = gender,
+                    userId = user?.id
                 )
                 
                 // Connect to server
@@ -398,6 +396,12 @@ class GameViewModel : ViewModel() {
                 
                 // Update state with received game state
                 val gameState = result.getOrNull()
+                
+                // Initialize local engine for state tracking
+                val engine = GameEngine()
+                gameState?.let { engine.loadState(it) }
+                gameEngine = engine
+                
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -756,7 +760,72 @@ class GameViewModel : ViewModel() {
     /**
      * Add a monster to combat.
      */
-    fun addMonster(name: String, level: Int, modifier: Int = 0) {
+
+    
+    // ============== Catalog Actions ==============
+
+    fun searchMonsters(query: String) {
+        viewModelScope.launch {
+            if (query.isBlank()) {
+                _uiState.update { it.copy(monsterSearchResults = emptyList()) }
+                return@launch
+            }
+            
+            try {
+                // Use temp client or existing game client
+                val client = GameClient()
+                val result = client.searchMonsters(SERVER_URL, query)
+                
+                if (result.isSuccess) {
+                    _uiState.update { 
+                        it.copy(monsterSearchResults = result.getOrElse { emptyList() }) 
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore errors for search
+            }
+        }
+    }
+
+    fun requestCreateGlobalMonster(name: String, level: Int, modifier: Int, isUndead: Boolean) {
+        val user = _uiState.value.userProfile
+        val userId = user?.id ?: myPlayerId?.value ?: "anon"
+        
+        val monster = CatalogMonster(
+            name = name,
+            level = level,
+            modifier = modifier,
+            isUndead = isUndead,
+            createdBy = user?.username
+        )
+
+        viewModelScope.launch {
+            try {
+                val client = GameClient()
+                val result = client.addMonsterToCatalog(SERVER_URL, monster, userId)
+                
+                if (result.isSuccess) {
+                    val created = result.getOrNull()
+                    if (created != null) {
+                        // Auto-add to combat if in combat?
+                        addMonster(created.name, created.level, created.modifier, created.isUndead)
+                        _events.emit(GameUiEvent.ShowSuccess("Monstruo creado: ${created.name}"))
+                        
+                        // Also trigger a search to show it?
+                    }
+                } else {
+                    _events.emit(GameUiEvent.ShowError("Error al guardar monstruo"))
+                }
+            } catch (e: Exception) {
+                _events.emit(GameUiEvent.ShowError("Error: ${e.message}"))
+            }
+        }
+    }
+
+    /**
+     * Add a monster to combat.
+     */
+    fun addMonster(name: String, level: Int, modifier: Int, isUndead: Boolean) {
         sendPlayerEvent { playerId ->
             CombatAddMonster(
                 eventId = UUID.randomUUID().toString(),
@@ -766,23 +835,28 @@ class GameViewModel : ViewModel() {
                     id = UUID.randomUUID().toString(),
                     name = name,
                     baseLevel = level,
-                    flatModifier = modifier
+                    flatModifier = modifier,
+                    isUndead = isUndead
                 )
             )
         }
     }
     
-    /**
-     * End combat.
-     */
-    fun endCombat(outcome: CombatOutcome, levelsGained: Int = 0) {
+    fun endCombat() {
+        val currentGameState = _uiState.value.gameState ?: return
+        val currentCombat = currentGameState.combat ?: return
+        
+        // Calculate result locally to get rewards
+        val result = CombatCalculator.calculateResult(currentCombat, currentGameState)
+        
         sendPlayerEvent { playerId ->
             CombatEnd(
                 eventId = UUID.randomUUID().toString(),
                 actorId = playerId,
                 timestamp = System.currentTimeMillis(),
-                outcome = outcome,
-                levelsGained = levelsGained
+                outcome = result.outcome,
+                levelsGained = result.totalLevels,
+                treasuresGained = result.totalTreasures
             )
         }
     }
@@ -828,6 +902,10 @@ class GameViewModel : ViewModel() {
         }
     }
     
+
+    
+
+
     override fun onCleared() {
         super.onCleared()
         nsdHelper?.cleanup()
@@ -844,19 +922,19 @@ class GameViewModel : ViewModel() {
             val playerId = myPlayerId ?: return@launch
             val event = eventBuilder(playerId)
             
-            if (isHost) {
-                // Process locally
+            val client = gameClient
+            if (client != null && client.isConnected()) {
+                // Network mode: send to server (the server will broadcast)
+                val result = client.sendEvent(event)
+                if (result.isFailure) {
+                    _events.emit(GameUiEvent.ShowError("Error de conexión"))
+                }
+            } else if (isHost) {
+                // Local mode (offline/host): process locally
                 val engine = gameEngine ?: return@launch
                 val result = engine.processEvent(event)
                 if (result is ValidationResult.Error) {
                     _events.emit(GameUiEvent.ShowError(result.message))
-                }
-            } else {
-                // Send to server
-                val client = gameClient ?: return@launch
-                val result = client.sendEvent(event)
-                if (result.isFailure) {
-                    _events.emit(GameUiEvent.ShowError("Error de conexión"))
                 }
             }
         }
@@ -882,12 +960,32 @@ class GameViewModel : ViewModel() {
         }
     }
     
+    private var hasRecordedGame = false
+
     private fun observeClientState() {
         viewModelScope.launch {
             gameClient?.gameState?.collect { state ->
                 state?.let { s ->
                     _uiState.update { it.copy(gameState = s) }
                     
+                    // HOST CHECK: Did someone reach max level?
+                    if (isHost && s.phase == GamePhase.IN_GAME && !hasRecordedGame) {
+                        val winner = s.players.values.find { it.level >= s.settings.maxLevel }
+                        if (winner != null && _uiState.value.pendingWinnerId != winner.playerId) {
+                            // Show confirmation dialog
+                            _uiState.update { it.copy(pendingWinnerId = winner.playerId) }
+                        } else if (winner == null && _uiState.value.pendingWinnerId != null) {
+                            // Level went back down? Dismiss
+                            _uiState.update { it.copy(pendingWinnerId = null) }
+                        }
+                    }
+
+                    // Check for Game Over (Server confirmed)
+                    if (s.phase == GamePhase.FINISHED && s.winnerId != null) {
+                         // Ensure we don't record twice if server sent it back
+                         hasRecordedGame = true 
+                    }
+
                     // Check for phase change
                     if (s.phase == GamePhase.IN_GAME && _uiState.value.screen == Screen.LOBBY) {
                         _uiState.update { it.copy(screen = Screen.BOARD) }
@@ -908,7 +1006,86 @@ class GameViewModel : ViewModel() {
             }
         }
     }
-    
+
+    fun endTurn() {
+        viewModelScope.launch {
+            try {
+                gameClient?.sendEndTurn()
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = "Error al terminar turno: ${e.message}") }
+            }
+        }
+    }
+
+    fun confirmWin(winnerId: PlayerId) {
+        if (!isHost) return
+        recordGameOver(_uiState.value.gameState?.gameId?.value ?: return, winnerId.value)
+        _uiState.update { it.copy(pendingWinnerId = null) }
+    }
+
+    fun dismissWinConfirmation() {
+        _uiState.update { it.copy(pendingWinnerId = null) }
+    }
+
+    private fun recordGameOver(gameId: String, winnerId: String) {
+        if (hasRecordedGame) return
+        hasRecordedGame = true
+        
+        viewModelScope.launch {
+            try {
+                gameClient?.sendGameOver(SERVER_URL, gameId, winnerId)
+                DLog.i("GameVM", "🏆 Game Over recorded!")
+            } catch (e: Exception) {
+                DLog.e("GameVM", "Failed to record game over: ${e.message}")
+            }
+        }
+    }
+
+    fun loadLeaderboard() {
+        viewModelScope.launch {
+            try {
+                _uiState.update { it.copy(isLoading = true) }
+                val client = GameClient()
+                val result = client.getLeaderboard(SERVER_URL)
+                if (result.isSuccess) {
+                    _uiState.update { 
+                        it.copy(
+                            isLoading = false,
+                            leaderboard = result.getOrElse { emptyList() }
+                        ) 
+                    }
+                } else {
+                    _uiState.update { it.copy(isLoading = false) }
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isLoading = false) }
+            }
+        }
+    }
+
+    fun loadHistory() {
+        val user = _uiState.value.userProfile ?: return
+        viewModelScope.launch {
+            try {
+                _uiState.update { it.copy(isLoading = true) }
+                val client = GameClient()
+                val result = client.getHistory(SERVER_URL, user.id)
+                if (result.isSuccess) {
+                    _uiState.update { 
+                        it.copy(
+                            isLoading = false,
+                            gameHistory = result.getOrElse { emptyList() }
+                        ) 
+                    }
+                } else {
+                    _uiState.update { it.copy(isLoading = false) }
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isLoading = false) }
+            }
+        }
+    }
+
     private fun getLocalIpAddress(): String {
         try {
             val wifiManager = MunchkinApp.context.applicationContext
@@ -932,6 +1109,8 @@ class GameViewModel : ViewModel() {
     }
 }
 
+
+
 // ============== UI State ==============
 
 data class GameUiState(
@@ -947,7 +1126,12 @@ data class GameUiState(
     val discoveredGames: List<DiscoveredGame> = emptyList(),
     val isDiscovering: Boolean = false,
     val isCheckingUpdate: Boolean = false,
-    val userProfile: UserProfile? = null
+    val userProfile: UserProfile? = null,
+
+    val monsterSearchResults: List<CatalogMonster> = emptyList(),
+    val gameHistory: List<GameHistoryItem> = emptyList(),
+    val leaderboard: List<LeaderboardEntry> = emptyList(),
+    val pendingWinnerId: PlayerId? = null // For host to confirm win
 ) {
     val myPlayer: PlayerState?
         get() = myPlayerId?.let { gameState?.players?.get(it) }
@@ -970,7 +1154,9 @@ enum class Screen {
     COMBAT,
     CATALOG,
     SETTINGS,
-    AUTH // Login/Register
+    AUTH, // Login/Register
+    PROFILE,
+    LEADERBOARD
 }
 
 sealed class GameUiEvent {

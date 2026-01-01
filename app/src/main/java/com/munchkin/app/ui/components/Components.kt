@@ -195,11 +195,13 @@ fun PlayerCard(
     player: PlayerState,
     isMe: Boolean,
     isHost: Boolean,
+    isTurn: Boolean = false,
     onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val borderColor by animateColorAsState(
         targetValue = when {
+            isTurn -> com.munchkin.app.ui.theme.Gold400 // Current Turn = Gold
             isMe -> com.munchkin.app.ui.theme.LumaPrimary
             isHost -> com.munchkin.app.ui.theme.LumaAccent
             else -> com.munchkin.app.ui.theme.LumaGray700
@@ -207,18 +209,22 @@ fun PlayerCard(
         label = "borderColor"
     )
     
+    val borderWidth = if (isTurn || isMe) 2.dp else 1.dp
+    
     Card(
         modifier = modifier
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         colors = CardDefaults.cardColors(
-            containerColor = if (isMe) 
+            containerColor = if (isTurn)
+                com.munchkin.app.ui.theme.LumaGray800 // Slightly lighter for turn
+            else if (isMe) 
                 com.munchkin.app.ui.theme.DarkCardSurface
             else 
                 com.munchkin.app.ui.theme.LumaGray900
         ),
         border = CardDefaults.outlinedCardBorder().copy(
-            width = if (isMe) 2.dp else 1.dp,
+            width = borderWidth,
             brush = androidx.compose.ui.graphics.SolidColor(borderColor)
         ),
         shape = RoundedCornerShape(16.dp)
@@ -277,6 +283,21 @@ fun PlayerCard(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = com.munchkin.app.ui.theme.LumaPrimary,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    if (isTurn) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = com.munchkin.app.ui.theme.Gold400.copy(alpha = 0.2f)
+                        ) {
+                            Text(
+                                text = "TURNO",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = com.munchkin.app.ui.theme.Gold400,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }

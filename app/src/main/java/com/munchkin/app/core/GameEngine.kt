@@ -255,7 +255,7 @@ class GameEngine {
             
             is IncLevel -> updatePlayer(state, event.targetPlayerId) { 
                 it.copy(level = (it.level + event.amount).coerceIn(state.settings.minLevel, state.settings.maxLevel))
-            }
+            }.let { s -> checkWinCondition(s) }
             is DecLevel -> updatePlayer(state, event.targetPlayerId) { 
                 it.copy(level = (it.level - event.amount).coerceIn(state.settings.minLevel, state.settings.maxLevel))
             }
@@ -427,11 +427,15 @@ class GameEngine {
         // Apply level gain if heroes won
         var newState = state.copy(combat = null)
         
-        if (event.outcome == CombatOutcome.WIN && event.levelsGained > 0) {
+        if (event.outcome == CombatOutcome.WIN) {
             val combat = state.combat ?: return newState
             newState = updatePlayer(newState, combat.mainPlayerId) { player ->
-                player.copy(level = (player.level + event.levelsGained).coerceAtMost(state.settings.maxLevel))
+                player.copy(
+                    level = (player.level + event.levelsGained).coerceAtMost(state.settings.maxLevel),
+                    treasures = player.treasures + event.treasuresGained
+                )
             }
+            newState = checkWinCondition(newState)
         }
         
         return newState
@@ -454,6 +458,21 @@ class GameEngine {
             val chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // No I, O, 0, 1 to avoid confusion
             return (1..6).map { chars.random() }.joinToString("")
         }
+    }
+    
+    private fun checkWinCondition(state: GameState): GameState {
+        val winner = state.players.values.find { it.level >= state.settings.maxLevel }
+        return state 
+        // We do NOT automatically end the game anymore. 
+        // The host must confirm the win in UI.
+        /* if (winner != null) {
+            state.copy(
+                phase = GamePhase.FINISHED,
+                winnerId = winner.playerId
+            )
+        } else {
+            state
+        } */
     }
 }
 

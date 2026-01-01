@@ -35,6 +35,10 @@ fun BoardScreen(
     onCatalogClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onLeaveGame: () -> Unit,
+    pendingWinnerId: PlayerId? = null,
+    onConfirmWin: (PlayerId) -> Unit = {},
+    onDismissWin: () -> Unit = {},
+    onEndTurn: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showLeaveDialog by remember { mutableStateOf(false) }
@@ -160,8 +164,26 @@ fun BoardScreen(
                     player = player,
                     isMe = isMe,
                     isHost = player.playerId == gameState.hostId,
+                    isTurn = player.playerId == gameState.turnPlayerId,
                     onClick = if (isMe) onPlayerClick else null
                 )
+            }
+            
+            // Turn Action Button
+            item {
+                if (gameState.turnPlayerId == myPlayerId && gameState.phase == com.munchkin.app.core.GamePhase.IN_GAME) {
+                    Button(
+                        onClick = onEndTurn,
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.tertiary
+                        )
+                    ) {
+                        Icon(Icons.Default.SkipNext, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Terminar Turno")
+                    }
+                }
             }
             
             // Spacer for FAB
@@ -190,6 +212,38 @@ fun BoardScreen(
             dismissButton = {
                 TextButton(onClick = { showLeaveDialog = false }) {
                     Text(stringResource(R.string.no))
+                }
+            }
+        )
+    }
+
+
+    // Win Confirmation Dialog
+    if (pendingWinnerId != null) {
+        val winnerName = gameState.players[pendingWinnerId]?.name ?: "Jugador"
+        
+        AlertDialog(
+            onDismissRequest = { onDismissWin() },
+            title = { Text(text = "🏆 ¿Victoria Confirmada?") },
+            text = { 
+                Text(
+                    text = "$winnerName ha alcanzado el nivel 10.\n\n¿Es este el final de la partida? Esta acción no se puede deshacer.",
+                    style = MaterialTheme.typography.bodyLarge
+                ) 
+            },
+            confirmButton = {
+                Button(
+                    onClick = { onConfirmWin(pendingWinnerId) },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Text("¡Sí, ha ganado!")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { onDismissWin() }
+                ) {
+                    Text("Cancelar / Seguir Jugando")
                 }
             }
         )

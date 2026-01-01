@@ -37,14 +37,40 @@ function initTables() {
         )`);
 
         // Game Participants Table
-        db.run(`CREATE TABLE IF NOT EXISTS game_participants (
+        db.run(`CREATE TABLE IF NOT EXISTS participants (
             game_id TEXT,
             user_id TEXT,
-            final_level INTEGER,
-            is_winner BOOLEAN,
+            player_id TEXT,
+            joined_at INTEGER,
+            PRIMARY KEY (game_id, user_id),
             FOREIGN KEY(game_id) REFERENCES games(id),
             FOREIGN KEY(user_id) REFERENCES users(id)
         )`);
+
+        // Crowdsourced Monsters Catalog
+        db.run(`CREATE TABLE IF NOT EXISTS monsters(
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            level INTEGER NOT NULL,
+            modifier INTEGER DEFAULT 0,
+            treasures INTEGER DEFAULT 1,
+            levels INTEGER DEFAULT 1,
+            is_undead BOOLEAN DEFAULT 0,
+            created_by TEXT,
+            created_at INTEGER
+        )`);
+
+        // Ensure columns exist (for existing databases)
+        db.run(`ALTER TABLE monsters ADD COLUMN treasures INTEGER DEFAULT 1`, (err) => {
+            if (err && !err.message.includes("duplicate column name")) {
+                // Ignore duplicate
+            }
+        });
+        db.run(`ALTER TABLE monsters ADD COLUMN levels INTEGER DEFAULT 1`, (err) => {
+            if (err && !err.message.includes("duplicate column name")) {
+                // Ignore duplicate
+            }
+        });
     });
 }
 
@@ -56,7 +82,7 @@ function createUser(username, email, password, avatarId = 0) {
         const id = uuidv4();
         const now = Date.now();
 
-        const sql = `INSERT INTO users (id, username, email, password_hash, avatar_id, created_at) VALUES (?, ?, ?, ?, ?, ?)`;
+        const sql = `INSERT INTO users(id, username, email, password_hash, avatar_id, created_at) VALUES(?, ?, ?, ?, ?, ?)`;
         const params = [id, username, email, hashedPassword, avatarId, now];
 
         db.run(sql, params, function (err) {
@@ -76,7 +102,7 @@ function createUser(username, email, password, avatarId = 0) {
 function findUserByEmailOrUsername(identifier) {
     return new Promise((resolve, reject) => {
         // Search by email OR username (case insensitive for username usually better, but keeping exact for now)
-        const sql = `SELECT * FROM users WHERE email = ? OR username = ?`;
+        const sql = `SELECT * FROM users WHERE email = ? OR username = ? `;
         db.get(sql, [identifier, identifier], (err, row) => {
             if (err) {
                 reject(err);
@@ -111,10 +137,143 @@ function verifyUser(identifier, password) {
     });
 }
 
+// ============== Catalog Operations ==============
+
+function searchMonsters(query) {
+    return new Promise((resolve, reject) => {
+        const sql = `SELECT * FROM monsters WHERE name LIKE ? ORDER BY name LIMIT 10`;
+        db.all(sql, [`%${query}%`], (err, rows) => {
+            if (err) resolve([]);
+            else resolve(rows.map(row => ({
+                ...row,
+                isUndead: !!row.is_undead // Convert 0/1 to boolean
+            })));
+        });
+    });
+}
+
+function addMonster(monster, userId) {
+    return new Promise((resolve, reject) => {
+        const checkSql = `SELECT id FROM monsters WHERE name = ? AND level = ?`;
+        db.get(checkSql, [monster.name, monster.level], (err, row) => {
+            if (err) return reject(err);
+            if (row) return resolve(row.id); // Already exists
+
+            const id = uuidv4();
+            const now = Date.now();
+            const insertSql = `INSERT INTO monsters (id, name, level, modifier, treasures, levels, is_undead, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+            db.run(insertSql, [
+                id,
+                monster.name,
+                monster.level,
+                monster.modifier || 0,
+                monster.treasures || 1,
+                monster.levels || 1,
+                monster.isUndead ? 1 : 0,
+                userId,
+                now
+            ], function (err) {
+                if (err) reject(err);
+                else resolve(id);
+            });
+        });
+    });
+}
+
+// ============== Game History Operations ==============
+
+function recordGame(gameId, winnerId, startTime, endTime, participants) {
+    return new Promise((resolve, reject) => {
+        db.serialize(() => {
+            db.run("BEGIN TRANSACTION");
+
+            // 1. Record Game
+            const gameSql = `INSERT INTO games (id, join_code, host_id, started_at, ended_at, winner_id) VALUES (?, ?, ?, ?, ?, ?)`;
+            // gameId from server might be UUID, ensure it matches
+            db.run(gameSql, [gameId, "HISTORY", "unknown", startTime, endTime, winnerId], function (err) {
+                if (err) {
+                    console.error("Error inserting game:", err);
+                    db.run("ROLLBACK");
+                    return reject(err);
+                }
+            });
+
+            // 2. Record Participants
+            const partSql = `INSERT INTO participants (game_id, user_id, player_id, joined_at) VALUES (?, ?, ?, ?)`;
+            const stmt = db.prepare(partSql);
+
+            participants.forEach(p => {
+                // If user is logged in, use their real user_id. If guest, maybe store player_id as reference or null.
+                // We prefer linking to registered users.
+                // Assuming p.userId is passed if available, otherwise maybe just skip or store null?
+                // The schema has user_id foreign key, but it might be nullable?
+                // If the user was anonymous, we can't link history to them easily in this schema unless we allow nulls.
+                // Let's assume we filter for registered users or handle it.
+                // For now, only record if we have a valid user_id (registered user).
+                if (p.userId && p.userId !== "anon") {
+                    stmt.run([gameId, p.userId, p.playerId, startTime]);
+                }
+            });
+
+            stmt.finalize(() => {
+                db.run("COMMIT", (err) => {
+                    if (err) reject(err);
+                    else resolve(true);
+                });
+            });
+        });
+    });
+}
+
+function getUserHistory(userId) {
+    return new Promise((resolve, reject) => {
+        const sql = `
+            SELECT 
+                g.id, g.ended_at, g.winner_id,
+                (SELECT COUNT(*) FROM participants WHERE game_id = g.id) as player_count
+            FROM games g
+            JOIN participants p ON g.id = p.game_id
+            WHERE p.user_id = ?
+            ORDER BY g.ended_at DESC
+            LIMIT 50
+        `;
+        db.all(sql, [userId], (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows);
+        });
+    });
+
+}
+
+function getLeaderboard() {
+    return new Promise((resolve, reject) => {
+        const sql = `
+            SELECT 
+                u.id, u.username, u.avatar_id,
+                COUNT(g.id) as wins
+            FROM users u
+            JOIN games g ON g.winner_id = u.id
+            GROUP BY u.id
+            ORDER BY wins DESC
+            LIMIT 20
+        `;
+        db.all(sql, [], (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows);
+        });
+    });
+}
+
 module.exports = {
     db,
     createUser,
-    findUserByEmail: findUserByEmailOrUsername, // Export as alias for backward compat if needed
+    findUserByEmail: findUserByEmailOrUsername,
     findUserByEmailOrUsername,
-    verifyUser
+    verifyUser,
+    searchMonsters,
+    addMonster,
+    recordGame,
+    getUserHistory,
+    getLeaderboard
 };
