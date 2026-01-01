@@ -1,6 +1,7 @@
 package com.munchkin.app.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -288,18 +289,6 @@ fun HomeScreen(
                                         color = LumaGray500
                                     )
                                 }
-                                
-                                IconButton(
-                                    onClick = onDeleteSavedGame,
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Eliminar",
-                                        tint = LumaGray500,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
                             }
                             
                             Spacer(modifier = Modifier.height(12.dp))
@@ -311,6 +300,21 @@ fun HomeScreen(
                                 icon = Icons.Default.PlayArrow,
                                 gradientColors = listOf(LumaAccent, GradientOrangeEnd)
                             )
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            OutlinedButton(
+                                onClick = onDeleteSavedGame,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error
+                                ),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Eliminar partida")
+                            }
                         }
                     }
                 }
