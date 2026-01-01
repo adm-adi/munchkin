@@ -136,10 +136,11 @@ class GameViewModel : ViewModel() {
                 val result = client.connect(SERVER_URL, saved.gameState.joinCode, playerMeta)
                 
                 if (result.isFailure) {
+                    val friendlyError = getFriendlyErrorMessage(result.exceptionOrNull())
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            error = "Error al reconectar: ${result.exceptionOrNull()?.message}"
+                            error = friendlyError
                         )
                     }
                     return@launch
@@ -167,10 +168,11 @@ class GameViewModel : ViewModel() {
                 observeClientState()
                 
             } catch (e: Exception) {
+                val friendlyError = getFriendlyErrorMessage(e)
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        error = "Error de conexión: ${e.message}"
+                        error = friendlyError
                     )
                 }
             }
@@ -1218,3 +1220,20 @@ data class ServerGame(
     val maxPlayers: Int,
     val createdAt: Long = 0
 )
+
+/**
+ * Convert technical error messages to user-friendly Spanish messages.
+ */
+private fun getFriendlyErrorMessage(error: Throwable?): String {
+    val message = error?.message?.lowercase() ?: ""
+    return when {
+        "timeout" in message -> "No se pudo conectar. Comprueba tu conexión a internet y vuelve a intentarlo."
+        "refused" in message -> "El servidor no está disponible. Inténtalo más tarde."
+        "host" in message && "resolve" in message -> "No se encuentra el servidor. Comprueba tu conexión."
+        "closed" in message || "reset" in message -> "Se perdió la conexión. Vuelve a intentarlo."
+        "unauthorized" in message -> "No tienes permiso para unirte a esta partida."
+        "not found" in message || "404" in message -> "La partida ya no existe."
+        "full" in message -> "La partida está llena."
+        else -> "Error de conexión. Vuelve a intentarlo."
+    }
+}

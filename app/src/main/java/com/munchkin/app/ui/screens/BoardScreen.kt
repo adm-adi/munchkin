@@ -151,6 +151,48 @@ fun BoardScreen(
         ) {
             item {
                 Spacer(modifier = Modifier.height(8.dp))
+                
+                // Turn indicator banner
+                val currentTurnPlayer = gameState.turnPlayerId?.let { gameState.players[it] }
+                if (currentTurnPlayer != null) {
+                    val isMyTurn = gameState.turnPlayerId == myPlayerId
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isMyTurn) 
+                                MaterialTheme.colorScheme.primaryContainer 
+                            else 
+                                MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Person,
+                                contentDescription = null,
+                                tint = if (isMyTurn) 
+                                    MaterialTheme.colorScheme.primary 
+                                else 
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isMyTurn) "¡Tu turno!" else "Turno de ${currentTurnPlayer.name}",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = if (isMyTurn) 
+                                    MaterialTheme.colorScheme.primary 
+                                else 
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
             }
             
             // Player cards
