@@ -27,25 +27,13 @@ import com.munchkin.app.ui.components.TraitChip
 @Composable
 fun PlayerDetailScreen(
     player: PlayerState,
-    gameState: GameState,
     onIncrementLevel: () -> Unit,
     onDecrementLevel: () -> Unit,
     onIncrementGear: () -> Unit,
     onDecrementGear: () -> Unit,
-    onSetHalfBreed: (Boolean) -> Unit,
-    onSetSuperMunchkin: (Boolean) -> Unit,
-    onAddRace: (EntryId) -> Unit,
-    onRemoveRace: (EntryId) -> Unit,
-    onAddClass: (EntryId) -> Unit,
-    onRemoveClass: (EntryId) -> Unit,
-    onAddRaceToCatalog: (String) -> Unit,
-    onAddClassToCatalog: (String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var showRacePicker by remember { mutableStateOf(false) }
-    var showClassPicker by remember { mutableStateOf(false) }
-    
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -117,190 +105,8 @@ fun PlayerDetailScreen(
                 }
             }
             
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            HorizontalDivider()
-            
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            // Half-Breed toggle
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = stringResource(R.string.half_breed),
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        text = "Permite tener 2 razas",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(
-                    checked = player.hasHalfBreed,
-                    onCheckedChange = onSetHalfBreed
-                )
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // Races section
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.races),
-                    style = MaterialTheme.typography.titleMedium
-                )
-                if (player.canAddRace) {
-                    TextButton(onClick = { showRacePicker = true }) {
-                        Icon(Icons.Default.Add, contentDescription = null, Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(stringResource(R.string.add_race))
-                    }
-                }
-            }
-            
-            if (player.raceIds.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.no_race),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
-            } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    player.raceIds.forEach { raceId ->
-                        val race = gameState.races[raceId]
-                        if (race != null) {
-                            TraitChip(
-                                name = race.displayName,
-                                onRemove = { onRemoveRace(raceId) }
-                            )
-                        }
-                    }
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            // Super Munchkin toggle
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = stringResource(R.string.super_munchkin),
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        text = "Permite tener 2 clases",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(
-                    checked = player.hasSuperMunchkin,
-                    onCheckedChange = onSetSuperMunchkin
-                )
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // Classes section
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.classes),
-                    style = MaterialTheme.typography.titleMedium
-                )
-                if (player.canAddClass) {
-                    TextButton(onClick = { showClassPicker = true }) {
-                        Icon(Icons.Default.Add, contentDescription = null, Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(stringResource(R.string.add_class))
-                    }
-                }
-            }
-            
-            if (player.classIds.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.no_class),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
-            } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    player.classIds.forEach { classId ->
-                        val clazz = gameState.classes[classId]
-                        if (clazz != null) {
-                            TraitChip(
-                                name = clazz.displayName,
-                                onRemove = { onRemoveClass(classId) }
-                            )
-                        }
-                    }
-                }
-            }
-            
             Spacer(modifier = Modifier.height(32.dp))
         }
-    }
-    
-    // Race picker dialog
-    if (showRacePicker) {
-        CatalogPickerDialog(
-            title = stringResource(R.string.add_race),
-            entries = gameState.activeRaces.values.toList(),
-            excludeIds = player.raceIds,
-            onSelect = { entryId ->
-                onAddRace(entryId)
-                showRacePicker = false
-            },
-            onCreate = { name ->
-                onAddRaceToCatalog(name)
-            },
-            onDismiss = { showRacePicker = false }
-        )
-    }
-    
-    // Class picker dialog
-    if (showClassPicker) {
-        CatalogPickerDialog(
-            title = stringResource(R.string.add_class),
-            entries = gameState.activeClasses.values.toList(),
-            excludeIds = player.classIds,
-            onSelect = { entryId ->
-                onAddClass(entryId)
-                showClassPicker = false
-            },
-            onCreate = { name ->
-                onAddClassToCatalog(name)
-            },
-            onDismiss = { showClassPicker = false }
-        )
     }
 }
 

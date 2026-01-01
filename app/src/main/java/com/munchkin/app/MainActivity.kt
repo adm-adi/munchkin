@@ -161,25 +161,15 @@ class MainActivity : ComponentActivity() {
                             }
                             
                             Screen.PLAYER_DETAIL -> {
-                                val gameState = uiState.gameState
                                 val myPlayer = uiState.myPlayer
                                 
-                                if (gameState != null && myPlayer != null) {
+                                if (myPlayer != null) {
                                     PlayerDetailScreen(
                                         player = myPlayer,
-                                        gameState = gameState,
                                         onIncrementLevel = { viewModel.incrementLevel() },
                                         onDecrementLevel = { viewModel.decrementLevel() },
                                         onIncrementGear = { viewModel.incrementGear() },
                                         onDecrementGear = { viewModel.decrementGear() },
-                                        onSetHalfBreed = { viewModel.setHalfBreed(it) },
-                                        onSetSuperMunchkin = { viewModel.setSuperMunchkin(it) },
-                                        onAddRace = { viewModel.addRace(it) },
-                                        onRemoveRace = { viewModel.removeRace(it) },
-                                        onAddClass = { viewModel.addClass(it) },
-                                        onRemoveClass = { viewModel.removeClass(it) },
-                                        onAddRaceToCatalog = { viewModel.addRaceToCatalog(it) },
-                                        onAddClassToCatalog = { viewModel.addClassToCatalog(it) },
                                         onBack = { viewModel.goBack() }
                                     )
                                 }

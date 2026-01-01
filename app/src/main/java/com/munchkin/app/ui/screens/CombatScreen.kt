@@ -103,13 +103,15 @@ fun CombatScreen(
             ) {
                 item { Spacer(modifier = Modifier.height(8.dp)) }
                 
-                // Result banner (always visible with animation)
-                result?.let { r ->
-                    item {
-                        CombatResultBanner(
-                            isWin = r.outcome == CombatOutcome.WIN,
-                            difference = r.diff
-                        )
+                // Result banner (only shows when monsters are added)
+                if (combatState.monsters.isNotEmpty()) {
+                    result?.let { r ->
+                        item {
+                            CombatResultBanner(
+                                isWin = r.outcome == CombatOutcome.WIN,
+                                difference = r.diff
+                            )
+                        }
                     }
                 }
                 
