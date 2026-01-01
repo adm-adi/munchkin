@@ -113,38 +113,66 @@ class GameViewModel : ViewModel() {
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
-                    screen = if (saved.gameState.phase == GamePhase.LOBBY) Screen.LOBBY else Screen.BOARD,
-                    gameState = saved.gameState,
-                    myPlayerId = saved.myPlayerId,
-                    isHost = saved.isHost
+                    isLoading = true,
+                    error = null
                 )
             }
             
             myPlayerId = saved.myPlayerId
             isHost = saved.isHost
             
-            if (saved.isHost) {
-                // Recreate engine and server
+            // Reconnect to remote server (both host and client use remote server)
+            try {
+                val player = saved.gameState.players[saved.myPlayerId]
+                val playerMeta = PlayerMeta(
+                    playerId = saved.myPlayerId,
+                    name = player?.name ?: "Player",
+                    avatarId = player?.avatarId ?: 0,
+                    gender = player?.gender ?: Gender.M,
+                    userId = _uiState.value.userProfile?.id
+                )
+                
+                val client = GameClient()
+                val result = client.connect(SERVER_URL, saved.gameState.joinCode, playerMeta)
+                
+                if (result.isFailure) {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = "Error al reconectar: ${result.exceptionOrNull()?.message}"
+                        )
+                    }
+                    return@launch
+                }
+                
+                gameClient = client
+                val gameState = result.getOrNull()
+                
+                // Initialize local engine for state tracking
                 val engine = GameEngine()
-                engine.loadState(saved.gameState)
+                gameState?.let { engine.loadState(it) }
                 gameEngine = engine
                 
-                val server = GameServer(engine)
-                viewModelScope.launch(Dispatchers.IO) {
-                    server.start()
-                    gameServer = server
-                    
-                    // Publish via NSD
-                    if (nsdHelper == null) {
-                        nsdHelper = NsdHelper(MunchkinApp.context)
-                    }
-                    nsdHelper?.publishGame(
-                        hostName = saved.gameState.players[saved.myPlayerId]?.name ?: "Host",
-                        joinCode = saved.gameState.joinCode,
-                        port = 8765
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        screen = if ((gameState?.phase ?: saved.gameState.phase) == GamePhase.LOBBY) Screen.LOBBY else Screen.BOARD,
+                        gameState = gameState ?: saved.gameState,
+                        myPlayerId = saved.myPlayerId,
+                        isHost = saved.isHost
                     )
                 }
-                observeGameState()
+                
+                // Observe game state changes from client
+                observeClientState()
+                
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = "Error de conexión: ${e.message}"
+                    )
+                }
             }
         }
     }
