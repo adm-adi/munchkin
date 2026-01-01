@@ -290,10 +290,11 @@ function handleHello(ws, message) {
         player.ws = ws;
         clientGames.set(ws, { gameId: game.id, playerId });
 
+        // Send WELCOME with playerId so client can properly navigate
         ws.send(JSON.stringify({
-            type: "STATE_SNAPSHOT",
-            gameState: game.buildGameState(),
-            seq: game.seq
+            type: "WELCOME",
+            yourPlayerId: playerId,
+            gameState: game.buildGameState()
         }));
 
         console.log(`🔄 Player ${playerMeta.name} reconnected to ${joinCode}`);
