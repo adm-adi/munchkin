@@ -781,6 +781,48 @@ class GameViewModel : ViewModel() {
     
     // ============== Combat Actions ==============
     
+    fun toggleGender() {
+        val playerId = myPlayerId ?: return
+        val currentPlayer = _uiState.value.gameState?.players?.get(playerId) ?: return
+        
+        val newGender = when (currentPlayer.gender) {
+            Gender.M -> Gender.F
+            Gender.F -> Gender.NA
+            Gender.NA -> Gender.M
+        }
+        
+        sendPlayerEvent { pid ->
+            SetGender(
+                eventId = UUID.randomUUID().toString(),
+                actorId = pid,
+                timestamp = System.currentTimeMillis(),
+                targetPlayerId = pid,
+                gender = newGender
+            )
+        }
+    }
+
+    fun addHelper(helperId: PlayerId) {
+        sendPlayerEvent { playerId ->
+            CombatAddHelper(
+                eventId = UUID.randomUUID().toString(),
+                actorId = playerId,
+                timestamp = System.currentTimeMillis(),
+                helperId = helperId
+            )
+        }
+    }
+
+    fun removeHelper() {
+        sendPlayerEvent { playerId ->
+            CombatRemoveHelper(
+                eventId = UUID.randomUUID().toString(),
+                actorId = playerId,
+                timestamp = System.currentTimeMillis()
+            )
+        }
+    }
+
     /**
      * Start combat with current player as main.
      */

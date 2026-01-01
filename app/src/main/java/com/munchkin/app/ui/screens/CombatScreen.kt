@@ -36,6 +36,8 @@ fun CombatScreen(
     onAddMonster: (name: String, level: Int, modifier: Int, isUndead: Boolean) -> Unit,
     onSearchMonsters: (String) -> Unit,
     onRequestCreateGlobalMonster: (String, Int, Int, Boolean) -> Unit,
+    onAddHelper: (PlayerId) -> Unit,
+    onRemoveHelper: () -> Unit,
     onEndCombat: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -45,6 +47,41 @@ fun CombatScreen(
     
     // Monster input state
     var showAddMonster by remember { mutableStateOf(false) }
+    var showAddHelper by remember { mutableStateOf(false) }
+
+    if (showAddHelper) {
+        AlertDialog(
+            onDismissRequest = { showAddHelper = false },
+            title = { Text("Seleccionar Ayudante") },
+            text = {
+                LazyColumn {
+                    val candidates = gameState.playerList.filter { 
+                        it.playerId != combatState?.mainPlayerId && it.playerId != combatState?.helperPlayerId 
+                    }
+                    if (candidates.isEmpty()) {
+                        item { Text("No hay más jugadores disponibles.") }
+                    } else {
+                        items(candidates) { player ->
+                            ListItem(
+                                headlineContent = { Text(player.name) },
+                                supportingContent = { Text("Nivel ${player.level} | Poder ${player.combatPower}") },
+                                leadingContent = { PlayerAvatar(player, size = 40) },
+                                modifier = Modifier.clickable {
+                                    onAddHelper(player.playerId)
+                                    showAddHelper = false
+                                }
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAddHelper = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
     
     // Calculate result
     val result = remember(combatState, gameState) {
@@ -131,13 +168,40 @@ fun CombatScreen(
                         }
                         
                         combatState.helperPlayerId?.let { helperId ->
+                            Spacer(modifier = Modifier.height(8.dp))
                             val helper = gameState.players[helperId]
-                            helper?.let { player ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
                                 Text(
-                                    text = "${player.name} (ayuda): Poder ${player.combatPower}",
+                                    text = "${helper?.name ?: "?"} (ayuda)",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                IconButton(onClick = onRemoveHelper) {
+                                    Icon(Icons.Default.Close, contentDescription = "Quitar ayudante", tint = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                            helper?.let { player ->
+                                Text(
+                                    text = "Poder ${player.combatPower}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        if (combatState.helperPlayerId == null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { showAddHelper = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.PersonAdd, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(stringResource(R.string.add_helper))
                             }
                         }
                     }

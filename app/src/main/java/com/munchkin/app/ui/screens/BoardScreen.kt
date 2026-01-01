@@ -39,6 +39,7 @@ fun BoardScreen(
     onConfirmWin: (PlayerId) -> Unit = {},
     onDismissWin: () -> Unit = {},
     onEndTurn: () -> Unit = {},
+    onToggleGender: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showLeaveDialog by remember { mutableStateOf(false) }
@@ -204,10 +205,11 @@ fun BoardScreen(
                 
                 PlayerCard(
                     player = player,
-                    isMe = isMe,
+                    isMe = player.playerId == myPlayerId,
                     isHost = player.playerId == gameState.hostId,
                     isTurn = player.playerId == gameState.turnPlayerId,
-                    onClick = if (isMe) onPlayerClick else null
+                    onToggleGender = if (player.playerId == myPlayerId) onToggleGender else null,
+                    onClick = { onPlayerClick() } // For now generic click
                 )
             }
             

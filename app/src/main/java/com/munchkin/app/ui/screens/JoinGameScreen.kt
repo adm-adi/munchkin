@@ -187,19 +187,25 @@ fun JoinGameScreen(
                         
                         // Gender chips
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Gender.entries.forEach { gender ->
+                            listOf(Gender.M, Gender.F).forEach { gender ->
                                 FilterChip(
                                     selected = selectedGender == gender,
                                     onClick = { selectedGender = gender },
                                     label = {
                                         Text(
                                             when (gender) {
-                                                Gender.M -> "H"
-                                                Gender.F -> "M"
-                                                Gender.NA -> "?"
-                                            }
+                                                Gender.M -> "♂"
+                                                Gender.F -> "♀"
+                                                else -> "?"
+                                            },
+                                            fontWeight = FontWeight.Bold,
+                                            style = MaterialTheme.typography.titleMedium
                                         )
-                                    }
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
                                 )
                             }
                         }

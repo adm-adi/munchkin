@@ -155,7 +155,8 @@ class MainActivity : ComponentActivity() {
                                         onLeaveGame = { viewModel.leaveGame() },
                                         onConfirmWin = { viewModel.confirmWin(it) },
                                         onDismissWin = { viewModel.dismissWinConfirmation() },
-                                        onEndTurn = { viewModel.endTurn() }
+                                        onEndTurn = { viewModel.endTurn() },
+                                        onLeaveGame = { viewModel.leaveGame() }
                                     )
                                 }
                             }
@@ -185,17 +186,16 @@ class MainActivity : ComponentActivity() {
                                         myPlayerId = myPlayerId,
                                         monsterSearchResults = uiState.monsterSearchResults,
                                         onStartCombat = { viewModel.startCombat() },
-                                        onAddMonster = { name, level, mod, isUndead -> 
-                                            viewModel.addMonster(name, level, mod, isUndead) 
+                                        onAddMonster = { name, level, mod, undead ->
+                                            viewModel.addMonster(name, level, mod, undead)
                                         },
-                                        onSearchMonsters = { query -> viewModel.searchMonsters(query) },
-                                        onRequestCreateGlobalMonster = { name, level, mod, isUndead ->
-                                            viewModel.requestCreateGlobalMonster(name, level, mod, isUndead)
+                                        onSearchMonsters = { viewModel.searchMonsters(it) },
+                                        onRequestCreateGlobalMonster = { name, level, mod, undead ->
+                                            viewModel.requestCreateGlobalMonster(name, level, mod, undead)
                                         },
-                                        onEndCombat = { 
-                                            viewModel.endCombat()
-                                            viewModel.goBack()
-                                        },
+                                        onAddHelper = { viewModel.addHelper(it) },
+                                        onRemoveHelper = { viewModel.removeHelper() },
+                                        onEndCombat = { viewModel.endCombat() },
                                         onBack = { viewModel.goBack() }
                                     )
                                 }

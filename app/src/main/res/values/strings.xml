@@ -64,7 +64,7 @@
     
     <!-- Combat -->
     <string name="combat_title">Calculadora de Combate</string>
-    <string name="heroes">Héroes</string>
+    <string name="heroes">Munchkins</string>
     <string name="monsters">Monstruos</string>
     <string name="main_player">Luchador principal</string>
     <string name="helper">Ayudante</string>

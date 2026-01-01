@@ -196,6 +196,7 @@ fun PlayerCard(
     isMe: Boolean,
     isHost: Boolean,
     isTurn: Boolean = false,
+    onToggleGender: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -286,6 +287,36 @@ fun PlayerCard(
                             )
                         }
                     }
+                    
+                    Spacer(modifier = Modifier.width(8.dp))
+                    
+                    // Gender Icon (Clickable for self)
+                    val genderSymbol = when (player.gender) {
+                        Gender.M -> "♂"
+                        Gender.F -> "♀"
+                        Gender.NA -> "Ø"
+                    }
+                    val genderColor = when (player.gender) {
+                        Gender.M -> Color(0xFF42A5F5) // Blue
+                        Gender.F -> Color(0xFFEC407A) // Pink
+                        Gender.NA -> com.munchkin.app.ui.theme.NeonGray400
+                    }
+                    
+                    Surface(
+                        shape = CircleShape,
+                        color = genderColor.copy(alpha = 0.1f),
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .then(if (isMe && onToggleGender != null) Modifier.clickable { onToggleGender() } else Modifier)
+                    ) {
+                        Text(
+                            text = genderSymbol,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = genderColor,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
                     if (isTurn) {
                         Spacer(modifier = Modifier.width(6.dp))
                         Surface(
@@ -324,38 +355,43 @@ fun PlayerCard(
             
             // Stats column
             Column(horizontalAlignment = Alignment.End) {
-                // Level with highlight
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = com.munchkin.app.ui.theme.NeonPrimary.copy(alpha = 0.15f)
+                // Stats Row (Level & Power) with equal visibility
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Nv",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = com.munchkin.app.ui.theme.NeonGray400
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "${player.level}",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = com.munchkin.app.ui.theme.NeonPrimary
-                        )
+                    // Level
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = com.munchkin.app.ui.theme.NeonPrimary.copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = "Nivel ${player.level}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = com.munchkin.app.ui.theme.NeonPrimary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    // Power
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = com.munchkin.app.ui.theme.NeonGray500.copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = "Poder ${player.combatPower}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = com.munchkin.app.ui.theme.NeonGray100,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
                     }
                 }
-                
-                Spacer(modifier = Modifier.height(4.dp))
-                
-                // Combat power
-                Text(
-                    text = "⚔️ ${player.combatPower}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = com.munchkin.app.ui.theme.NeonGray500
-                )
             }
         }
     }
