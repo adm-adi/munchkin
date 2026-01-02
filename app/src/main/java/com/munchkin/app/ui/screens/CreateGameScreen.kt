@@ -40,13 +40,14 @@ fun CreateGameScreen(
     isLoading: Boolean,
     error: String?,
     userProfile: UserProfile? = null,
-    onCreateGame: (name: String, avatarId: Int, gender: Gender) -> Unit,
+    onCreateGame: (name: String, avatarId: Int, gender: Gender, timerSeconds: Int) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var name by remember { mutableStateOf(userProfile?.username ?: "") }
     var selectedAvatarId by remember { mutableIntStateOf(userProfile?.avatarId ?: 0) }
     var selectedGender by remember { mutableStateOf(Gender.NA) }
+    var selectedTimerSeconds by remember { mutableIntStateOf(0) }
     
     val isLocked = userProfile != null
     
@@ -205,13 +206,40 @@ fun CreateGameScreen(
                 }
             }
             
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            // Turn Timer selection
+            Text(
+                text = "⏱️ Timer por turno",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.align(Alignment.Start)
+            )
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val timerOptions = listOf(0 to "Off", 30 to "30s", 60 to "1m", 90 to "90s", 120 to "2m")
+                timerOptions.forEach { (seconds, label) ->
+                    val isSelected = selectedTimerSeconds == seconds
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { selectedTimerSeconds = seconds },
+                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+            
             Spacer(modifier = Modifier.weight(1f))
             
             // Create button
             Button(
                 onClick = { 
                     if (name.isNotBlank()) {
-                        onCreateGame(name, selectedAvatarId, selectedGender)
+                        onCreateGame(name, selectedAvatarId, selectedGender, selectedTimerSeconds)
                     }
                 },
                 enabled = name.isNotBlank() && !isLoading,

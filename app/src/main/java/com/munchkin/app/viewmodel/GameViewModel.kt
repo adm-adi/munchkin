@@ -277,8 +277,8 @@ class GameViewModel : ViewModel() {
     /**
      * Create a new game as host.
      */
-    fun createGame(name: String, avatarId: Int, gender: Gender) {
-        android.util.Log.d("GameViewModel", "createGame called: name=$name, avatarId=$avatarId, gender=$gender")
+    fun createGame(name: String, avatarId: Int, gender: Gender, timerSeconds: Int = 0) {
+        android.util.Log.d("GameViewModel", "createGame called: name=$name, avatarId=$avatarId, gender=$gender, timer=$timerSeconds")
         viewModelScope.launch {
             try {
                 android.util.Log.d("GameViewModel", "Setting loading state...")

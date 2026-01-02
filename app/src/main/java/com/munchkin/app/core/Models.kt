@@ -173,7 +173,8 @@ data class GameSettings(
     val maxLevel: Int = 10,
     val tiesGoToMonsters: Boolean = true,
     val levelTenOnlyCombat: Boolean = true,
-    val allowLevelTenOverride: Boolean = false
+    val allowLevelTenOverride: Boolean = false,
+    val turnTimerSeconds: Int = 0  // 0 = disabled, otherwise seconds per turn
 )
 
 // ============== Player Meta (for joining) ==============
