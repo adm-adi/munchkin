@@ -79,27 +79,39 @@ fun UpdateDialog(
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                // Release notes
+                // Release notes - constrained height with scroll
+                val scrollState = rememberScrollState()
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f, fill = false) // Allow it to shrink, don't force full weight if not needed? No, weight(1f) fills space.
-                        // Better: heightIn to avoid taking too much. But weight ensures it takes AVAILABLE space.
-                        // If I use weight(1f), the Column must have finite height. Dialog usually wraps content.
-                        // If Dialog wraps, weight(1f) inside Column causes intrinsic measurement issues?
-                        // "Column(Modifier.weight(1f))" works if parent has height.
-                        // Safest: heightIn(max = 250.dp)
-                        .heightIn(max = 240.dp)
-                        .verticalScroll(rememberScrollState()),
+                        .heightIn(min = 60.dp, max = 180.dp), // Reduced max to ensure buttons visible
                     color = NeonSurfaceVariant,
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text(
-                        text = updateInfo.releaseNotes,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = NeonGray300,
-                        modifier = Modifier.padding(12.dp)
-                    )
+                    Box {
+                        Text(
+                            text = updateInfo.releaseNotes,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = NeonGray300,
+                            modifier = Modifier
+                                .verticalScroll(scrollState)
+                                .padding(12.dp)
+                        )
+                        // Scroll indicator at bottom if more content
+                        if (scrollState.canScrollForward) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .height(24.dp)
+                                    .background(
+                                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                            colors = listOf(Color.Transparent, NeonSurfaceVariant)
+                                        )
+                                    )
+                            )
+                        }
+                    }
                 }
                 
                 Spacer(modifier = Modifier.height(8.dp))
