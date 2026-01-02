@@ -49,6 +49,7 @@ fun BoardScreen(
 ) {
     var showLeaveDialog by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    var isTableView by remember { mutableStateOf(true) } // Default to Visual Dungeon
     
     // State for Dice Dialog
     var showDiceDialog by remember { mutableStateOf(false) }
@@ -73,6 +74,19 @@ fun BoardScreen(
                     }
                 },
                 actions = {
+                    // View Toggle (Table/List)
+                    IconButton(onClick = { isTableView = !isTableView }) {
+                        if (isTableView) {
+                            Icon(Icons.Default.List, contentDescription = "Vista Lista")
+                        } else {
+                            Icon(Icons.Default.GroupWork, contentDescription = "Vista Mesa")
+                        }
+                    }
+                    
+                    // Dice Button
+                    IconButton(onClick = { showDiceDialog = true }) {
+                        Text("🎲", fontSize = 24.sp)
+                    }
                     // History / Log Button
                     IconButton(onClick = { showLogDrawer = true }) {
                         Icon(Icons.Default.History, contentDescription = "Historial")
@@ -155,6 +169,14 @@ fun BoardScreen(
                     }
                 }
                 
+                if (isTableView) {
+                    TableScreen(
+                        players = gameState.players.values.toList(),
+                        currentUser = myPlayerId,
+                        onPlayerClick = { playerId -> },
+                        modifier = Modifier.weight(1f).fillMaxWidth()
+                    )
+                } else {
                 LazyColumn(
                     modifier = Modifier
                         .weight(1f)
@@ -222,7 +244,7 @@ fun BoardScreen(
                                             Icons.Default.Person,
                                             contentDescription = null,
                                             tint = if (isMyTurn) 
-                                                MaterialTheme.colorScheme.primary 
+                                                MaterialTheme.colorScheme.onPrimaryContainer 
                                             else 
                                                 MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -231,7 +253,7 @@ fun BoardScreen(
                                             text = if (isMyTurn) "¡Tu turno!" else "Turno de ${currentTurnPlayer.name}",
                                             style = MaterialTheme.typography.titleMedium,
                                             color = if (isMyTurn) 
-                                                MaterialTheme.colorScheme.primary 
+                                                MaterialTheme.colorScheme.onPrimaryContainer 
                                             else 
                                                 MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -330,19 +352,10 @@ fun BoardScreen(
                         Spacer(modifier = Modifier.height(80.dp))
                     }
                 }
+                }
             }
 
-            // Dice FAB (Bottom Right - Fixed Overlap)
-            FloatingActionButton(
-                onClick = { showDiceDialog = true },
-                containerColor = Color(0xFFFF9800),
-                contentColor = Color.White,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp)
-            ) {
-                Text("🎲", fontSize = 24.sp)
-            }
+
         }
     }
 

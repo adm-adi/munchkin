@@ -382,6 +382,21 @@ class GameViewModel : ViewModel() {
         }
     }
     
+    /**
+     * Swap two players' positions in the lobby (host only).
+     */
+    fun swapPlayers(player1: PlayerId, player2: PlayerId) {
+        if (!isHost) return
+        
+        viewModelScope.launch {
+            try {
+                gameClient?.sendSwapPlayers(player1, player2)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = "Error al reordenar: ${e.message}") }
+            }
+        }
+    }
+    
     // ============== Client Actions ==============
     
     /**
@@ -962,18 +977,7 @@ class GameViewModel : ViewModel() {
         }
     }
     
-    fun swapPlayers(p1: PlayerId, p2: PlayerId) {
-        if (!isHost) return
-        sendPlayerEvent { playerId ->
-            SwapPlayers(
-                eventId = UUID.randomUUID().toString(),
-                actorId = playerId,
-                timestamp = System.currentTimeMillis(),
-                targetPlayerId = p1,
-                otherPlayerId = p2
-            )
-        }
-    }
+
 
     fun rollDiceForStart() {
         // Roll 1-6
@@ -984,7 +988,22 @@ class GameViewModel : ViewModel() {
                 actorId = playerId,
                 timestamp = System.currentTimeMillis(),
                 targetPlayerId = playerId, // Self
-                value = result
+                result = result
+            )
+        }
+    }
+    
+    fun rollForCombat(purpose: DiceRollPurpose = DiceRollPurpose.RUN_AWAY) {
+        // Roll 1-6
+        val result = (1..6).random()
+        sendPlayerEvent { playerId ->
+            PlayerRoll(
+                eventId = UUID.randomUUID().toString(),
+                actorId = playerId,
+                timestamp = System.currentTimeMillis(),
+                targetPlayerId = playerId, // Self
+                result = result,
+                purpose = purpose
             )
         }
     }
@@ -1012,8 +1031,32 @@ class GameViewModel : ViewModel() {
     /**
      * Leave current game.
      */
+    /**
+     * Leave current game.
+     */
     fun leaveGame() {
         viewModelScope.launch {
+            // If Host, try to notify others that game is ending
+            if (isHost) {
+                try {
+                    val playerId = myPlayerId
+                    if (playerId != null) {
+                         gameClient?.sendEvent(
+                             GameEnd(
+                                 eventId = UUID.randomUUID().toString(),
+                                 actorId = playerId,
+                                 timestamp = System.currentTimeMillis(),
+                                 winnerId = null // Aborted
+                             )
+                         )
+                         // Give it a moment to send
+                         kotlinx.coroutines.delay(500)
+                    }
+                } catch (e: Exception) {
+                    // Ignore error on leave
+                }
+            }
+            
             // Stop NSD publishing/discovery
             nsdHelper?.cleanup()
             nsdHelper = null
@@ -1159,12 +1202,12 @@ class GameViewModel : ViewModel() {
     }
 
     fun endTurn() {
-        viewModelScope.launch {
-            try {
-                gameClient?.sendEndTurn()
-            } catch (e: Exception) {
-                _uiState.update { it.copy(error = "Error al terminar turno: ${e.message}") }
-            }
+        sendPlayerEvent { playerId ->
+            EndTurn(
+                eventId = UUID.randomUUID().toString(),
+                actorId = playerId,
+                timestamp = System.currentTimeMillis()
+            )
         }
     }
 
@@ -1314,7 +1357,8 @@ enum class Screen {
     SETTINGS,
     AUTH, // Login/Register
     PROFILE,
-    LEADERBOARD
+    LEADERBOARD,
+    HISTORY
 }
 
 sealed class GameUiEvent {

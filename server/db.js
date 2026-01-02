@@ -81,6 +81,35 @@ function initTables() {
                 // Ignore duplicate
             }
         });
+
+        // Seed Monsters if empty
+        db.get("SELECT count(*) as count FROM monsters", [], (err, row) => {
+            if (err) {
+                console.error("❌ Error checking monsters count", err);
+                return;
+            }
+            if (row && row.count === 0) {
+                console.log("🌱 Seeding monsters database...");
+                const fs = require('fs');
+                const path = require('path');
+                const seedPath = path.join(__dirname, 'monsters_seed.sql');
+
+                try {
+                    const seedSql = fs.readFileSync(seedPath, 'utf8');
+                    db.exec(seedSql, (err) => {
+                        if (err) {
+                            console.error("❌ Error running seed", err);
+                        } else {
+                            console.log("✅ Monsters seeded successfully!");
+                        }
+                    });
+                } catch (e) {
+                    console.error("❌ Error reading seed file", e);
+                }
+            } else {
+                console.log(`ℹ️ Monsters table has ${row ? row.count : 0} entries.`);
+            }
+        });
     });
 }
 

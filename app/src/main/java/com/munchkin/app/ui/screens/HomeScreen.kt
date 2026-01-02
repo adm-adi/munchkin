@@ -42,6 +42,7 @@ fun HomeScreen(
     onAuth: () -> Unit,
     onLogout: () -> Unit,
     onLeaderboardClick: () -> Unit,
+    onHistoryClick: () -> Unit,
     userProfile: com.munchkin.app.network.UserProfile?,
     modifier: Modifier = Modifier
 ) {
@@ -151,6 +152,26 @@ fun HomeScreen(
                                 showMenu = false
                                 onLeaderboardClick()
                             },
+                            leadingIcon = {
+                                Icon(Icons.Default.Leaderboard, null, tint = NeonSecondary)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Mis Partidas", color = Color.White) },
+                            onClick = {
+                                showMenu = false
+                                onHistoryClick()
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.History, null, tint = NeonWarning)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Ajustes", color = Color.White) },
+                            onClick = {
+                                showMenu = false
+                                onLeaderboardClick()
+                            },
                              leadingIcon = {
                                 Icon(Icons.Default.EmojiEvents, null, tint = NeonWarning)
                             }
@@ -226,15 +247,6 @@ fun HomeScreen(
                     letterSpacing = (-1).sp
                 ),
                 color = NeonGray100
-            )
-            
-            Text(
-                text = "Mesa Tracker",
-                style = MaterialTheme.typography.titleLarge.copy(
-                    fontWeight = FontWeight.Light,
-                    letterSpacing = 2.sp
-                ),
-                color = NeonGray500
             )
             
             Spacer(modifier = Modifier.height(48.dp))

@@ -47,10 +47,8 @@ class MainActivity : ComponentActivity() {
                     mutableStateOf(!TutorialPrefs.isShown(this@MainActivity)) 
                 }
                 
-                // Initialize SoundManager
-                LaunchedEffect(Unit) {
-                    com.munchkin.app.ui.components.SoundManager.init(this@MainActivity)
-                }
+                // SoundManager auto-initializes via object access
+                 
                 
                 if (showTutorial) {
                     TutorialScreen(
@@ -70,6 +68,13 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxSize(),
                             color = MaterialTheme.colorScheme.background
                         ) {
+                            // Global Sound Effects
+                            val currentState = uiState.gameState
+                            val currentPlayer = uiState.myPlayerId
+                            if (currentState != null && currentPlayer != null) {
+                                com.munchkin.app.ui.components.EventEffects(currentState, currentPlayer)
+                            }
+
                             AnimatedContent(
                                 targetState = uiState.screen,
                                 transitionSpec = {
@@ -104,6 +109,10 @@ class MainActivity : ComponentActivity() {
                                     onLeaderboardClick = { 
                                         viewModel.loadLeaderboard() // Load data
                                         viewModel.navigateTo(Screen.LEADERBOARD) 
+                                    },
+                                    onHistoryClick = {
+                                        viewModel.loadHistory()
+                                        viewModel.navigateTo(Screen.HISTORY)
                                     },
                                     userProfile = uiState.userProfile
                                 )
@@ -152,7 +161,8 @@ class MainActivity : ComponentActivity() {
                                         connectionInfo = connectionInfo,
                                         onStartGame = { viewModel.startGame() },
                                         onLeaveGame = { viewModel.leaveGame() },
-                                        onRollDice = { viewModel.rollDiceForStart() }
+                                        onRollDice = { viewModel.rollDiceForStart() },
+                                        onSwapPlayers = { p1, p2 -> viewModel.swapPlayers(p1, p2) }
                                     )
                                 }
                             }
@@ -179,6 +189,7 @@ class MainActivity : ComponentActivity() {
                                             onAddHelper = { viewModel.addHelper(it) },
                                             onRemoveHelper = { viewModel.removeHelper() },
                                             onModifyModifier = { target, delta -> viewModel.modifyCombatModifier(target, delta) },
+                                            onRollCombatDice = { purpose -> viewModel.rollForCombat(purpose) },
                                             onEndCombat = { viewModel.endCombat() },
                                             onBack = { 
                                                 // Only main player can cancel combat via back
@@ -245,6 +256,7 @@ class MainActivity : ComponentActivity() {
                                         onAddHelper = { viewModel.addHelper(it) },
                                         onRemoveHelper = { viewModel.removeHelper() },
                                         onModifyModifier = { target, delta -> viewModel.modifyCombatModifier(target, delta) },
+                                        onRollCombatDice = { purpose -> viewModel.rollForCombat(purpose) },
                                         onEndCombat = { viewModel.endCombat() },
                                         onBack = { viewModel.goBack() }
                                     )
@@ -252,21 +264,9 @@ class MainActivity : ComponentActivity() {
                             }
                             
                             Screen.CATALOG -> {
-                                // Placeholder CatalogScreen
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = androidx.compose.ui.Alignment.Center
-                                ) {
-                                    androidx.compose.foundation.layout.Column(
-                                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
-                                    ) {
-                                        Text("Catálogo Global - Próximamente", style = MaterialTheme.typography.headlineSmall)
-                                        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(16.dp))
-                                        androidx.compose.material3.Button(onClick = { viewModel.goBack() }) {
-                                            Text("Volver")
-                                        }
-                                    }
-                                }
+                                MonsterCatalogScreen(
+                                    onBack = { viewModel.goBack() }
+                                )
                             }
                             
                             Screen.SETTINGS -> {
@@ -287,6 +287,15 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
 
+                            Screen.HISTORY -> {
+                                HistoryScreen(
+                                    history = uiState.gameHistory,
+                                    isLoading = uiState.isLoading,
+                                    onBack = { viewModel.goBack() },
+                                    onRefresh = { viewModel.loadHistory() }
+                                )
+                            }
+                            
                             Screen.PROFILE -> {
                                 uiState.userProfile?.let { user ->
                                     ProfileScreen(

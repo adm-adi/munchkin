@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
@@ -38,6 +39,7 @@ fun LobbyScreen(
     onStartGame: () -> Unit,
     onLeaveGame: () -> Unit,
     onRollDice: () -> Unit = {},
+    onSwapPlayers: (PlayerId, PlayerId) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     var showLeaveDialog by remember { mutableStateOf(false) }
@@ -124,51 +126,104 @@ fun LobbyScreen(
                 }
             }
             
-            // Player list
-            items(
+            // Player list with reorder controls for host
+            itemsIndexed(
                 items = gameState.playerList,
-                key = { it.playerId.value }
-            ) { player ->
-                AnimatedVisibility(
-                    visible = true,
-                    enter = slideInHorizontally() + fadeIn(),
-                    exit = slideOutHorizontally() + fadeOut()
-                ) {
-                    PlayerCard(
-                        player = player,
-                        isMe = player.playerId == myPlayerId,
-                        isHost = player.playerId == gameState.hostId,
-                        actions = {
-                            if (player.lastRoll != null) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = com.munchkin.app.ui.theme.NeonSecondary.copy(alpha = 0.2f)
+                key = { _, p -> p.playerId.value }
+            ) { index, player ->
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        // Reorder controls for host
+                        if (isHost && gameState.playerList.size > 1) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(end = 4.dp)
+                            ) {
+                                // Move up button
+                                IconButton(
+                                    onClick = {
+                                        if (index > 0) {
+                                            val prevPlayer = gameState.playerList[index - 1]
+                                            onSwapPlayers(player.playerId, prevPlayer.playerId)
+                                        }
+                                    },
+                                    enabled = index > 0,
+                                    modifier = Modifier.size(28.dp)
                                 ) {
-                                    Text(
-                                        text = "🎲 ${player.lastRoll}",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = com.munchkin.app.ui.theme.NeonSecondary,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    Icon(
+                                        Icons.Default.KeyboardArrowUp,
+                                        contentDescription = "Move up",
+                                        tint = if (index > 0) MaterialTheme.colorScheme.primary 
+                                               else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
                                     )
                                 }
-                            } else if (player.playerId == myPlayerId) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Button(
-                                    onClick = onRollDice,
-                                    modifier = Modifier.height(40.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = com.munchkin.app.ui.theme.NeonPrimary,
-                                        contentColor = Color.Black
-                                    )
+                                // Position indicator
+                                Text(
+                                    text = "${index + 1}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                // Move down button
+                                IconButton(
+                                    onClick = {
+                                        if (index < gameState.playerList.size - 1) {
+                                            val nextPlayer = gameState.playerList[index + 1]
+                                            onSwapPlayers(player.playerId, nextPlayer.playerId)
+                                        }
+                                    },
+                                    enabled = index < gameState.playerList.size - 1,
+                                    modifier = Modifier.size(28.dp)
                                 ) {
-                                    Text("Lanzar 🎲", fontWeight = FontWeight.Bold)
+                                    Icon(
+                                        Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "Move down",
+                                        tint = if (index < gameState.playerList.size - 1) MaterialTheme.colorScheme.primary 
+                                               else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                                    )
                                 }
                             }
                         }
-                    )
-                }
+                        
+                        // Player card
+                        PlayerCard(
+                            player = player,
+                            isMe = player.playerId == myPlayerId,
+                            isHost = player.playerId == gameState.hostId,
+                            modifier = Modifier.weight(1f),
+                            actions = {
+                                if (player.lastRoll != null) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = com.munchkin.app.ui.theme.NeonSecondary.copy(alpha = 0.2f)
+                                    ) {
+                                        Text(
+                                            text = "🎲 ${player.lastRoll}",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = com.munchkin.app.ui.theme.NeonSecondary,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                } else if (player.playerId == myPlayerId) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Button(
+                                        onClick = onRollDice,
+                                        modifier = Modifier.height(40.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = com.munchkin.app.ui.theme.NeonPrimary,
+                                            contentColor = Color.Black
+                                        )
+                                    ) {
+                                        Text("Lanzar 🎲", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        )
+                    }
             }
             
             // Waiting message

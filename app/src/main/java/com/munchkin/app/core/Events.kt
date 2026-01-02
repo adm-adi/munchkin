@@ -76,7 +76,8 @@ data class PlayerRoll(
     override val actorId: PlayerId,
     override val timestamp: Long,
     override val targetPlayerId: PlayerId?,
-    val value: Int
+    val result: Int,
+    val purpose: DiceRollPurpose = DiceRollPurpose.RANDOM
 ) : GameEvent()
 
 @Serializable
@@ -87,6 +88,15 @@ data class GameEnd(
     override val timestamp: Long,
     override val targetPlayerId: PlayerId? = null,
     val winnerId: PlayerId?
+) : GameEvent()
+
+@Serializable
+@SerialName("END_TURN")
+data class EndTurn(
+    override val eventId: String,
+    override val actorId: PlayerId,
+    override val timestamp: Long,
+    override val targetPlayerId: PlayerId? = null
 ) : GameEvent()
 
 // ============== Player Modification Events ==============
@@ -392,20 +402,23 @@ data class CombatModifyModifier(
 
 @Serializable
 enum class DiceRollPurpose {
+    COMBAT,         // Combat roll
     RUN_AWAY,       // Escaping combat
     CURSE,          // Curse effect
     RANDOM,         // Generic roll
     TIE_BREAKER     // Breaking ties
 }
 
+
+
 @Serializable
 data class DiceRollInfo(
     val playerId: PlayerId,
     val playerName: String,
     val result: Int,
-    val purpose: DiceRollPurpose,
     val success: Boolean = false, // Did they succeed (e.g., escaped)
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val purpose: DiceRollPurpose = DiceRollPurpose.RANDOM
 )
 
 @Serializable

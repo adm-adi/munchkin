@@ -7,62 +7,10 @@
  */
 
 const WebSocket = require('ws');
-const http = require('http');
-const url = require('url');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
 
 const PORT = 8765;
-
-// HTTP Server handling API + WebSockets
-const server = http.createServer((req, res) => {
-    // CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Request-Method', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET');
-    res.setHeader('Access-Control-Allow-Headers', '*');
-
-    if (req.method === 'OPTIONS') {
-        res.writeHead(200);
-        res.end();
-        return;
-    }
-
-    const parsedUrl = url.parse(req.url, true);
-
-    // API: Search Monsters
-    if (req.method === 'GET' && parsedUrl.pathname === '/api/monsters') {
-        const query = parsedUrl.query.q || '';
-        console.log(`🔍 Search Monsters: "${query}"`);
-
-        // SQL Injection protection handled by param binding, but relying on simple LIKE here
-        // Note: db.all is async
-        const sql = `SELECT * FROM monsters WHERE name LIKE ? ORDER BY level ASC LIMIT 50`;
-        const params = [`%${query}%`];
-
-        db.all(sql, params, (err, rows) => {
-            if (err) {
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: err.message }));
-                return;
-            }
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(rows));
-        });
-        return;
-    }
-
-    // Default: 404
-    res.writeHead(404);
-    res.end();
-});
-
-// WebSocket Server attached to HTTP server
-const wss = new WebSocket.Server({ server });
-
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Server listening on port ${PORT} (HTTP + WS)`);
-});
 
 // Store active games: gameId -> GameRoom
 const games = new Map();
@@ -114,7 +62,7 @@ class GameRoom {
                 playerId: playerId,  // raw string, not {value: ...}
                 name: player.name,
                 avatarId: player.avatarId || 0,
-                gender: player.gender || "M",
+                gender: player.gender || "NA",
                 level: player.level || 1,
                 gearBonus: player.gear || 0,
                 tempCombatBonus: 0,
@@ -171,9 +119,9 @@ function findGameByCode(joinCode) {
     return null;
 }
 
-// WSS already initialized above using http server
+const wss = new WebSocket.Server({ port: PORT, host: '0.0.0.0' });
 
-// console.log(`🎮 Munchkin Server running on ws://0.0.0.0:${PORT}`);
+console.log(`🎮 Munchkin Server running on ws://0.0.0.0:${PORT}`);
 
 wss.on('connection', (ws, req) => {
     const clientIp = req.socket.remoteAddress;
@@ -262,10 +210,6 @@ function handleMessage(ws, message) {
             handleCombatDiceRoll(ws, message);
             break;
 
-        case 'SWAP_PLAYERS':
-            handleSwapPlayers(ws, message);
-            break;
-
         default:
             console.log('Unknown message type:', message.type);
     }
@@ -283,7 +227,7 @@ function handleCreateGame(ws, message) {
         ws,
         name: playerMeta.name,
         avatarId: playerMeta.avatarId || 0,
-        gender: playerMeta.gender || "M",
+        gender: playerMeta.gender || "MALE",
         userId: playerMeta.userId || null, // Store meaningful userId
         level: 1,
         gear: 0,
@@ -458,48 +402,8 @@ function applyEvent(game, event, playerId) {
             break;
         case 'GAME_START':
             game.phase = "IN_GAME";
-            // Check if we need to record something? usually started_at is created_at
-            break;
-        case 'GAME_END':
-            // Explicit end (e.g. host left)
-            console.log(`🏁 Game ${game.joinCode} explicit end. Winner: ${event.winnerId}`);
-            closeGame(game, event.winnerId);
             break;
     }
-
-    // Check Win Condition
-    if (player.level >= 10 && !game.winnerId) {
-        console.log(`🏆 Player ${player.name} reached Level 10!`);
-        closeGame(game, player.id);
-    }
-}
-
-function closeGame(game, winnerId) {
-    if (game.ended) return; // Already closed
-    game.ended = true;
-    game.winnerId = winnerId;
-    game.phase = "FINISHED";
-
-    // Helper to get real userId or null
-    const participants = [];
-    for (const [pid, p] of game.players) {
-        participants.push({
-            playerId: pid,
-            userId: p.userId, // Can be null if guest
-            joinedAt: p.joinedAt
-        });
-    }
-
-    // Determine stored winner ID (User ID preferred, else Player ID)
-    let winnerUserId = null;
-    if (winnerId) {
-        const winner = game.players.get(winnerId);
-        if (winner) winnerUserId = winner.userId || winnerId; // If guest, use PlayerID as placeholder
-    }
-
-    db.recordGame(game.id, winnerUserId || "aborted", game.createdAt, Date.now(), participants)
-        .then(() => console.log(`💾 Game ${game.id} recorded in history`))
-        .catch(err => console.error(`❌ Failed to record game ${game.id}`, err));
 }
 
 // ============== Auth Handlers ==============
@@ -868,44 +772,3 @@ setInterval(() => {
 }, 60 * 60 * 1000);
 
 console.log('✅ Server ready to accept connections');
-
-function handleSwapPlayers(ws, message) {
-    const { player1, player2 } = message;
-    const clientInfo = clientGames.get(ws);
-    if (!clientInfo) return;
-
-    const game = games.get(clientInfo.gameId);
-    if (!game) return;
-
-    // Host check
-    if (game.hostId !== clientInfo.playerId) {
-        console.warn(`⚠️ Non-host ${clientInfo.playerId} tried to swap players`);
-        return;
-    }
-
-    if (!game.players.has(player1) || !game.players.has(player2)) {
-        console.warn('⚠️ Swap failed: player not found');
-        return;
-    }
-
-    // Convert map to array entry list to preserve order
-    const entries = Array.from(game.players.entries());
-    const idx1 = entries.findIndex(([pid]) => pid === player1);
-    const idx2 = entries.findIndex(([pid]) => pid === player2);
-
-    if (idx1 === -1 || idx2 === -1) return;
-
-    // Swap
-    [entries[idx1], entries[idx2]] = [entries[idx2], entries[idx1]];
-
-    // Rebuild map with new order
-    game.players = new Map(entries);
-
-    console.log(`🔄 Swapped players ${player1} and ${player2}`);
-
-    // Broadcast update
-    game.broadcast({
-        type: "STATE_UPDATE",
-        gameState: game.buildGameState()
-    });
-}

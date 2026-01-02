@@ -385,7 +385,7 @@ fun PlayerCard(
                             color = com.munchkin.app.ui.theme.NeonGray500.copy(alpha = 0.15f)
                         ) {
                             Text(
-                                text = "Poder ${player.combatPower}",
+                                text = "Fuerza ${player.combatPower}",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = com.munchkin.app.ui.theme.NeonGray100,

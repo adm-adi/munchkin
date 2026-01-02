@@ -138,6 +138,33 @@ data class UserProfile(
     val avatarId: Int
 )
 
+@Serializable
+@SerialName("SWAP_PLAYERS")
+data class SwapPlayers(
+    val player1: PlayerId,
+    val player2: PlayerId
+) : WsMessage()
+
+@Serializable
+@SerialName("GET_HISTORY")
+data class GetHistoryRequest(
+    val userId: String
+) : WsMessage()
+
+@Serializable
+@SerialName("HISTORY_RESULT")
+data class HistoryResult(
+    val games: List<GameHistoryItem>
+) : WsMessage()
+
+@Serializable
+data class GameHistoryItem(
+    val id: String,
+    val endedAt: Long,
+    val winnerId: String?,
+    val playerCount: Int
+)
+
 // ============== Handover Messages ==============
 
 /**
@@ -268,18 +295,6 @@ data class GameOverMessage(
 object EndTurnMessage : WsMessage()
 
 @Serializable
-@SerialName("GET_HISTORY")
-data class GetHistoryRequest(
-    val userId: String
-) : WsMessage()
-
-@Serializable
-@SerialName("HISTORY_RESULT")
-data class HistoryResult(
-    val games: List<GameHistoryItem>
-) : WsMessage()
-
-@Serializable
 @SerialName("GET_LEADERBOARD")
 object GetLeaderboardRequest : WsMessage()
 
@@ -295,13 +310,6 @@ data class LeaderboardEntry(
     val username: String,
     val avatarId: Int,
     val wins: Int
-)
-
-@Serializable
-data class GameHistoryItem(
-    val id: String,
-    val endedAt: Long,
-    val winnerId: String
 )
 
 // ============== Combat Dice Roll Result ==============

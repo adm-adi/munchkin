@@ -46,10 +46,11 @@ fun CreateGameScreen(
 ) {
     var name by remember { mutableStateOf(userProfile?.username ?: "") }
     var selectedAvatarId by remember { mutableIntStateOf(userProfile?.avatarId ?: 0) }
-    var selectedGender by remember { mutableStateOf(Gender.NA) }
+    var selectedGender by remember { mutableStateOf(Gender.M) }  // Default to Male
     var selectedTimerSeconds by remember { mutableIntStateOf(0) }
     
-    val isLocked = userProfile != null
+    // Only lock the name if logged in, avatar can always be changed
+    val isNameLocked = userProfile != null
     
     Scaffold(
         modifier = modifier,
@@ -94,15 +95,15 @@ fun CreateGameScreen(
             // Name input
             OutlinedTextField(
                 value = name,
-                onValueChange = { if (!isLocked) name = it.take(20) },
+                onValueChange = { if (!isNameLocked) name = it.take(20) },
                 label = { Text(stringResource(R.string.your_name)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                readOnly = isLocked,
+                readOnly = isNameLocked,
                 leadingIcon = {
                     Icon(Icons.Default.Person, contentDescription = null)
                 },
-                trailingIcon = if (isLocked) {
+                trailingIcon = if (isNameLocked) {
                     { Icon(Icons.Default.Lock, contentDescription = "Locked", tint = MaterialTheme.colorScheme.primary) }
                 } else null
             )
@@ -138,7 +139,7 @@ fun CreateGameScreen(
                                 else MaterialTheme.colorScheme.surfaceVariant
                             )
                             .border(2.dp, borderColor, RoundedCornerShape(12.dp))
-                            .clickable(enabled = !isLocked) { selectedAvatarId = avatarId }
+                            .clickable { selectedAvatarId = avatarId }  // Avatar always selectable
                             .padding(8.dp)
                     ) {
                         // Color-based avatar with initial letter
@@ -184,18 +185,20 @@ fun CreateGameScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Gender.entries.forEach { gender ->
+                // Only show M and F genders (not NA)
+                listOf(Gender.M, Gender.F).forEach { gender ->
                     val isSelected = selectedGender == gender
                     FilterChip(
                         selected = isSelected,
                         onClick = { selectedGender = gender },
                         label = {
                             Text(
-                                when (gender) {
-                                    Gender.M -> stringResource(R.string.gender_male)
-                                    Gender.F -> stringResource(R.string.gender_female)
-                                    Gender.NA -> stringResource(R.string.gender_na)
-                                }
+                                text = when (gender) {
+                                    Gender.M -> "♂"
+                                    Gender.F -> "♀"
+                                    else -> ""
+                                },
+                                style = MaterialTheme.typography.titleMedium
                             )
                         },
                         leadingIcon = if (isSelected) {

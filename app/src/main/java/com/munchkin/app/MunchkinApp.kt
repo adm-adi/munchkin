@@ -19,5 +19,6 @@ class MunchkinApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // SoundManager auto-initializes
     }
 }

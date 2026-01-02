@@ -567,7 +567,7 @@ class GameClient {
         query: String
     ): Result<List<CatalogMonster>> = withContext(Dispatchers.IO) {
         val msg = CatalogSearchRequest(query)
-        val response = sendCatalogRequest(serverUrl, msg)
+        val response = sendOneOffRequest(serverUrl, msg)
         
         response.map {
             if (it is CatalogSearchResult) it.results else emptyList()
@@ -580,14 +580,31 @@ class GameClient {
         userId: String
     ): Result<CatalogMonster> = withContext(Dispatchers.IO) {
         val msg = CatalogAddRequest(monster, userId)
-        val response = sendCatalogRequest(serverUrl, msg)
+        val response = sendOneOffRequest(serverUrl, msg)
 
         response.map {
             if (it is CatalogAddSuccess) it.monster else monster
         }
     }
 
-    private suspend fun sendCatalogRequest(
+    // ============== History Methods ==============
+
+    suspend fun getHistory(
+        serverUrl: String,
+        userId: String
+    ): Result<List<GameHistoryItem>> = withContext(Dispatchers.IO) {
+        val request = GetHistoryRequest(userId)
+        sendOneOffRequest(serverUrl, request).map { response ->
+            if (response is HistoryResult) {
+                response.games
+            } else {
+                emptyList()
+            }
+        }
+    }
+    
+    // Generic Helper for One-Off Requests (Catalog, History, etc.)
+    private suspend fun sendOneOffRequest(
         serverUrl: String,
         message: WsMessage
     ): Result<WsMessage> = withContext(Dispatchers.IO) {
@@ -622,7 +639,7 @@ class GameClient {
             }
             client.close()
             
-            result ?: Result.failure(Exception("Sin respuesta del catálogo"))
+            result ?: Result.failure(Exception("Sin respuesta del servidor"))
             
         } catch (e: Exception) {
             Result.failure(e)
@@ -649,28 +666,17 @@ class GameClient {
         sendOneOffRequest(serverUrl, msg).map { }
     }
 
-    suspend fun sendEndTurn(): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun sendSwapPlayers(player1: PlayerId, player2: PlayerId): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            session?.send(Json.encodeToString(WsMessage.serializer(), EndTurnMessage))
+            val msg = SwapPlayers(player1, player2)
+            session?.send(Json.encodeToString(WsMessage.serializer(), msg))
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    suspend fun getHistory(
-        serverUrl: String,
-        userId: String
-    ): Result<List<GameHistoryItem>> = withContext(Dispatchers.IO) {
-        val request = GetHistoryRequest(userId)
-        sendOneOffRequest(serverUrl, request).map { response ->
-            if (response is HistoryResult) {
-                response.games
-            } else {
-                emptyList()
-            }
-        }
-    }
+
 
     suspend fun getLeaderboard(
         serverUrl: String
@@ -684,13 +690,6 @@ class GameClient {
         }
     }
 
-    /**
-     * Helper for "One Off" requests (connect, send, receive, close).
-     */
-    private suspend fun sendOneOffRequest(
-        serverUrl: String,
-        message: WsMessage
-    ): Result<WsMessage> = sendCatalogRequest(serverUrl, message)
     private fun parseWsUrl(url: String): Triple<String, Int, String>? {
         val regex = Regex("""ws://([^:]+):(\d+)(/.*)?""")
         val match = regex.find(url) ?: return null

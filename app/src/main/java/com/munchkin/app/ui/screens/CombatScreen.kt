@@ -41,6 +41,7 @@ fun CombatScreen(
     onAddHelper: (PlayerId) -> Unit,
     onRemoveHelper: () -> Unit,
     onModifyModifier: (target: BonusTarget, delta: Int) -> Unit,
+    onRollCombatDice: (DiceRollPurpose) -> Unit,
     onEndCombat: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -54,7 +55,37 @@ fun CombatScreen(
     
     // Animation State
     var combatAnimation by remember { mutableStateOf<com.munchkin.app.ui.components.CombatAnimationType?>(null) }
-    var showRunDice by remember { mutableStateOf(false) }
+    // showRunDice removed - replaced by global roll logic
+    
+    // Dice Result Overlay State
+    var showDiceResult by remember { mutableStateOf<DiceRollInfo?>(null) }
+    
+    // Listen for global dice rolls
+    LaunchedEffect(combatState?.lastDiceRoll) {
+        combatState?.lastDiceRoll?.let { roll ->
+            // Relaxed check: Show if within last 20 seconds (to handle minor clock skews)
+            // But usually LaunchedEffect triggers on change, so we trust it's new.
+            // We mainly want to avoid showing very old info on rejoin.
+            val age = System.currentTimeMillis() - roll.timestamp
+            if (age < 20000) { // 20 seconds tolerance
+                // Play sound
+                com.munchkin.app.ui.components.SoundManager.playDiceRoll()
+                
+                showDiceResult = roll
+                // Auto hide after 3 seconds
+                kotlinx.coroutines.delay(3000)
+                showDiceResult = null
+                
+                // If I am main player and it was run away, trigger result
+                // Actually result logic handles this? No, GameEngine updates state but UI animation/logic needs trigger
+                if (roll.purpose == DiceRollPurpose.RUN_AWAY && roll.success && myPlayerId == combatState.mainPlayerId) {
+                     combatAnimation = com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_SUCCESS
+                } else if (roll.purpose == DiceRollPurpose.RUN_AWAY && !roll.success && myPlayerId == combatState.mainPlayerId) {
+                     combatAnimation = com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_FAIL
+                }
+            }
+        }
+    }
 
     if (showAddHelper) {
         AlertDialog(
@@ -71,7 +102,7 @@ fun CombatScreen(
                         items(candidates) { player ->
                             ListItem(
                                 headlineContent = { Text(player.name) },
-                                supportingContent = { Text("Nivel ${player.level} | Poder ${player.combatPower}") },
+                                supportingContent = { Text("Nivel ${player.level} | Fuerza ${player.combatPower}") },
                                 leadingContent = { PlayerAvatar(player, size = 40) },
                                 modifier = Modifier.clickable {
                                     onAddHelper(player.playerId)
@@ -108,7 +139,7 @@ fun CombatScreen(
                 actions = {
                     // Run Away Button (Only if monsters exist)
                     if (combatState != null && combatState.monsters.isNotEmpty()) {
-                         IconButton(onClick = { showRunDice = true }) {
+                         IconButton(onClick = { onRollCombatDice(DiceRollPurpose.RUN_AWAY) }) {
                              Icon(
                                  Icons.Default.DirectionsRun, 
                                  contentDescription = "Huir"
@@ -178,7 +209,7 @@ fun CombatScreen(
                         val mainPlayer = gameState.players[combatState.mainPlayerId]
                         mainPlayer?.let { player ->
                             Text(
-                                text = "${player.name}: Poder ${player.combatPower}",
+                                text = "${player.name}: Fuerza ${player.combatPower}",
                                 style = MaterialTheme.typography.bodyLarge
                             )
                         }
@@ -202,7 +233,7 @@ fun CombatScreen(
                             }
                             helper?.let { player ->
                                 Text(
-                                    text = "Poder ${player.combatPower}",
+                                    text = "Fuerza ${player.combatPower}",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -389,20 +420,38 @@ fun CombatScreen(
         )
     }
     // Run Dice Logic
-    if (showRunDice) {
-         com.munchkin.app.ui.components.DiceRollerDialog(
-             onDismiss = { showRunDice = false },
-             showModifier = true,
-             onRollComplete = { value, modifier ->
-                  showRunDice = false
-                  // Standard Munchkin Rule: Run away on 5 or 6 (modified)
-                  if ((value + modifier) >= 5) {
-                      combatAnimation = com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_SUCCESS
-                  } else {
-                      combatAnimation = com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_FAIL
-                  }
-             }
-         )
+    // Dice Result Overlay
+    if (showDiceResult != null) {
+        val roll = showDiceResult!!
+        AlertDialog(
+            onDismissRequest = { /* Auto-dismiss only */ },
+            icon = { 
+                Text(
+                    text = "🎲", 
+                    style = MaterialTheme.typography.displayLarge
+                ) 
+            },
+            title = { 
+                Text(
+                    text = "${roll.playerName} rodó un ${roll.result}",
+                    style = MaterialTheme.typography.headlineSmall,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                ) 
+            },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    if (roll.purpose == DiceRollPurpose.RUN_AWAY) {
+                         Text(
+                             text = if (roll.success) "¡Escapó!" else "¡Falló!",
+                             style = MaterialTheme.typography.titleLarge,
+                             color = if (roll.success) androidx.compose.ui.graphics.Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
+                             fontWeight = FontWeight.Bold
+                         )
+                    }
+                }
+            },
+            confirmButton = {}
+        )
     }
 
     // Animation Overlay
@@ -540,7 +589,7 @@ private fun CombatSideCard(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Poder: $power",
+                    text = "Fuerza: $power",
                     style = MaterialTheme.typography.headlineSmall,
                     color = color,
                     fontWeight = FontWeight.Bold

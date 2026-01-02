@@ -59,7 +59,7 @@ fun JoinGameScreen(
     var selectedAvatarId by remember { mutableIntStateOf(userProfile?.avatarId ?: 0) }
     var selectedGender by remember { mutableStateOf(Gender.NA) }
     
-    val isLocked = userProfile != null
+    val isNameLocked = userProfile != null
     
     // Request available games on screen load
     LaunchedEffect(Unit) {
@@ -139,15 +139,15 @@ fun JoinGameScreen(
                     
                     OutlinedTextField(
                         value = name,
-                        onValueChange = { if (!isLocked) name = it.take(20) },
+                        onValueChange = { if (!isNameLocked) name = it.take(20) },
                         label = { Text(stringResource(R.string.your_name)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        readOnly = isLocked,
+                        readOnly = isNameLocked,
                         leadingIcon = {
                             Icon(Icons.Default.Person, contentDescription = null)
                         },
-                        trailingIcon = if (isLocked) {
+                        trailingIcon = if (isNameLocked) {
                             { Icon(Icons.Default.Lock, contentDescription = "Locked", tint = MaterialTheme.colorScheme.primary) }
                         } else null
                     )
@@ -170,7 +170,7 @@ fun JoinGameScreen(
                                         .size(36.dp)
                                         .clip(CircleShape)
                                         .background(if (isSelected) color else color.copy(alpha = 0.4f))
-                                        .clickable(enabled = !isLocked) { selectedAvatarId = avatarId },
+                                        .clickable { selectedAvatarId = avatarId },
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (isSelected) {

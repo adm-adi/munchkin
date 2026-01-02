@@ -108,6 +108,7 @@ class GameEngine {
             is CatalogAddClass -> validateCatalogAddClass(event, state)
             is SetHalfBreed -> validateSetHalfBreed(event, state)
             is SetSuperMunchkin -> validateSetSuperMunchkin(event, state)
+            is PlayerRoll -> ValidationResult.Success(state, null)
             else -> ValidationResult.Success(state, null)
         }
     }
@@ -247,14 +248,32 @@ class GameEngine {
         return when (event) {
             is PlayerJoin -> applyPlayerJoin(event, state)
             is PlayerLeave -> applyPlayerLeave(event, state)
-            is GameStart -> state.copy(phase = GamePhase.IN_GAME)
+            is PlayerRoll -> applyPlayerRoll(event, state)
+            is GameStart -> {
+                // Determine first player: Highest roller, or first in order
+                val startingPlayerId = state.players.values
+                    .maxByOrNull { it.lastRoll ?: 0 }
+                    ?.takeIf { (it.lastRoll ?: 0) > 0 }
+                    ?.playerId
+                    ?: if (state.playerOrder.isNotEmpty()) {
+                        state.playerOrder.first()
+                    } else {
+                        state.players.keys.sortedBy { it.value }.first()
+                    }
+                
+                state.copy(
+                    phase = GamePhase.IN_GAME,
+                    turnPlayerId = startingPlayerId,
+                    // Optional: Reset combat on start?
+                )
+            }
             is SwapPlayers -> applySwapPlayers(event, state)
+            is EndTurn -> applyEndTurn(event, state)
             is GameEnd -> state.copy(phase = GamePhase.FINISHED)
             
             is SetName -> updatePlayer(state, event.targetPlayerId) { it.copy(name = event.name) }
             is SetAvatar -> updatePlayer(state, event.targetPlayerId) { it.copy(avatarId = event.avatarId) }
             is SetGender -> updatePlayer(state, event.targetPlayerId) { it.copy(gender = event.gender) }
-            is PlayerRoll -> updatePlayer(state, event.targetPlayerId ?: return state) { it.copy(lastRoll = event.value) }
             
             is IncLevel -> updatePlayer(state, event.targetPlayerId) { 
                 it.copy(level = (it.level + event.amount).coerceIn(state.settings.minLevel, state.settings.maxLevel))
@@ -423,10 +442,34 @@ class GameEngine {
     }
     
     private fun applyCombatAddMonster(event: CombatAddMonster, state: GameState): GameState {
-        val combat = state.combat?.copy(
-            monsters = state.combat.monsters + event.monster
-        ) ?: return state
-        return state.copy(combat = combat)
+        val combat = state.combat ?: return state
+        val updatedCombat = combat.copy(
+            monsters = combat.monsters + event.monster
+        )
+        return state.copy(combat = updatedCombat)
+    }
+
+    private fun applyEndTurn(event: EndTurn, state: GameState): GameState {
+        // Calculate next player
+        val currentPlayerId = state.turnPlayerId ?: return state
+        
+        // Use implicit or explicit order
+        val playerList = if (state.playerOrder.isNotEmpty()) {
+            state.playerOrder
+        } else {
+            state.players.keys.sortedBy { it.value }
+        }
+        
+        val currentIndex = playerList.indexOf(currentPlayerId)
+        if (currentIndex == -1) return state // Should not happen
+        
+        val nextIndex = (currentIndex + 1) % playerList.size
+        val nextPlayerId = playerList[nextIndex]
+        
+        return state.copy(
+            turnPlayerId = nextPlayerId,
+            combat = null // Clear combat state on turn end
+        )
     }
     
     private fun applyCombatRemoveMonster(event: CombatRemoveMonster, state: GameState): GameState {
@@ -509,6 +552,29 @@ class GameEngine {
         } else {
             state
         } */
+    }
+    private fun applyPlayerRoll(event: PlayerRoll, state: GameState): GameState {
+        val player = state.players[event.actorId] ?: return state
+        val updatedPlayer = player.copy(lastRoll = event.result)
+        val stateWithPlayer = state.copy(players = state.players + (player.playerId to updatedPlayer))
+        
+        // If in combat or purpose implies combat, update combat state
+        return if (stateWithPlayer.combat != null && 
+            (event.purpose == DiceRollPurpose.COMBAT || event.purpose == DiceRollPurpose.RUN_AWAY)) {
+             
+             // Create DiceRollInfo from result
+             val rollInfo = DiceRollInfo(
+                 playerId = event.actorId,
+                 playerName = stateWithPlayer.players[event.actorId]?.name ?: "Unknown",
+                 result = event.result,
+                 purpose = event.purpose
+             )
+             
+             val updatedCombat = stateWithPlayer.combat.copy(lastDiceRoll = rollInfo)
+             stateWithPlayer.copy(combat = updatedCombat)
+        } else {
+            stateWithPlayer
+        }
     }
 }
 
