@@ -165,10 +165,42 @@ fun BoardScreen(
                     item {
                         Spacer(modifier = Modifier.height(8.dp))
                         
-                        // Turn indicator banner
+                        // Turn indicator banner with timer
                         val currentTurnPlayer = gameState.turnPlayerId?.let { gameState.players[it] }
+                        val timerDuration = gameState.settings.turnTimerSeconds
+                        
+                        // Timer countdown state - resets when turn changes
+                        var remainingSeconds by remember(gameState.turnPlayerId) { 
+                            mutableIntStateOf(timerDuration) 
+                        }
+                        
+                        // Countdown effect when timer is enabled
+                        if (timerDuration > 0 && currentTurnPlayer != null) {
+                            LaunchedEffect(gameState.turnPlayerId, timerDuration) {
+                                remainingSeconds = timerDuration
+                                while (remainingSeconds > 0) {
+                                    kotlinx.coroutines.delay(1000)
+                                    remainingSeconds--
+                                    // Warning sound at 10 seconds
+                                    if (remainingSeconds == 10) {
+                                        com.munchkin.app.ui.components.SoundManager.playTurnStart()
+                                    }
+                                    // Critical warning at 5 seconds
+                                    if (remainingSeconds <= 5 && remainingSeconds > 0) {
+                                        com.munchkin.app.ui.components.SoundManager.playButtonClick()
+                                    }
+                                }
+                            }
+                        }
+                        
                         if (currentTurnPlayer != null) {
                             val isMyTurn = gameState.turnPlayerId == myPlayerId
+                            val timerColor = when {
+                                timerDuration == 0 -> MaterialTheme.colorScheme.onSurfaceVariant
+                                remainingSeconds <= 10 -> MaterialTheme.colorScheme.error
+                                remainingSeconds <= 30 -> MaterialTheme.colorScheme.tertiary
+                                else -> MaterialTheme.colorScheme.primary
+                            }
                             Card(
                                 colors = CardDefaults.cardColors(
                                     containerColor = if (isMyTurn) 
@@ -183,25 +215,44 @@ fun BoardScreen(
                                         .fillMaxWidth()
                                         .padding(16.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Icon(
-                                        Icons.Default.Person,
-                                        contentDescription = null,
-                                        tint = if (isMyTurn) 
-                                            MaterialTheme.colorScheme.primary 
-                                        else 
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = if (isMyTurn) "¡Tu turno!" else "Turno de ${currentTurnPlayer.name}",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = if (isMyTurn) 
-                                            MaterialTheme.colorScheme.primary 
-                                        else 
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.Person,
+                                            contentDescription = null,
+                                            tint = if (isMyTurn) 
+                                                MaterialTheme.colorScheme.primary 
+                                            else 
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = if (isMyTurn) "¡Tu turno!" else "Turno de ${currentTurnPlayer.name}",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = if (isMyTurn) 
+                                                MaterialTheme.colorScheme.primary 
+                                            else 
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    // Timer display
+                                    if (timerDuration > 0) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                Icons.Default.Timer,
+                                                contentDescription = null,
+                                                tint = timerColor,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "%d:%02d".format(remainingSeconds / 60, remainingSeconds % 60),
+                                                style = MaterialTheme.typography.titleMedium,
+                                                color = timerColor
+                                            )
+                                        }
+                                    }
                                 }
                             }
                             Spacer(modifier = Modifier.height(8.dp))
