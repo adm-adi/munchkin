@@ -104,7 +104,8 @@ data class CombatResult(
     val outcome: CombatOutcome,
     val totalTreasures: Int = 0,
     val totalLevels: Int = 0,
-    val warriorTieBreak: Boolean = false
+    val warriorTieBreak: Boolean = false,
+    val helperLevelsGained: Int = 0
 ) {
     val diff: Int get() = kotlin.math.abs(heroesPower - monstersPower)
 }

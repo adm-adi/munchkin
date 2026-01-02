@@ -334,6 +334,18 @@ data class CombatDiceRollResult(
     val diceRoll: DiceRollInfo
 ) : WsMessage()
 
+@Serializable
+@SerialName("DELETE_GAME")
+data class DeleteGameMessage(
+    val timestamp: Long = System.currentTimeMillis()
+) : WsMessage()
+
+@Serializable
+@SerialName("GAME_DELETED")
+data class GameDeletedMessage(
+    val reason: String
+) : WsMessage()
+
 // ============== Connection State ==============
 
 enum class ConnectionState {

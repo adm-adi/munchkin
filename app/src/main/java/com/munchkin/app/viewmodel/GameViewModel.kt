@@ -162,7 +162,14 @@ class GameViewModel : ViewModel() {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        screen = if ((gameState?.phase ?: saved.gameState.phase) == GamePhase.LOBBY) Screen.LOBBY else Screen.BOARD,
+
+                        screen = if ((gameState?.phase ?: saved.gameState.phase) == GamePhase.LOBBY) {
+                            Screen.LOBBY
+                        } else if (gameState?.combat != null) {
+                            Screen.COMBAT
+                        } else {
+                            Screen.BOARD
+                        },
                         gameState = gameState ?: saved.gameState,
                         myPlayerId = saved.myPlayerId,
                         isHost = saved.isHost
@@ -490,7 +497,14 @@ class GameViewModel : ViewModel() {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        screen = if (gameState?.phase == GamePhase.LOBBY) Screen.LOBBY else Screen.BOARD,
+
+                        screen = if (gameState?.phase == GamePhase.LOBBY) {
+                            Screen.LOBBY
+                        } else if (gameState?.combat != null) {
+                            Screen.COMBAT
+                        } else {
+                             Screen.BOARD
+                        },
                         gameState = gameState,
                         myPlayerId = playerId,
                         isHost = false
@@ -848,6 +862,30 @@ class GameViewModel : ViewModel() {
         }
     }
 
+    fun setCharacterClass(newClass: CharacterClass) {
+        sendPlayerEvent { playerId ->
+            SetClass(
+                eventId = UUID.randomUUID().toString(),
+                actorId = playerId,
+                timestamp = System.currentTimeMillis(),
+                targetPlayerId = playerId,
+                newClass = newClass
+            )
+        }
+    }
+
+    fun setCharacterRace(newRace: CharacterRace) {
+        sendPlayerEvent { playerId ->
+            SetRace(
+                eventId = UUID.randomUUID().toString(),
+                actorId = playerId,
+                timestamp = System.currentTimeMillis(),
+                targetPlayerId = playerId,
+                newRace = newRace
+            )
+        }
+    }
+
     fun addHelper(helperId: PlayerId) {
         sendPlayerEvent { playerId ->
             CombatAddHelper(
@@ -1060,9 +1098,29 @@ class GameViewModel : ViewModel() {
     /**
      * Leave current game.
      */
+    /**
+     * Delete the game (Host only).
+     */
+    fun deleteGame() {
+        if (!isHost) return
+        
+        viewModelScope.launch {
+             try {
+                 gameClient?.sendDeleteGame()
+                 kotlinx.coroutines.delay(200)
+             } catch (e: Exception) {
+                 DLog.e("GameVM", "Failed to delete: ${e.message}")
+             }
+             leaveGame()
+        }
+    }
+
+    /**
+     * Leave current game.
+     */
     fun leaveGame() {
         viewModelScope.launch {
-            // If Host, try to notify others that game is ending
+            // ... (rest of leaveGame)
             if (isHost) {
                 try {
                     val playerId = myPlayerId

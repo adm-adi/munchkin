@@ -38,6 +38,7 @@ fun BoardScreen(
     onCatalogClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onLeaveGame: () -> Unit,
+    onDeleteGame: () -> Unit = {},
     pendingWinnerId: PlayerId? = null,
     onConfirmWin: (PlayerId) -> Unit = {},
     onDismissWin: () -> Unit = {},
@@ -56,6 +57,10 @@ fun BoardScreen(
     // State for Game Log
     var showLogDrawer by remember { mutableStateOf(false) }
 
+    // Handle Back Press
+    androidx.activity.compose.BackHandler {
+        showLeaveDialog = true
+    }
 
     Scaffold(
         modifier = modifier,
@@ -113,13 +118,16 @@ fun BoardScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.leave_game)) },
+                                text = { 
+                                    if (isHost) Text("Borrar Partida") else Text(stringResource(R.string.leave_game)) 
+                                },
                                 onClick = {
                                     showMenu = false
                                     showLeaveDialog = true
                                 },
                                 leadingIcon = {
-                                    Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null)
+                                    if (isHost) Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                    else Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null)
                                 }
                             )
                         }
@@ -375,6 +383,38 @@ fun BoardScreen(
         com.munchkin.app.ui.components.GameLogDrawer(
             logEntries = logEntries,
             onDismiss = { showLogDrawer = false }
+        )
+    }
+
+
+    // Leave/Delete Confirmation Dialog
+    if (showLeaveDialog) {
+        AlertDialog(
+            onDismissRequest = { showLeaveDialog = false },
+            title = { 
+                Text(if (isHost) "Borrar Partida" else stringResource(R.string.leave_game)) 
+            },
+            text = { 
+                Text(if (isHost) "¿Estás seguro de que quieres borrar la partida? Todos los jugadores serán desconectados." else stringResource(R.string.confirm_leave)) 
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showLeaveDialog = false
+                        if (isHost) onDeleteGame() else onLeaveGame()
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = if (isHost) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Text(if (isHost) "Borrar" else stringResource(R.string.yes))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLeaveDialog = false }) {
+                    Text(stringResource(R.string.no))
+                }
+            }
         )
     }
 }

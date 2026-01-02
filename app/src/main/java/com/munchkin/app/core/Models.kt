@@ -30,6 +30,23 @@ enum class Gender {
 }
 
 @Serializable
+enum class CharacterClass {
+    NONE,
+    WARRIOR,    // Guerrero
+    WIZARD,     // Mago
+    THIEF,      // Ladron
+    CLERIC      // Clerigo
+}
+
+@Serializable
+enum class CharacterRace {
+    HUMAN,      // Humano
+    ELF,        // Elfo
+    DWARF,      // Enano
+    HALFLING    // Mediano
+}
+
+@Serializable
 enum class GamePhase {
     LOBBY,      // Waiting for players
     IN_GAME,    // Game in progress
@@ -44,6 +61,8 @@ data class PlayerState(
     val name: String,
     val avatarId: Int = 0,
     val gender: Gender = Gender.NA,
+    val characterClass: CharacterClass = CharacterClass.NONE,
+    val characterRace: CharacterRace = CharacterRace.HUMAN,
     val level: Int = 1,
     val gearBonus: Int = 0,
     val tempCombatBonus: Int = 0,

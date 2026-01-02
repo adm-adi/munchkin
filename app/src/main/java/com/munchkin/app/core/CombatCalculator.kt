@@ -20,7 +20,7 @@ object CombatCalculator {
         // Calculate base hero power
         val heroBasePower = mainPlayer.combatPower + (helperPlayer?.combatPower ?: 0)
         
-        // Calculate conditional modifiers for heroes
+        // Calculate conditional modifiers for heroes (Data Driven)
         val heroConditionalBonus = calculateConditionalBonus(
             monsters = combatState.monsters,
             mainPlayer = mainPlayer,
@@ -29,12 +29,19 @@ object CombatCalculator {
             side = ModifierSide.HEROES
         )
         
+        // Calculate Class/Race intrinsic bonuses (Code Driven)
+        val intrinsicHeroBonus = calculateIntrinsicBonuses(
+            monsters = combatState.monsters,
+            mainPlayer = mainPlayer,
+            helperPlayer = helperPlayer
+        )
+        
         // Calculate temp bonuses for heroes
         val heroTempBonus = combatState.tempBonuses
             .filter { it.appliesTo == BonusTarget.HEROES }
             .sumOf { it.amount }
         
-        val heroesPower = heroBasePower + heroConditionalBonus + heroTempBonus + combatState.heroModifier
+        val heroesPower = heroBasePower + heroConditionalBonus + intrinsicHeroBonus + heroTempBonus + combatState.heroModifier
         
         // Calculate monster power
         val monsterBasePower = combatState.monsters.sumOf { it.basePower }
@@ -56,8 +63,8 @@ object CombatCalculator {
         val monstersPower = monsterBasePower + monsterConditionalBonus + monsterTempBonus + combatState.monsterModifier
         
         // Determine outcome (ties go to monsters unless a hero is a Warrior)
-        val isWarriorInvolved = isWarrior(mainPlayer, gameState) || 
-                               (helperPlayer?.let { isWarrior(it, gameState) } ?: false)
+        val isWarriorInvolved = (mainPlayer.characterClass == CharacterClass.WARRIOR) || 
+                               (helperPlayer?.characterClass == CharacterClass.WARRIOR)
         
         val outcome = if (heroesPower > monstersPower || (heroesPower == monstersPower && isWarriorInvolved)) {
             CombatOutcome.WIN
@@ -66,13 +73,18 @@ object CombatCalculator {
         }
         
         // Sum rewards if won
-        val (levels, treasures) = if (outcome == CombatOutcome.WIN) {
-            Pair(
-                combatState.monsters.sumOf { it.levels },
-                combatState.monsters.sumOf { it.treasures }
-            )
-        } else {
-            Pair(0, 0)
+        var levels = 0
+        var treasures = 0
+        var helperLevels = 0
+        
+        if (outcome == CombatOutcome.WIN) {
+            levels = combatState.monsters.sumOf { it.levels }
+            treasures = combatState.monsters.sumOf { it.treasures }
+            
+            // Elf Helper Bonus: Helper gains 1 level if they help and win
+            if (helperPlayer != null && helperPlayer.characterRace == CharacterRace.ELF) {
+                helperLevels = 1
+            }
         }
         
         return CombatResult(
@@ -81,19 +93,29 @@ object CombatCalculator {
             outcome = outcome,
             totalLevels = levels,
             totalTreasures = treasures,
-            warriorTieBreak = heroesPower == monstersPower && isWarriorInvolved
+            warriorTieBreak = heroesPower == monstersPower && isWarriorInvolved,
+            helperLevelsGained = helperLevels
         )
     }
     
     /**
-     * Check if a player has the Warrior/Guerrero class.
+     * Calculate intrinsic bonuses from Class/Race traits (e.g. Cleric vs Undead).
      */
-    private fun isWarrior(player: PlayerState, gameState: GameState): Boolean {
-        return player.classIds.any { classId ->
-            val catalogEntry = gameState.classes[classId]
-            val normalizedName = catalogEntry?.normalizedName ?: ""
-            normalizedName.contains("guerrero") || normalizedName.contains("warrior")
+    private fun calculateIntrinsicBonuses(
+        monsters: List<MonsterInstance>,
+        mainPlayer: PlayerState,
+        helperPlayer: PlayerState?
+    ): Int {
+        var bonus = 0
+        val isUndeadPresent = monsters.any { it.isUndead }
+        
+        // Cleric: +3 vs Undead
+        if (isUndeadPresent) {
+            if (mainPlayer.characterClass == CharacterClass.CLERIC) bonus += 3
+            if (helperPlayer?.characterClass == CharacterClass.CLERIC) bonus += 3
         }
+        
+        return bonus
     }
     
     /**
@@ -161,12 +183,25 @@ object CombatCalculator {
     ): Boolean {
         return when (modifier.conditionType) {
             ConditionType.RACE_ID -> {
-                val targetEntryId = EntryId(modifier.conditionValue)
-                player.raceIds.contains(targetEntryId)
+                // Determine if checking against Enum or ID
+                val raceName = modifier.conditionValue.uppercase()
+                try {
+                    val raceEnum = CharacterRace.valueOf(raceName)
+                    player.characterRace == raceEnum
+                } catch (e: Exception) {
+                    val targetEntryId = EntryId(modifier.conditionValue)
+                    player.raceIds.contains(targetEntryId)
+                }
             }
             ConditionType.CLASS_ID -> {
-                val targetEntryId = EntryId(modifier.conditionValue)
-                player.classIds.contains(targetEntryId)
+                val className = modifier.conditionValue.uppercase()
+                try {
+                    val classEnum = CharacterClass.valueOf(className)
+                    player.characterClass == classEnum
+                } catch (e: Exception) {
+                    val targetEntryId = EntryId(modifier.conditionValue)
+                    player.classIds.contains(targetEntryId)
+                }
             }
             ConditionType.GENDER -> {
                 val targetGender = try {
@@ -225,7 +260,20 @@ object CombatCalculator {
             }
         }
         
-        // Conditional modifiers (grouped)
+        // Intrinsic Bonuses (e.g. Class Abilities)
+        val intrinsicWithDesc = mutableListOf<String>()
+        // Re-calc to get details (simplified for display)
+        val isUndeadPresent = combatState.monsters.any { it.isUndead }
+        if (isUndeadPresent) {
+            if (mainPlayer.characterClass == CharacterClass.CLERIC) {
+                heroSources.add(PowerSource("Clérigo vs No-Muerto", 3))
+            }
+            if (helperPlayer?.characterClass == CharacterClass.CLERIC) {
+                heroSources.add(PowerSource("Ayudante Clérigo vs No-Muerto", 3))
+            }
+        }
+        
+        // Conditional modifiers (Data Driven)
         val conditionalHero = calculateConditionalBonus(
             monsters = combatState.monsters,
             mainPlayer = mainPlayer,
@@ -235,7 +283,7 @@ object CombatCalculator {
         )
         if (conditionalHero != 0) {
             heroSources.add(PowerSource(
-                label = "Modificadores condicionales",
+                label = "Modificadores carta",
                 amount = conditionalHero
             ))
         }
@@ -249,7 +297,7 @@ object CombatCalculator {
         )
         if (conditionalMonster != 0) {
             monsterSources.add(PowerSource(
-                label = "Modificadores condicionales",
+                label = "Modificadores carta",
                 amount = conditionalMonster
             ))
         }

@@ -352,6 +352,10 @@ class GameClient {
             is HandoverInitMessage -> {
                 handleHandover(message)
             }
+            is GameDeletedMessage -> {
+                _errors.emit("La partida ha sido eliminada por el anfitrión")
+                disconnect()
+            }
             else -> {
                 Log.d(TAG, "Unhandled message type: ${message::class.simpleName}")
             }
@@ -450,14 +454,28 @@ class GameClient {
         val currentSession = session ?: return Result.failure(Exception("No conectado"))
         
         return try {
-            val message = EventRequestMessage(event)
-            currentSession.send(json.encodeToString<WsMessage>(message))
+            val msg = EventRequestMessage(event)
+            val jsonStr = json.encodeToString<WsMessage>(msg)
+            currentSession.send(jsonStr)
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to send event", e)
             Result.failure(e)
         }
     }
+
+    suspend fun sendDeleteGame(): Result<Unit> {
+        val currentSession = session ?: return Result.failure(Exception("No conectado"))
+        
+        return try {
+            val msg = DeleteGameMessage()
+            val jsonStr = json.encodeToString<WsMessage>(msg)
+            currentSession.send(jsonStr)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     
     /**
      * Disconnect from the server.

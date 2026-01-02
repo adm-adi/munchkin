@@ -2,6 +2,8 @@ package com.munchkin.app.ui.components
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -79,7 +81,16 @@ fun UpdateDialog(
                 
                 // Release notes
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false) // Allow it to shrink, don't force full weight if not needed? No, weight(1f) fills space.
+                        // Better: heightIn to avoid taking too much. But weight ensures it takes AVAILABLE space.
+                        // If I use weight(1f), the Column must have finite height. Dialog usually wraps content.
+                        // If Dialog wraps, weight(1f) inside Column causes intrinsic measurement issues?
+                        // "Column(Modifier.weight(1f))" works if parent has height.
+                        // Safest: heightIn(max = 250.dp)
+                        .heightIn(max = 240.dp)
+                        .verticalScroll(rememberScrollState()),
                     color = NeonSurfaceVariant,
                     shape = RoundedCornerShape(12.dp)
                 ) {

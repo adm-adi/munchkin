@@ -384,7 +384,8 @@ data class CombatEnd(
     override val targetPlayerId: PlayerId? = null,
     val outcome: CombatOutcome,
     val levelsGained: Int = 0,
-    val treasuresGained: Int = 0
+    val treasuresGained: Int = 0,
+    val helperLevelsGained: Int = 0
 ) : GameEvent()
 
 @Serializable
@@ -431,4 +432,24 @@ data class CombatDiceRoll(
     val result: Int,
     val purpose: DiceRollPurpose,
     val success: Boolean = false
+) : GameEvent()
+
+@Serializable
+@SerialName("SET_CLASS")
+data class SetClass(
+    override val eventId: String,
+    override val actorId: PlayerId,
+    override val timestamp: Long,
+    override val targetPlayerId: PlayerId,
+    val newClass: CharacterClass
+) : GameEvent()
+
+@Serializable
+@SerialName("SET_RACE")
+data class SetRace(
+    override val eventId: String,
+    override val actorId: PlayerId,
+    override val timestamp: Long,
+    override val targetPlayerId: PlayerId,
+    val newRace: CharacterRace
 ) : GameEvent()

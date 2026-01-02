@@ -208,35 +208,56 @@ fun CombatScreen(
                     ) {
                         val mainPlayer = gameState.players[combatState.mainPlayerId]
                         mainPlayer?.let { player ->
-                            Text(
-                                text = "${player.name}: Fuerza ${player.combatPower}",
-                                style = MaterialTheme.typography.bodyLarge
-                            )
+                            Column {
+                                Text(
+                                    text = "${player.name} (Nivel ${player.level})",
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                Text(
+                                    text = "${player.characterRace.displayName()} • ${player.characterClass.displayName()}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "⚔️ Fuerza Total: ${player.combatPower}",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                         
                         combatState.helperPlayerId?.let { helperId ->
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            HorizontalDivider()
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
                             val helper = gameState.players[helperId]
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text(
-                                    text = "${helper?.name ?: "?"} (ayuda)",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Column {
+                                    Text(
+                                        text = "${helper?.name ?: "?"} (Ayudante)",
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    if (helper != null) {
+                                        Text(
+                                            text = "Nivel ${helper.level} • ${helper.characterRace.displayName()} • ${helper.characterClass.displayName()}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = "⚔️ Fuerza: ${helper.combatPower}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
                                 IconButton(onClick = onRemoveHelper) {
                                     Icon(Icons.Default.Close, contentDescription = "Quitar ayudante", tint = MaterialTheme.colorScheme.error)
                                 }
-                            }
-                            helper?.let { player ->
-                                Text(
-                                    text = "Fuerza ${player.combatPower}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
                         }
 
@@ -601,4 +622,19 @@ private fun CombatSideCard(
             content()
         }
     }
+}
+
+private fun CharacterClass.displayName(): String = when(this) {
+    CharacterClass.NONE -> "Sin Clase"
+    CharacterClass.WARRIOR -> "Guerrero"
+    CharacterClass.WIZARD -> "Mago"
+    CharacterClass.THIEF -> "Ladrón"
+    CharacterClass.CLERIC -> "Clérigo"
+}
+
+private fun CharacterRace.displayName(): String = when(this) {
+    CharacterRace.HUMAN -> "Humano"
+    CharacterRace.ELF -> "Elfo"
+    CharacterRace.DWARF -> "Enano"
+    CharacterRace.HALFLING -> "Mediano"
 }

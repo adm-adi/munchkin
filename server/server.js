@@ -84,7 +84,9 @@ class GameRoom {
         this.createdAt = Date.now();
         this.phase = "LOBBY";
         this.winnerId = null;
+        this.winnerId = null;
         this.turnPlayerId = hostId; // Start with host's turn
+        this.combat = null;
     }
 
     broadcast(message, excludePlayerId = null) {
@@ -121,10 +123,14 @@ class GameRoom {
                 treasures: player.treasures || 0,
                 raceIds: [],
                 classIds: [],
-                hasHalfBreed: false,
-                hasSuperMunchkin: false,
+                hasHalfBreed: player.hasHalfBreed || false,
+                hasSuperMunchkin: player.hasSuperMunchkin || false,
                 lastKnownIp: null,
-                isConnected: true
+                lastRoll: player.lastRoll || null,
+                lastKnownIp: null,
+                isConnected: true,
+                characterClass: player.characterClass || "NONE",
+                characterRace: player.characterRace || "HUMAN"
             };
         }
 
@@ -137,7 +143,8 @@ class GameRoom {
             players: players,
             races: {},
             classes: {},
-            combat: null,
+            classes: {},
+            combat: this.combat,
             phase: this.phase,
             winnerId: this.winnerId,
             turnPlayerId: this.turnPlayerId,
@@ -270,6 +277,10 @@ function handleMessage(ws, message) {
             handleSwapPlayers(ws, message);
             break;
 
+        case 'DELETE_GAME':
+            handleDeleteGame(ws, message);
+            break;
+
         default:
             console.log('Unknown message type:', message.type);
     }
@@ -374,6 +385,10 @@ function handleHello(ws, message) {
         userId: playerMeta.userId || null,
         level: 1,
         gear: 0,
+        level: 1,
+        gear: 0,
+        characterClass: "NONE",
+        characterRace: "HUMAN",
         joinedAt: Date.now()
     });
 
@@ -454,7 +469,62 @@ function applyEvent(game, event, playerId) {
         case 'SET_GEAR':
             player.gear = event.gear;
             break;
+        case 'SET_NAME':
+            player.name = event.name;
+            break;
+        case 'SET_AVATAR':
+            player.avatarId = event.avatarId;
+            break;
+        case 'SET_GENDER':
+            player.gender = event.gender;
+            break;
+        case 'SET_HALF_BREED':
+            player.hasHalfBreed = event.enabled;
+            break;
+        case 'SET_SUPER_MUNCHKIN':
+            player.hasSuperMunchkin = event.enabled;
+            break;
+        case 'PLAYER_ROLL':
+            player.lastRoll = event.result;
+            break;
+        case 'COMBAT_START':
+            game.combat = {
+                mainPlayerId: event.mainPlayerId,
+                helperPlayerId: null,
+                monsters: event.monsters || [],
+                tempBonuses: [],
+                heroModifier: 0,
+                monsterModifier: 0,
+                isActive: true
+            };
+            break;
+        case 'COMBAT_UPDATE_MONSTER':
+            if (game.combat) {
+                game.combat.monsters = game.combat.monsters.map(m =>
+                    m.id === event.monster.id ? event.monster : m
+                );
+            }
+            break;
+        case 'COMBAT_ADD_HELPER':
+            if (game.combat) game.combat.helperPlayerId = event.helperId;
+            break;
+        case 'COMBAT_REMOVE_HELPER':
+            if (game.combat) game.combat.helperPlayerId = null;
+            break;
+        case 'COMBAT_MODIFY_MODIFIER':
+            if (game.combat) {
+                if (event.target === 'HEROES') game.combat.heroModifier += event.delta;
+                else game.combat.monsterModifier += event.delta;
+            }
+            break;
+        case 'COMBAT_ADD_BONUS':
+            if (game.combat) game.combat.tempBonuses.push(event.bonus);
+            break;
+        case 'COMBAT_REMOVE_BONUS':
+            if (game.combat) game.combat.tempBonuses = game.combat.tempBonuses.filter(b => b.id !== event.bonusId);
+            break;
         case 'COMBAT_END':
+            game.combat = null;
             if (event.outcome === 'WIN') {
                 player.level = Math.min(10, player.level + (event.levelsGained || 0));
                 player.treasures = (player.treasures || 0) + (event.treasuresGained || 0);
@@ -462,7 +532,16 @@ function applyEvent(game, event, playerId) {
             break;
         case 'GAME_START':
             game.phase = "IN_GAME";
+        // Check if we need to record something? usually started_at is created_at
+        case 'GAME_START':
+            game.phase = "IN_GAME";
             // Check if we need to record something? usually started_at is created_at
+            break;
+        case 'SET_CLASS':
+            player.characterClass = event.newClass;
+            break;
+        case 'SET_RACE':
+            player.characterRace = event.newRace;
             break;
         case 'GAME_END':
             // Explicit end (e.g. host left)
@@ -851,6 +930,9 @@ function handleDisconnect(ws) {
     if (game) {
         console.log(`👋 Player ${clientData.playerId} disconnected from ${game.joinCode}`);
 
+        // Remove player from game map immediately so size check is accurate
+        game.players.delete(clientData.playerId);
+
         // Broadcast disconnect
         game.broadcast({
             type: "PLAYER_STATUS",
@@ -858,14 +940,68 @@ function handleDisconnect(ws) {
             isConnected: false
         });
 
-        // If host left and no players, delete game
-        if (game.players.size <= 1) {
+        // If game is empty or only 1 player left who is also disconnecting (already removed above), delete it
+        if (game.players.size === 0) {
             games.delete(clientData.gameId);
             console.log(`🗑️ Game ${game.joinCode} deleted (empty)`);
+        } else {
+            // Host Migration: If host left, assign new host
+            if (game.hostId === clientData.playerId) {
+                const remainingPlayers = Array.from(game.players.values());
+                if (remainingPlayers.length > 0) {
+                    // Pick random or first
+                    const newHost = remainingPlayers[0];
+                    game.hostId = remainingPlayers[0].playerId; // The key in the map is the ID
+                    // Actually we need the ID from the map key or stored in object
+                    // In GameRoom constructor, players is Map<PlayerId, PlayerObject>
+                    // PlayerObject doesn't explicitly store ID in the object in some versions, check GameRoom.buildGameState
+                    // In line 114: playerId: playerId. So it IS available if we iterate entries, or we can use the key.
+
+                    // Let's get the key
+                    const newHostId = game.players.keys().next().value;
+                    game.hostId = newHostId;
+                    game.hostName = game.players.get(newHostId).name;
+
+                    console.log(`👑 Host migrated to ${game.hostName} (${newHostId})`);
+
+                    // Broadcast new state with new host
+                    game.broadcast({
+                        type: "STATE_SNAPSHOT",
+                        gameState: game.buildGameState(),
+                        seq: game.seq
+                    });
+                }
+            }
         }
     }
 
     clientGames.delete(ws);
+}
+
+function handleDeleteGame(ws, message) {
+    const clientInfo = clientGames.get(ws);
+    if (!clientInfo) return;
+
+    const game = games.get(clientInfo.gameId);
+    if (!game) return;
+
+    if (game.hostId !== clientInfo.playerId) {
+        sendError(ws, "PERMISSION_DENIED", "Solo el anfitrión puede borrar la partida");
+        return;
+    }
+
+    console.log(`🛑 Game ${game.joinCode} deleted by host ${clientInfo.playerId}`);
+
+    // Notify all players
+    game.broadcast({
+        type: "GAME_DELETED",
+        reason: "El anfitrión ha borrado la partida"
+    });
+
+    // Close all connections for this game? Or just let them disconnect?
+    // Better to let client handle GAME_DELETED event and disconnect.
+
+    games.delete(game.id);
 }
 
 function sendError(ws, code, message) {

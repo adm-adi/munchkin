@@ -38,11 +38,17 @@ fun LobbyScreen(
     connectionInfo: ConnectionInfo?,
     onStartGame: () -> Unit,
     onLeaveGame: () -> Unit,
+    onDeleteGame: () -> Unit = {},
     onRollDice: () -> Unit = {},
     onSwapPlayers: (PlayerId, PlayerId) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     var showLeaveDialog by remember { mutableStateOf(false) }
+
+    // Handle Back Press
+    androidx.activity.compose.BackHandler {
+        showLeaveDialog = true
+    }
     
     Scaffold(
         modifier = modifier,
@@ -259,16 +265,23 @@ fun LobbyScreen(
     if (showLeaveDialog) {
         AlertDialog(
             onDismissRequest = { showLeaveDialog = false },
-            title = { Text(stringResource(R.string.leave_game)) },
-            text = { Text(stringResource(R.string.confirm_leave)) },
+            title = { 
+                Text(if (isHost) "Borrar Partida" else stringResource(R.string.leave_game)) 
+            },
+            text = { 
+                Text(if (isHost) "¿Estás seguro de que quieres borrar la partida? Todos los jugadores serán desconectados." else stringResource(R.string.confirm_leave)) 
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
                         showLeaveDialog = false
-                        onLeaveGame()
-                    }
+                        if (isHost) onDeleteGame() else onLeaveGame()
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = if (isHost) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    )
                 ) {
-                    Text(stringResource(R.string.yes))
+                    Text(if (isHost) "Borrar" else stringResource(R.string.yes))
                 }
             },
             dismissButton = {

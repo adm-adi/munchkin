@@ -176,6 +176,7 @@ class MainActivity : ComponentActivity() {
                                         connectionInfo = connectionInfo,
                                         onStartGame = { viewModel.startGame() },
                                         onLeaveGame = { viewModel.leaveGame() },
+                                        onDeleteGame = { viewModel.deleteGame() },
                                         onRollDice = { viewModel.rollDiceForStart() },
                                         onSwapPlayers = { p1, p2 -> viewModel.swapPlayers(p1, p2) }
                                     )
@@ -224,7 +225,9 @@ class MainActivity : ComponentActivity() {
                                             onCombatClick = { viewModel.navigateTo(Screen.COMBAT) },
                                             onCatalogClick = { viewModel.navigateTo(Screen.CATALOG) },
                                             onSettingsClick = { viewModel.navigateTo(Screen.SETTINGS) },
+
                                             onLeaveGame = { viewModel.leaveGame() },
+                                            onDeleteGame = { viewModel.deleteGame() },
                                             onConfirmWin = { viewModel.confirmWin(it) },
                                             onDismissWin = { viewModel.dismissWinConfirmation() },
                                             onEndTurn = { viewModel.endTurn() },
@@ -247,6 +250,8 @@ class MainActivity : ComponentActivity() {
                                         onDecrementLevel = { viewModel.decrementLevel() },
                                         onIncrementGear = { viewModel.incrementGear() },
                                         onDecrementGear = { viewModel.decrementGear() },
+                                        onSetClass = { viewModel.setCharacterClass(it) },
+                                        onSetRace = { viewModel.setCharacterRace(it) },
                                         onBack = { viewModel.goBack() },
                                         isReadOnly = selectedPlayer.playerId != myPlayerId
                                     )

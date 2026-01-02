@@ -31,6 +31,8 @@ fun PlayerDetailScreen(
     onDecrementLevel: () -> Unit,
     onIncrementGear: () -> Unit,
     onDecrementGear: () -> Unit,
+    onSetClass: (CharacterClass) -> Unit = {},
+    onSetRace: (CharacterRace) -> Unit = {},
     onBack: () -> Unit,
     isReadOnly: Boolean = false,
     modifier: Modifier = Modifier
@@ -109,7 +111,72 @@ fun PlayerDetailScreen(
             }
             
             Spacer(modifier = Modifier.height(32.dp))
+            
+            // Class and Race Selectors (Only if not ReadOnly)
+            if (!isReadOnly) {
+                // Class Selector
+                Text(text = "Clase", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+                AppDropdown(
+                    options = CharacterClass.values().toList(),
+                    selectedOption = player.characterClass,
+                    onOptionSelected = onSetClass,
+                    labelMapper = { it.name }
+                )
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                // Race Selector
+                Text(text = "Raza", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+                AppDropdown(
+                    options = CharacterRace.values().toList(),
+                    selectedOption = player.characterRace,
+                    onOptionSelected = onSetRace,
+                    labelMapper = { it.name }
+                )
+                
+                Spacer(modifier = Modifier.height(32.dp))
+            }
         }
     }
 }
+
+@Composable
+fun <T> AppDropdown(
+    options: List<T>,
+    selectedOption: T,
+    onOptionSelected: (T) -> Unit,
+    labelMapper: (T) -> String
+) {
+    var expanded by remember { mutableStateOf(false) }
+    
+    Box(modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = { expanded = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(labelMapper(selectedOption))
+            Spacer(modifier = Modifier.weight(1f))
+            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+        }
+        
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(labelMapper(option)) },
+                    onClick = {
+                        onOptionSelected(option)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
 

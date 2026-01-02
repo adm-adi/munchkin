@@ -286,7 +286,11 @@ class GameEngine {
             is DecGear -> updatePlayer(state, event.targetPlayerId) { it.copy(gearBonus = it.gearBonus - event.amount) }
             
             is SetHalfBreed -> updatePlayer(state, event.targetPlayerId) { it.copy(hasHalfBreed = event.enabled) }
+            is SetHalfBreed -> updatePlayer(state, event.targetPlayerId) { it.copy(hasHalfBreed = event.enabled) }
             is SetSuperMunchkin -> updatePlayer(state, event.targetPlayerId) { it.copy(hasSuperMunchkin = event.enabled) }
+            
+            is SetClass -> applySetClass(event, state)
+            is SetRace -> applySetRace(event, state)
             
             is AddRace -> updatePlayer(state, event.targetPlayerId) { 
                 it.copy(raceIds = it.raceIds + event.entryId) 
@@ -441,6 +445,20 @@ class GameEngine {
         return state.copy(combat = combat)
     }
     
+
+
+    private fun applySetClass(event: SetClass, state: GameState): GameState {
+        return updatePlayer(state, event.targetPlayerId) {
+            it.copy(characterClass = event.newClass)
+        }
+    }
+
+    private fun applySetRace(event: SetRace, state: GameState): GameState {
+        return updatePlayer(state, event.targetPlayerId) {
+            it.copy(characterRace = event.newRace)
+        }
+    }
+    
     private fun applyCombatAddMonster(event: CombatAddMonster, state: GameState): GameState {
         val combat = state.combat ?: return state
         val updatedCombat = combat.copy(
@@ -508,12 +526,24 @@ class GameEngine {
         
         if (event.outcome == CombatOutcome.WIN) {
             val combat = state.combat ?: return newState
+            
+            // Update Main Player
             newState = updatePlayer(newState, combat.mainPlayerId) { player ->
                 player.copy(
                     level = (player.level + event.levelsGained).coerceAtMost(state.settings.maxLevel),
                     treasures = player.treasures + event.treasuresGained
                 )
             }
+            
+            // Update Helper Player (if applicable)
+            if (combat.helperPlayerId != null && event.helperLevelsGained > 0) {
+                 newState = updatePlayer(newState, combat.helperPlayerId) { player ->
+                    player.copy(
+                        level = (player.level + event.helperLevelsGained).coerceAtMost(state.settings.maxLevel)
+                    )
+                }
+            }
+            
             newState = checkWinCondition(newState)
         }
         
