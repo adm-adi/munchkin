@@ -61,6 +61,7 @@
     <string name="level_max_warning">¡Nivel máximo alcanzado!</string>
     <string name="need_half_breed">Necesitas Mestizo para tener 2 razas</string>
     <string name="need_super_munchkin">Necesitas Super Munchkin para tener 2 clases</string>
+    <string name="player_details">Detalles del Jugador</string>
     
     <!-- Combat -->
     <string name="combat_title">Combate</string>

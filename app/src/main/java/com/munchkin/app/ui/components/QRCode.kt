@@ -56,7 +56,7 @@ fun QRCodeDisplay(
 }
 
 /**
- * Connection info card with QR code and manual entry details.
+ * Connection info card showing join code (without QR).
  */
 @Composable
 fun ConnectionInfoCard(
@@ -75,51 +75,27 @@ fun ConnectionInfoCard(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "Escanea para unirte",
+            text = "Comparte este código",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        // QR Code - Contains the full connection URL
-        val qrContent = "$wsUrl?code=$joinCode"
-        QRCodeDisplay(
-            content = qrContent,
-            size = 200,
-            backgroundColor = Color.White,
-            foregroundColor = Color.Black
+        // Join code (large and prominent)
+        Text(
+            text = joinCode,
+            style = MaterialTheme.typography.displayMedium.copy(
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 8.sp
+            ),
+            color = MaterialTheme.colorScheme.primary
         )
-        
-        Spacer(modifier = Modifier.height(20.dp))
-        
-        // Divider with "o"
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-            )
-            Text(
-                text = "  o introduce manualmente  ",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-            )
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-            )
-        }
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        // Manual entry info
+        // Connection details (smaller, for advanced users)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
@@ -127,24 +103,6 @@ fun ConnectionInfoCard(
             ConnectionDetail(label = "IP", value = localIp)
             ConnectionDetail(label = "Puerto", value = port.toString())
         }
-        
-        Spacer(modifier = Modifier.height(12.dp))
-        
-        // Join code (large and prominent)
-        Text(
-            text = "Código",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(
-            text = joinCode,
-            style = MaterialTheme.typography.headlineLarge.copy(
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 4.sp
-            ),
-            color = MaterialTheme.colorScheme.primary
-        )
     }
 }
 

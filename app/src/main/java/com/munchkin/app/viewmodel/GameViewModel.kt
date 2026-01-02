@@ -185,6 +185,19 @@ class GameViewModel : ViewModel() {
     }
     
     /**
+     * Check connection and reconnect if needed (e.g. on app resume).
+     */
+    fun checkReconnection() {
+        val client = gameClient
+        val saved = _savedGame.value
+        
+        if (saved != null && (client == null || !client.isConnected())) {
+            android.util.Log.d("GameViewModel", "Auto-reconnecting to saved game...")
+            resumeSavedGame()
+        }
+    }
+    
+    /**
      * Delete saved game.
      */
     fun deleteSavedGame() {
@@ -398,6 +411,19 @@ class GameViewModel : ViewModel() {
     }
     
     // ============== Client Actions ==============
+    
+    /**
+     * Select a player to view details.
+     */
+    fun selectPlayer(playerId: PlayerId) {
+        _uiState.update { 
+            it.copy(
+                selectedPlayerId = playerId, 
+                screen = Screen.PLAYER_DETAIL
+            ) 
+        }
+    }
+    
     
     /**
      * Join an existing game as client.
@@ -1235,27 +1261,6 @@ class GameViewModel : ViewModel() {
         }
     }
 
-    fun loadLeaderboard() {
-        viewModelScope.launch {
-            try {
-                _uiState.update { it.copy(isLoading = true) }
-                val client = GameClient()
-                val result = client.getLeaderboard(SERVER_URL)
-                if (result.isSuccess) {
-                    _uiState.update { 
-                        it.copy(
-                            isLoading = false,
-                            leaderboard = result.getOrElse { emptyList() }
-                        ) 
-                    }
-                } else {
-                    _uiState.update { it.copy(isLoading = false) }
-                }
-            } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false) }
-            }
-        }
-    }
 
     fun loadHistory() {
         val user = _uiState.value.userProfile ?: return
@@ -1303,6 +1308,43 @@ class GameViewModel : ViewModel() {
     }
     // ============== Game Log ==============
 
+    fun loadLeaderboard() {
+        if (_uiState.value.isLoading) return
+        val client = gameClient ?: return
+        
+        _uiState.update { it.copy(isLoading = true) }
+        
+        viewModelScope.launch {
+            client.getLeaderboard(SERVER_URL)
+                .onSuccess { leaderboard ->
+                    _uiState.update { it.copy(leaderboard = leaderboard, isLoading = false) }
+                }
+                .onFailure { e ->
+                    _uiState.update { it.copy(isLoading = false, error = e.message) }
+                }
+        }
+    }
+    
+    fun updateProfile(username: String?, pass: String?) {
+        val currentUser = _uiState.value.userProfile ?: return
+        val client = gameClient ?: return
+        if (username.isNullOrBlank() && pass.isNullOrBlank()) return
+        
+        _uiState.update { it.copy(isLoading = true) }
+        
+        viewModelScope.launch {
+            val result = client.updateProfile(SERVER_URL, currentUser.id, username, pass)
+            if (result.isSuccess) {
+                val updatedUser = result.getOrThrow()
+                _uiState.update { it.copy(userProfile = updatedUser, isLoading = false) }
+                _events.emit(GameUiEvent.ShowMessage("Perfil actualizado"))
+            } else {
+                val error = result.exceptionOrNull()?.message ?: "Error desconocido"
+                _uiState.update { it.copy(isLoading = false, error = error) }
+            }
+        }
+    }
+
     private fun addLogEntry(message: String, type: LogType = LogType.INFO) {
         val entry = GameLogEntry(message = message, type = type)
         val currentList = _gameLog.value
@@ -1332,10 +1374,14 @@ data class GameUiState(
     val monsterSearchResults: List<CatalogMonster> = emptyList(),
     val gameHistory: List<GameHistoryItem> = emptyList(),
     val leaderboard: List<LeaderboardEntry> = emptyList(),
-    val pendingWinnerId: PlayerId? = null // For host to confirm win
+    val pendingWinnerId: PlayerId? = null, // For host to confirm win
+    val selectedPlayerId: PlayerId? = null // For viewing player details
 ) {
     val myPlayer: PlayerState?
         get() = myPlayerId?.let { gameState?.players?.get(it) }
+        
+    val selectedPlayer: PlayerState?
+        get() = (selectedPlayerId ?: myPlayerId)?.let { gameState?.players?.get(it) }
 }
 
 data class ConnectionInfo(

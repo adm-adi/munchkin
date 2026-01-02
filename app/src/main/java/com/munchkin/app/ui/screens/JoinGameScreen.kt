@@ -164,23 +164,28 @@ fun JoinGameScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             (0..5).forEach { avatarId ->
                                 val isSelected = selectedAvatarId == avatarId
-                                val color = getAvatarColor(avatarId)
+                                val avatarRes = com.munchkin.app.ui.theme.AvatarResources.getAvatarDrawable(avatarId)
                                 Box(
                                     modifier = Modifier
-                                        .size(36.dp)
+                                        .size(40.dp)
                                         .clip(CircleShape)
-                                        .background(if (isSelected) color else color.copy(alpha = 0.4f))
-                                        .clickable { selectedAvatarId = avatarId },
+                                        .background(
+                                            if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                            else Color.Transparent
+                                        )
+                                        .clickable { selectedAvatarId = avatarId }
+                                        .then(
+                                            if (isSelected) Modifier.padding(2.dp) else Modifier
+                                        ),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    if (isSelected) {
-                                        Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
+                                    androidx.compose.foundation.Image(
+                                        painter = androidx.compose.ui.res.painterResource(avatarRes),
+                                        contentDescription = com.munchkin.app.ui.theme.AvatarResources.getAvatarName(avatarId),
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                    )
                                 }
                             }
                         }

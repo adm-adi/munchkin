@@ -22,14 +22,11 @@ object AvatarResources {
             8 -> "Druida"
             9 -> "Monje"
             10 -> "Paladín"
-            11 -> "Ranger"
+            11 -> "Explorador"
             else -> "Aventurero"
         }
     }
     
-    /**
-     * Get avatar drawable resource ID.
-     */
     fun getAvatarDrawable(avatarId: Int): Int {
         return when (avatarId % 12) {
             0 -> com.munchkin.app.R.drawable.avatar_0

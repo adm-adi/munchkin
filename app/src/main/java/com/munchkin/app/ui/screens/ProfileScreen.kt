@@ -6,10 +6,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -30,7 +35,8 @@ fun ProfileScreen(
     gameHistory: List<GameHistoryItem>,
     isLoading: Boolean,
     onBack: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onUpdateProfile: (String?, String?) -> Unit
 ) {
     // Initial load
     LaunchedEffect(Unit) {
@@ -79,7 +85,7 @@ fun ProfileScreen(
             ) {
                 // Header (User Info)
                 item {
-                    ProfileHeader(userProfile)
+                    ProfileHeader(userProfile, onUpdateProfile)
                 }
 
                 // Stats Summary
@@ -121,40 +127,112 @@ fun ProfileScreen(
 }
 
 @Composable
-fun ProfileHeader(user: UserProfile) {
+fun ProfileHeader(
+    user: UserProfile, 
+    onUpdateProfile: (String?, String?) -> Unit = { _, _ -> }
+) {
+    var isEditing by remember { mutableStateOf(false) }
+    var editedUsername by remember { mutableStateOf(user.username) }
+    var editedPassword by remember { mutableStateOf("") }
+    
     GlassCard(
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Avatar Placeholder (We could map avatarId to image resource)
-            Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .background(NeonPrimary.copy(alpha = 0.2f), shape = MaterialTheme.shapes.medium),
-                contentAlignment = Alignment.Center
+        Column(modifier = Modifier.padding(8.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = user.username.take(1).uppercase(),
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = NeonPrimary
-                )
+                // Avatar Placeholder
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .background(NeonPrimary.copy(alpha = 0.2f), shape = MaterialTheme.shapes.medium),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = user.username.take(1).uppercase(),
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = NeonPrimary
+                    )
+                }
+                
+                Spacer(modifier = Modifier.width(16.dp))
+                
+                if (!isEditing) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = user.username,
+                            style = MaterialTheme.typography.titleLarge,
+                            color = NeonGray100
+                        )
+                        Text(
+                            text = user.email,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = NeonGray500
+                        )
+                    }
+                    IconButton(onClick = { isEditing = true }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Editar", tint = NeonSecondary)
+                    }
+                } else {
+                    Column(modifier = Modifier.weight(1f)) {
+                        OutlinedTextField(
+                            value = editedUsername,
+                            onValueChange = { editedUsername = it },
+                            label = { Text("Usuario") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = NeonGray100,
+                                unfocusedTextColor = NeonGray100,
+                                focusedBorderColor = NeonSecondary,
+                                unfocusedBorderColor = NeonGray500
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = editedPassword,
+                            onValueChange = { editedPassword = it },
+                            label = { Text("Nueva Contraseña (Opcional)") },
+                            singleLine = true,
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = NeonGray100,
+                                unfocusedTextColor = NeonGray100,
+                                focusedBorderColor = NeonSecondary,
+                                unfocusedBorderColor = NeonGray500
+                            )
+                        )
+                    }
+                }
             }
             
-            Spacer(modifier = Modifier.width(16.dp))
-            
-            Column {
-                Text(
-                    text = user.username,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = NeonGray100
-                )
-                Text(
-                    text = user.email,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = NeonGray500
-                )
+            if (isEditing) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(
+                        onClick = { 
+                            isEditing = false
+                            editedUsername = user.username
+                            editedPassword = ""
+                        }
+                    ) {
+                        Text("Cancelar", color = NeonError)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (editedUsername.isNotBlank()) {
+                                onUpdateProfile(editedUsername, editedPassword.ifBlank { null })
+                                isEditing = false
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = NeonPrimary)
+                    ) {
+                        Text("Guardar")
+                    }
+                }
             }
         }
     }

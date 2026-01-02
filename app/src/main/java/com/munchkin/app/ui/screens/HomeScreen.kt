@@ -43,6 +43,7 @@ fun HomeScreen(
     onLogout: () -> Unit,
     onLeaderboardClick: () -> Unit,
     onHistoryClick: () -> Unit,
+    onProfileClick: () -> Unit,
     userProfile: com.munchkin.app.network.UserProfile?,
     modifier: Modifier = Modifier
 ) {

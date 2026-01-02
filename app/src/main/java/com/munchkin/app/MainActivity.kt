@@ -42,6 +42,20 @@ class MainActivity : ComponentActivity() {
             val uiState by viewModel.uiState.collectAsState()
             
             MunchkinTheme {
+                // Auto-reconnect lifecycle observer
+                val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+                DisposableEffect(lifecycleOwner) {
+                    val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                        if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                            viewModel.checkReconnection()
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose {
+                        lifecycleOwner.lifecycle.removeObserver(observer)
+                    }
+                }
+
                 // Tutorial check
                 var showTutorial by remember { 
                     mutableStateOf(!TutorialPrefs.isShown(this@MainActivity)) 
@@ -114,6 +128,7 @@ class MainActivity : ComponentActivity() {
                                         viewModel.loadHistory()
                                         viewModel.navigateTo(Screen.HISTORY)
                                     },
+                                    onProfileClick = { viewModel.navigateTo(Screen.PROFILE) },
                                     userProfile = uiState.userProfile
                                 )
                             }
@@ -205,7 +220,7 @@ class MainActivity : ComponentActivity() {
                                             isHost = uiState.isHost,
                                             connectionState = uiState.connectionState,
                                             pendingWinnerId = uiState.pendingWinnerId,
-                                            onPlayerClick = { viewModel.navigateTo(Screen.PLAYER_DETAIL) },
+                                            onPlayerClick = { playerId -> viewModel.selectPlayer(playerId) },
                                             onCombatClick = { viewModel.navigateTo(Screen.COMBAT) },
                                             onCatalogClick = { viewModel.navigateTo(Screen.CATALOG) },
                                             onSettingsClick = { viewModel.navigateTo(Screen.SETTINGS) },
@@ -222,16 +237,18 @@ class MainActivity : ComponentActivity() {
                             }
                             
                             Screen.PLAYER_DETAIL -> {
-                                val myPlayer = uiState.myPlayer
+                                val selectedPlayer = uiState.selectedPlayer
+                                val myPlayerId = uiState.myPlayerId
                                 
-                                if (myPlayer != null) {
+                                if (selectedPlayer != null) {
                                     PlayerDetailScreen(
-                                        player = myPlayer,
+                                        player = selectedPlayer,
                                         onIncrementLevel = { viewModel.incrementLevel() },
                                         onDecrementLevel = { viewModel.decrementLevel() },
                                         onIncrementGear = { viewModel.incrementGear() },
                                         onDecrementGear = { viewModel.decrementGear() },
-                                        onBack = { viewModel.goBack() }
+                                        onBack = { viewModel.goBack() },
+                                        isReadOnly = selectedPlayer.playerId != myPlayerId
                                     )
                                 }
                             }
@@ -303,7 +320,8 @@ class MainActivity : ComponentActivity() {
                                         gameHistory = uiState.gameHistory,
                                         isLoading = uiState.isLoading,
                                         onBack = { viewModel.navigateTo(Screen.HOME) },
-                                        onRefresh = { viewModel.loadHistory() }
+                                        onRefresh = { viewModel.loadHistory() },
+                                        onUpdateProfile = { name, pass -> viewModel.updateProfile(name, pass) }
                                     )
                                 }
                             }

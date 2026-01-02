@@ -33,7 +33,7 @@ fun BoardScreen(
     myPlayerId: PlayerId,
     isHost: Boolean,
     connectionState: ConnectionState,
-    onPlayerClick: () -> Unit,
+    onPlayerClick: (PlayerId) -> Unit,
     onCombatClick: () -> Unit,
     onCatalogClick: () -> Unit,
     onSettingsClick: () -> Unit,
@@ -49,7 +49,7 @@ fun BoardScreen(
 ) {
     var showLeaveDialog by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
-    var isTableView by remember { mutableStateOf(true) } // Default to Visual Dungeon
+    var isTableView by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) } // Default to Visual Dungeon
     
     // State for Dice Dialog
     var showDiceDialog by remember { mutableStateOf(false) }
@@ -170,10 +170,13 @@ fun BoardScreen(
                 }
                 
                 if (isTableView) {
+                    val canEndTurn = gameState.turnPlayerId == myPlayerId && gameState.phase == com.munchkin.app.core.GamePhase.IN_GAME
                     TableScreen(
                         players = gameState.players.values.toList(),
                         currentUser = myPlayerId,
-                        onPlayerClick = { playerId -> },
+                        turnPlayerId = gameState.turnPlayerId,
+                        onPlayerClick = onPlayerClick,
+                        onEndTurn = if (canEndTurn) onEndTurn else null,
                         modifier = Modifier.weight(1f).fillMaxWidth()
                     )
                 } else {
@@ -326,7 +329,7 @@ fun BoardScreen(
                             isHost = player.playerId == gameState.hostId,
                             isTurn = player.playerId == gameState.turnPlayerId,
                             onToggleGender = if (player.playerId == myPlayerId) onToggleGender else null,
-                            onClick = { onPlayerClick() } // For now generic click
+                            onClick = { onPlayerClick(player.playerId) }
                         )
                     }
                     

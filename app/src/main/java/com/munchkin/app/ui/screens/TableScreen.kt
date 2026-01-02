@@ -37,7 +37,9 @@ import kotlin.math.sin
 fun TableScreen(
     players: List<PlayerState>,
     currentUser: PlayerId?,
+    turnPlayerId: PlayerId? = null,
     onPlayerClick: (PlayerId) -> Unit,
+    onEndTurn: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     BoxWithConstraints(
@@ -97,18 +99,37 @@ fun TableScreen(
             val offsetY = (radius * sin(angleRad)).toInt()
             
             val isMe = player.playerId == currentUser
+            val isTurn = player.playerId == turnPlayerId
             
             PlayerAvatarNode(
                 player = player,
                 isMe = isMe,
+                isTurn = isTurn,
                 modifier = Modifier
                     .align(Alignment.Center)
                     .offset(
                         x = with(LocalDensity.current) { offsetX.toDp() },
                         y = with(LocalDensity.current) { offsetY.toDp() }
                     )
-                    .clickable { onPlayerClick(player.playerId) }
+                    .then(
+                        Modifier.clickable { onPlayerClick(player.playerId) }
+                    )
             )
+        }
+        
+        // End Turn Button
+        if (onEndTurn != null) {
+            androidx.compose.material3.Button(
+                onClick = onEndTurn,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 32.dp, start = 16.dp), // Avoid potentially overlapping FAB if it was center (it is End)
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.tertiary
+                )
+            ) {
+                Text("Terminar Turno")
+            }
         }
     }
 }
@@ -117,11 +138,13 @@ fun TableScreen(
 fun PlayerAvatarNode(
     player: PlayerState,
     isMe: Boolean,
+    isTurn: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val avatarSize = 80.dp
     val color = getAvatarColor(player.avatarId)
     val drawableId = AvatarResources.getAvatarDrawable(player.avatarId)
+    val turnColor = MaterialTheme.colorScheme.tertiary
     
     Column(
         modifier = modifier,
@@ -131,8 +154,20 @@ fun PlayerAvatarNode(
             modifier = Modifier
                 .size(avatarSize)
                 .clip(CircleShape)
-                .background(Color.White) // Per user request: White background
-                .border(if (isMe) 4.dp else 2.dp, if (isMe) MaterialTheme.colorScheme.primary else color, CircleShape)
+                .background(if (isTurn) turnColor.copy(alpha = 0.2f) else Color.White)
+                .border(
+                    width = when {
+                        isTurn -> 4.dp
+                        isMe -> 3.dp
+                        else -> 2.dp
+                    },
+                    color = when {
+                        isTurn -> turnColor
+                        isMe -> MaterialTheme.colorScheme.primary
+                        else -> color
+                    },
+                    shape = CircleShape
+                )
         ) {
             Image(
                 painter = painterResource(id = drawableId),
@@ -141,7 +176,7 @@ fun PlayerAvatarNode(
                 contentScale = ContentScale.Fit
             )
             
-            // Combat Strength Badge
+            // Combat Strength Badge (TopEnd)
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -151,6 +186,23 @@ fun PlayerAvatarNode(
             ) {
                 Text(
                     text = "${player.level + player.gearBonus}",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+            
+            // Level Badge (TopStart)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+                    .size(24.dp)
+            ) {
+                Text(
+                    text = "${player.level}",
                     color = Color.White,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
@@ -169,7 +221,7 @@ fun PlayerAvatarNode(
             maxLines = 1
         )
         Text(
-            text = "Lvl ${player.level}",
+            text = "Nivel ${player.level} • Fuerza ${player.level + player.gearBonus}",
             style = MaterialTheme.typography.bodySmall,
              color = MaterialTheme.colorScheme.secondary
         )

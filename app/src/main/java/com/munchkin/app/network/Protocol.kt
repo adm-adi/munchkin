@@ -139,6 +139,20 @@ data class UserProfile(
 )
 
 @Serializable
+@SerialName("UPDATE_PROFILE")
+data class UpdateProfileRequest(
+    val userId: String,
+    val username: String? = null,
+    val password: String? = null
+) : WsMessage()
+
+@Serializable
+@SerialName("PROFILE_UPDATED")
+data class ProfileUpdatedMessage(
+    val user: UserProfile
+) : WsMessage()
+
+@Serializable
 @SerialName("SWAP_PLAYERS")
 data class SwapPlayers(
     val player1: PlayerId,

@@ -32,13 +32,14 @@ fun PlayerDetailScreen(
     onIncrementGear: () -> Unit,
     onDecrementGear: () -> Unit,
     onBack: () -> Unit,
+    isReadOnly: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Scaffold(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.edit_player)) },
+                title = { Text(if (isReadOnly) stringResource(R.string.player_details) else stringResource(R.string.edit_player)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
@@ -64,7 +65,8 @@ fun PlayerDetailScreen(
                 onIncrement = onIncrementLevel,
                 onDecrement = onDecrementLevel,
                 minValue = 1,
-                maxValue = 10
+                maxValue = 10,
+                enabled = !isReadOnly
             )
             
             Spacer(modifier = Modifier.height(32.dp))
@@ -75,7 +77,8 @@ fun PlayerDetailScreen(
                 label = stringResource(R.string.gear),
                 onIncrement = onIncrementGear,
                 onDecrement = onDecrementGear,
-                showSign = true
+                showSign = true,
+                enabled = !isReadOnly
             )
             
             Spacer(modifier = Modifier.height(32.dp))

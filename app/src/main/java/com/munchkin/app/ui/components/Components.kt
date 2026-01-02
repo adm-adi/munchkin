@@ -40,7 +40,8 @@ fun CounterButton(
     modifier: Modifier = Modifier,
     minValue: Int? = null,
     maxValue: Int? = null,
-    showSign: Boolean = false
+    showSign: Boolean = false,
+    enabled: Boolean = true
 ) {
     val haptic = LocalHapticFeedback.current
     
@@ -92,6 +93,7 @@ fun CounterButton(
         ) {
             // Decrement button
             FilledIconButton(
+                enabled = enabled,
                 onClick = {
                     if (minValue != null && value <= minValue) {
                         shouldShake = true
@@ -129,6 +131,7 @@ fun CounterButton(
             
             // Increment button
             FilledIconButton(
+                enabled = enabled,
                 onClick = {
                     if (maxValue != null && value >= maxValue) {
                         shouldShake = true
@@ -266,7 +269,10 @@ fun PlayerCard(
                         text = player.name,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = if (isMe) FontWeight.SemiBold else FontWeight.Normal,
-                        color = com.munchkin.app.ui.theme.NeonGray100
+                        color = com.munchkin.app.ui.theme.NeonGray100,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                     if (isHost) {
                         Spacer(modifier = Modifier.width(6.dp))
@@ -335,27 +341,9 @@ fun PlayerCard(
                         }
                     }
                 }
-                
-                // Connection status
-                if (!player.isConnected) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .background(com.munchkin.app.ui.theme.NeonError, CircleShape)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Desconectado",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = com.munchkin.app.ui.theme.NeonError
-                        )
-                    }
-                }
             }
-            
-            // Stats column
+                
+                // Stats column
             Column(horizontalAlignment = Alignment.End) {
                 // Stats Row (Level & Power) with equal visibility
                 Row(
@@ -394,12 +382,14 @@ fun PlayerCard(
                         }
                     }
                 }
-            }
             
             // Custom Actions
-            actions()
+            Row {
+                actions()
+            }
         }
     }
+}
 }
 
 /**

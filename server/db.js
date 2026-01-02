@@ -138,7 +138,46 @@ function createUser(username, email, password, avatarId = 0) {
     });
 }
 
-function findUserByEmailOrUsername(identifier) {
+function updateUser(userId, newUsername, newPassword) {
+    return new Promise((resolve, reject) => {
+        let sql = "UPDATE users SET ";
+        let params = [];
+
+        if (newUsername) {
+            sql += "username = ?, ";
+            params.push(newUsername);
+        }
+
+        if (newPassword) {
+            const hashedPassword = bcrypt.hashSync(newPassword, 8);
+            sql += "password_hash = ?, ";
+            params.push(hashedPassword);
+        }
+
+        // Remove last comma
+        sql = sql.slice(0, -2);
+
+        sql += " WHERE id = ?";
+        params.push(userId);
+
+        db.run(sql, params, function (err) {
+            if (err) {
+                reject(err);
+            } else {
+                // Fetch updated user
+                db.get("SELECT * FROM users WHERE id = ?", [userId], (err, row) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(row);
+                    }
+                });
+            }
+        });
+    });
+}
+
+function findUserByCredentials(email, password) {
     return new Promise((resolve, reject) => {
         // Search by email OR username (case insensitive for username usually better, but keeping exact for now)
         const sql = `SELECT * FROM users WHERE email = ? OR username = ? `;
@@ -322,5 +361,6 @@ module.exports = {
     addMonster,
     recordGame,
     getUserHistory,
-    getLeaderboard
+    getLeaderboard,
+    updateUser
 };

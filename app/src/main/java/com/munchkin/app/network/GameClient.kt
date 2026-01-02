@@ -689,6 +689,22 @@ class GameClient {
             }
         }
     }
+    
+    suspend fun updateProfile(
+        serverUrl: String,
+        userId: String,
+        username: String?,
+        password: String?
+    ): Result<UserProfile> = withContext(Dispatchers.IO) {
+        val req = UpdateProfileRequest(userId, username, password)
+        sendOneOffRequest(serverUrl, req).map { response -> 
+            if (response is ProfileUpdatedMessage) {
+                response.user
+            } else {
+                throw Exception("Respuesta inesperada del servidor")
+            }
+        }
+    }
 
     private fun parseWsUrl(url: String): Triple<String, Int, String>? {
         val regex = Regex("""ws://([^:]+):(\d+)(/.*)?""")

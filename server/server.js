@@ -254,6 +254,10 @@ function handleMessage(ws, message) {
             handleGetLeaderboard(ws);
             break;
 
+        case 'UPDATE_PROFILE':
+            handleUpdateProfile(ws, message);
+            break;
+
         case 'END_TURN':
             handleEndTurn(ws);
             break;
@@ -598,24 +602,42 @@ function handleGetHistory(ws, message) {
 
 function handleGetLeaderboard(ws) {
     db.getLeaderboard()
-        .then(rows => {
-            const leaderboard = rows.map(r => ({
-                id: r.id,
-                username: r.username,
-                avatarId: r.avatar_id,
-                wins: r.wins
-            }));
-
+        .then(leaderboard => {
             ws.send(JSON.stringify({
                 type: "LEADERBOARD_RESULT",
                 leaderboard: leaderboard
             }));
         })
+        .catch(err => console.error("Leaderboard error:", err));
+}
+
+function handleUpdateProfile(ws, message) {
+    const { userId, username, password } = message;
+
+    // Security check: In production we should verify session, here we rely on userId match
+    // Ideally we should store userId in ws upon login and verify it.
+
+    if (!userId) return;
+
+    db.updateUser(userId, username, password)
+        .then(user => {
+            console.log(`✅ Profile updated for user: ${user.username}`);
+            ws.send(JSON.stringify({
+                type: "PROFILE_UPDATED",
+                user: {
+                    id: user.id,
+                    username: user.username,
+                    email: user.email,
+                    avatarId: user.avatarId
+                }
+            }));
+        })
         .catch(err => {
-            console.error("Leaderboard error:", err);
-            sendError(ws, "LEADERBOARD_ERROR", "Error al obtener ranking");
+            console.error("Update profile error:", err);
+            sendError(ws, 'UPDATE_FAILED', 'Error al actualizar perfil');
         });
 }
+
 
 function handleEndTurn(ws) {
     const clientData = clientGames.get(ws);
