@@ -84,7 +84,6 @@ class GameRoom {
         this.createdAt = Date.now();
         this.phase = "LOBBY";
         this.winnerId = null;
-        this.winnerId = null;
         this.turnPlayerId = hostId; // Start with host's turn
         this.combat = null;
     }
@@ -127,7 +126,6 @@ class GameRoom {
                 hasSuperMunchkin: player.hasSuperMunchkin || false,
                 lastKnownIp: null,
                 lastRoll: player.lastRoll || null,
-                lastKnownIp: null,
                 isConnected: true,
                 characterClass: player.characterClass || "NONE",
                 characterRace: player.characterRace || "HUMAN"
@@ -142,7 +140,6 @@ class GameRoom {
             hostId: this.hostId,  // raw string
             players: players,
             races: {},
-            classes: {},
             classes: {},
             combat: this.combat,
             phase: this.phase,
@@ -505,6 +502,16 @@ function applyEvent(game, event, playerId) {
                 );
             }
             break;
+        case 'COMBAT_ADD_MONSTER':
+            if (game.combat) {
+                game.combat.monsters.push(event.monster);
+            }
+            break;
+        case 'COMBAT_REMOVE_MONSTER':
+            if (game.combat) {
+                game.combat.monsters = game.combat.monsters.filter(m => m.id !== event.monsterId);
+            }
+            break;
         case 'COMBAT_ADD_HELPER':
             if (game.combat) game.combat.helperPlayerId = event.helperId;
             break;
@@ -532,10 +539,6 @@ function applyEvent(game, event, playerId) {
             break;
         case 'GAME_START':
             game.phase = "IN_GAME";
-        // Check if we need to record something? usually started_at is created_at
-        case 'GAME_START':
-            game.phase = "IN_GAME";
-            // Check if we need to record something? usually started_at is created_at
             break;
         case 'SET_CLASS':
             player.characterClass = event.newClass;
