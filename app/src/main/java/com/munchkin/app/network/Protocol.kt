@@ -222,6 +222,8 @@ data class CatalogMonster(
     val treasures: Int = 1,
     val levels: Int = 1,
     val isUndead: Boolean = false,
+    val badStuff: String = "",
+    val expansion: String = "base",
     val createdBy: String? = null
 )
 
@@ -301,6 +303,14 @@ data class GameHistoryItem(
     val endedAt: Long,
     val winnerId: String
 )
+
+// ============== Combat Dice Roll Result ==============
+
+@Serializable
+@SerialName("COMBAT_DICE_ROLL_RESULT")
+data class CombatDiceRollResult(
+    val diceRoll: DiceRollInfo
+) : WsMessage()
 
 // ============== Connection State ==============
 

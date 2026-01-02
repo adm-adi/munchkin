@@ -63,7 +63,7 @@
     <string name="need_super_munchkin">Necesitas Super Munchkin para tener 2 clases</string>
     
     <!-- Combat -->
-    <string name="combat_title">Calculadora de Combate</string>
+    <string name="combat_title">Combate</string>
     <string name="heroes">Munchkins</string>
     <string name="monsters">Monstruos</string>
     <string name="main_player">Luchador principal</string>

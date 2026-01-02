@@ -34,7 +34,7 @@ object CombatCalculator {
             .filter { it.appliesTo == BonusTarget.HEROES }
             .sumOf { it.amount }
         
-        val heroesPower = heroBasePower + heroConditionalBonus + heroTempBonus
+        val heroesPower = heroBasePower + heroConditionalBonus + heroTempBonus + combatState.heroModifier
         
         // Calculate monster power
         val monsterBasePower = combatState.monsters.sumOf { it.basePower }
@@ -53,7 +53,7 @@ object CombatCalculator {
             .filter { it.appliesTo == BonusTarget.MONSTER }
             .sumOf { it.amount }
         
-        val monstersPower = monsterBasePower + monsterConditionalBonus + monsterTempBonus
+        val monstersPower = monsterBasePower + monsterConditionalBonus + monsterTempBonus + combatState.monsterModifier
         
         // Determine outcome (ties go to monsters unless a hero is a Warrior)
         val isWarriorInvolved = isWarrior(mainPlayer, gameState) || 

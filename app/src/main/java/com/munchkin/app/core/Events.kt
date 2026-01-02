@@ -60,6 +60,26 @@ data class GameStart(
 ) : GameEvent()
 
 @Serializable
+@SerialName("SWAP_PLAYERS")
+data class SwapPlayers(
+    override val eventId: String,
+    override val actorId: PlayerId,
+    override val timestamp: Long,
+    override val targetPlayerId: PlayerId?, // Player 1
+    val otherPlayerId: PlayerId // Player 2
+) : GameEvent()
+
+@Serializable
+@SerialName("PLAYER_ROLL")
+data class PlayerRoll(
+    override val eventId: String,
+    override val actorId: PlayerId,
+    override val timestamp: Long,
+    override val targetPlayerId: PlayerId?,
+    val value: Int
+) : GameEvent()
+
+@Serializable
 @SerialName("GAME_END")
 data class GameEnd(
     override val eventId: String,
@@ -355,4 +375,47 @@ data class CombatEnd(
     val outcome: CombatOutcome,
     val levelsGained: Int = 0,
     val treasuresGained: Int = 0
+) : GameEvent()
+
+@Serializable
+@SerialName("COMBAT_MODIFY_MODIFIER")
+data class CombatModifyModifier(
+    override val eventId: String,
+    override val actorId: PlayerId,
+    override val timestamp: Long,
+    override val targetPlayerId: PlayerId? = null,
+    val target: BonusTarget, // HEROES or MONSTER
+    val delta: Int           // +1 or -1
+) : GameEvent()
+
+// ============== Combat Dice Roll ==============
+
+@Serializable
+enum class DiceRollPurpose {
+    RUN_AWAY,       // Escaping combat
+    CURSE,          // Curse effect
+    RANDOM,         // Generic roll
+    TIE_BREAKER     // Breaking ties
+}
+
+@Serializable
+data class DiceRollInfo(
+    val playerId: PlayerId,
+    val playerName: String,
+    val result: Int,
+    val purpose: DiceRollPurpose,
+    val success: Boolean = false, // Did they succeed (e.g., escaped)
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@Serializable
+@SerialName("COMBAT_DICE_ROLL")
+data class CombatDiceRoll(
+    override val eventId: String,
+    override val actorId: PlayerId,
+    override val timestamp: Long,
+    override val targetPlayerId: PlayerId? = null,
+    val result: Int,
+    val purpose: DiceRollPurpose,
+    val success: Boolean = false
 ) : GameEvent()

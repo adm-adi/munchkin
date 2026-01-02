@@ -14,6 +14,9 @@ data class CombatState(
     val helperPlayerId: PlayerId? = null,
     val monsters: List<MonsterInstance> = emptyList(),
     val tempBonuses: List<TempBonus> = emptyList(),
+    val heroModifier: Int = 0,      // Quick +/- for heroes
+    val monsterModifier: Int = 0,   // Quick +/- for monsters
+    val lastDiceRoll: DiceRollInfo? = null, // Last dice roll for all to see
     val isActive: Boolean = true
 )
 
@@ -28,6 +31,7 @@ data class MonsterInstance(
     val treasures: Int = 1,
     val levels: Int = 1,
     val isUndead: Boolean = false,
+    val badStuff: String = "",
     val conditionalModifiers: List<ConditionalModifier> = emptyList()
 ) {
     /**

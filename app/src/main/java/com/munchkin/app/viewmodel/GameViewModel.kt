@@ -45,6 +45,11 @@ class GameViewModel : ViewModel() {
     
     private val _discoveredGames = MutableStateFlow<List<DiscoveredGame>>(emptyList())
     val discoveredGames: StateFlow<List<DiscoveredGame>> = _discoveredGames.asStateFlow()
+
+    private val _gameLog = MutableStateFlow<List<GameLogEntry>>(emptyList())
+    val gameLog: StateFlow<List<GameLogEntry>> = _gameLog.asStateFlow()
+
+
     
     private val _savedGame = MutableStateFlow<SavedGame?>(null)
     val savedGame: StateFlow<SavedGame?> = _savedGame.asStateFlow()
@@ -824,6 +829,21 @@ class GameViewModel : ViewModel() {
     }
 
     /**
+     * Modify combat bonus/malus for heroes or monsters.
+     */
+    fun modifyCombatModifier(target: BonusTarget, delta: Int) {
+        sendPlayerEvent { playerId ->
+            CombatModifyModifier(
+                eventId = UUID.randomUUID().toString(),
+                actorId = playerId,
+                timestamp = System.currentTimeMillis(),
+                target = target,
+                delta = delta
+            )
+        }
+    }
+
+    /**
      * Start combat with current player as main.
      */
     fun startCombat() {
@@ -942,6 +962,33 @@ class GameViewModel : ViewModel() {
         }
     }
     
+    fun swapPlayers(p1: PlayerId, p2: PlayerId) {
+        if (!isHost) return
+        sendPlayerEvent { playerId ->
+            SwapPlayers(
+                eventId = UUID.randomUUID().toString(),
+                actorId = playerId,
+                timestamp = System.currentTimeMillis(),
+                targetPlayerId = p1,
+                otherPlayerId = p2
+            )
+        }
+    }
+
+    fun rollDiceForStart() {
+        // Roll 1-6
+        val result = (1..6).random()
+        sendPlayerEvent { playerId ->
+            PlayerRoll(
+                eventId = UUID.randomUUID().toString(),
+                actorId = playerId,
+                timestamp = System.currentTimeMillis(),
+                targetPlayerId = playerId, // Self
+                value = result
+            )
+        }
+    }
+
     // ============== Navigation ==============
     
     fun navigateTo(screen: Screen) {
@@ -1044,9 +1091,32 @@ class GameViewModel : ViewModel() {
     private var hasRecordedGame = false
 
     private fun observeClientState() {
+        var previousState: GameState? = null
+
         viewModelScope.launch {
             gameClient?.gameState?.collect { state ->
                 state?.let { s ->
+                    // Log Level Changes
+                    previousState?.let { prev ->
+                        s.players.forEach { (id, player) ->
+                            val prevPlayer = prev.players[id]
+                            if (prevPlayer != null && prevPlayer.level != player.level) {
+                                val diff = player.level - prevPlayer.level
+                                if (diff > 0) {
+                                    addLogEntry("${player.name} subió a Nivel ${player.level}", LogType.LEVEL_UP)
+                                } else {
+                                    addLogEntry("${player.name} bajó a Nivel ${player.level}", LogType.INFO)
+                                }
+                            }
+                        }
+                        
+                        // Log Combat Result (Combat property cleared)
+                        if (prev.combat != null && s.combat == null) {
+                            addLogEntry("Combate finalizado", LogType.combat)
+                        }
+                    }
+                    previousState = s
+
                     _uiState.update { it.copy(gameState = s) }
                     
                     // HOST CHECK: Did someone reach max level?
@@ -1187,6 +1257,13 @@ class GameViewModel : ViewModel() {
         }
         
         return "192.168.1.1"  // Fallback
+    }
+    // ============== Game Log ==============
+
+    private fun addLogEntry(message: String, type: LogType = LogType.INFO) {
+        val entry = GameLogEntry(message = message, type = type)
+        val currentList = _gameLog.value
+        _gameLog.value = (currentList + entry).takeLast(50)
     }
 }
 

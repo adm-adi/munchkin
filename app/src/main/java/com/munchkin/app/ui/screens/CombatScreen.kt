@@ -40,6 +40,7 @@ fun CombatScreen(
     onRequestCreateGlobalMonster: (String, Int, Int, Boolean) -> Unit,
     onAddHelper: (PlayerId) -> Unit,
     onRemoveHelper: () -> Unit,
+    onModifyModifier: (target: BonusTarget, delta: Int) -> Unit,
     onEndCombat: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -50,6 +51,10 @@ fun CombatScreen(
     // Monster input state
     var showAddMonster by remember { mutableStateOf(false) }
     var showAddHelper by remember { mutableStateOf(false) }
+    
+    // Animation State
+    var combatAnimation by remember { mutableStateOf<com.munchkin.app.ui.components.CombatAnimationType?>(null) }
+    var showRunDice by remember { mutableStateOf(false) }
 
     if (showAddHelper) {
         AlertDialog(
@@ -99,6 +104,17 @@ fun CombatScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
+                },
+                actions = {
+                    // Run Away Button (Only if monsters exist)
+                    if (combatState != null && combatState.monsters.isNotEmpty()) {
+                         IconButton(onClick = { showRunDice = true }) {
+                             Icon(
+                                 Icons.Default.DirectionsRun, 
+                                 contentDescription = "Huir"
+                             )
+                         }
+                    }
                 }
             )
         }
@@ -112,11 +128,9 @@ fun CombatScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Default.FlashOn,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.primary
+                    Text(
+                        text = "⚔️",
+                        style = MaterialTheme.typography.displayMedium
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
@@ -195,7 +209,8 @@ fun CombatScreen(
                             }
                         }
 
-                        if (combatState.helperPlayerId == null) {
+                        // Only main player can add helper
+                        if (combatState.helperPlayerId == null && myPlayerId == combatState.mainPlayerId) {
                             Spacer(modifier = Modifier.height(8.dp))
                             OutlinedButton(
                                 onClick = { showAddHelper = true },
@@ -204,6 +219,31 @@ fun CombatScreen(
                                 Icon(Icons.Default.PersonAdd, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(stringResource(R.string.add_helper))
+                            }
+                        }
+                        
+                        // Quick modifier buttons (only main player can modify)
+                        if (myPlayerId == combatState.mainPlayerId) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Bonus/Malus:", style = MaterialTheme.typography.bodyMedium)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(onClick = { onModifyModifier(BonusTarget.HEROES, -1) }) {
+                                        Text("➖", style = MaterialTheme.typography.titleLarge)
+                                    }
+                                    Text(
+                                        text = if (combatState.heroModifier >= 0) "+${combatState.heroModifier}" else "${combatState.heroModifier}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier.padding(horizontal = 8.dp)
+                                    )
+                                    IconButton(onClick = { onModifyModifier(BonusTarget.HEROES, 1) }) {
+                                        Text("➕", style = MaterialTheme.typography.titleLarge)
+                                    }
+                                }
                             }
                         }
                     }
@@ -225,47 +265,102 @@ fun CombatScreen(
                         }
                         
                         combatState.monsters.forEach { monster ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
                             ) {
-                                Text(
-                                    text = monster.name,
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-                                Text(
-                                    text = "Nivel ${monster.baseLevel}" + 
-                                        if (monster.flatModifier != 0) " (${if (monster.flatModifier > 0) "+" else ""}${monster.flatModifier})" 
-                                        else "",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = monster.name,
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+                                    Text(
+                                        text = "Nivel ${monster.baseLevel}" + 
+                                            if (monster.flatModifier != 0) " (${if (monster.flatModifier > 0) "+" else ""}${monster.flatModifier})" 
+                                            else "",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                                // Show mal rollo if available
+                                if (monster.badStuff.isNotEmpty()) {
+                                    Text(
+                                        text = "⚠️ Mal Rollo: ${monster.badStuff}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
                             }
                         }
                         
-                        Spacer(modifier = Modifier.height(8.dp))
+                        // Only main player can add monsters
+                        if (myPlayerId == combatState.mainPlayerId) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { showAddMonster = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(stringResource(R.string.add_monster))
+                            }
+                        }
                         
-                        OutlinedButton(
-                            onClick = { showAddMonster = true },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(R.string.add_monster))
+                        // Quick modifier buttons for monsters (only main player can modify, and only if monsters exist)
+                        if (myPlayerId == combatState.mainPlayerId && combatState.monsters.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Bonus/Malus:", style = MaterialTheme.typography.bodyMedium)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(onClick = { onModifyModifier(BonusTarget.MONSTER, -1) }) {
+                                        Text("➖", style = MaterialTheme.typography.titleLarge)
+                                    }
+                                    Text(
+                                        text = if (combatState.monsterModifier >= 0) "+${combatState.monsterModifier}" else "${combatState.monsterModifier}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        modifier = Modifier.padding(horizontal = 8.dp)
+                                    )
+                                    IconButton(onClick = { onModifyModifier(BonusTarget.MONSTER, 1) }) {
+                                        Text("➕", style = MaterialTheme.typography.titleLarge)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
                 
                 // End combat button
                 item {
-                    result?.let { _ ->
+                    result?.let { r ->
                         Button(
-                            onClick = onEndCombat,
+                            onClick = {
+                                if (r.outcome == CombatOutcome.WIN) {
+                                    combatAnimation = com.munchkin.app.ui.components.CombatAnimationType.VICTORY
+                                } else {
+                                    combatAnimation = com.munchkin.app.ui.components.CombatAnimationType.DEFEAT
+                                }
+                            },
+                            enabled = combatState.monsters.isNotEmpty(),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(56.dp),
-                            shape = RoundedCornerShape(16.dp)
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (r.outcome == CombatOutcome.WIN) 
+                                    androidx.compose.ui.graphics.Color(0xFF4CAF50) 
+                                else 
+                                    MaterialTheme.colorScheme.error,
+                                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
                         ) {
-                            Text(stringResource(R.string.end_combat))
+                            Text(if (r.outcome == CombatOutcome.WIN) "¡VICTORIA! (Terminar)" else "ASUMIR DERROTA")
                         }
                     }
                 }
@@ -290,6 +385,37 @@ fun CombatScreen(
                 // Create global then add local (handled by ViewModel on success)
                 onRequestCreateGlobalMonster(name, level, mod, undead)
                 showAddMonster = false
+            }
+        )
+    }
+    // Run Dice Logic
+    if (showRunDice) {
+         com.munchkin.app.ui.components.DiceRollerDialog(
+             onDismiss = { showRunDice = false },
+             showModifier = true,
+             onRollComplete = { value, modifier ->
+                  showRunDice = false
+                  // Standard Munchkin Rule: Run away on 5 or 6 (modified)
+                  if ((value + modifier) >= 5) {
+                      combatAnimation = com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_SUCCESS
+                  } else {
+                      combatAnimation = com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_FAIL
+                  }
+             }
+         )
+    }
+
+    // Animation Overlay
+    combatAnimation?.let { type ->
+        com.munchkin.app.ui.components.CombatResultOverlay(
+            type = type,
+            onAnimationFinished = {
+                combatAnimation = null
+                // If it was victory/defeat, effectively end combat
+                if (type == com.munchkin.app.ui.components.CombatAnimationType.VICTORY || 
+                    type == com.munchkin.app.ui.components.CombatAnimationType.DEFEAT) {
+                    onEndCombat()
+                }
             }
         )
     }
@@ -381,7 +507,9 @@ fun MonsterSearchDialog(
             TextButton(onClick = onDismiss) { Text("Cancelar") }
         }
     )
-}
+    }
+
+
 
 @Composable
 private fun CombatSideCard(

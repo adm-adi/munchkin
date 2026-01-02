@@ -82,6 +82,7 @@ enum class LogLevel {
  */
 @Composable
 fun DebugLogViewer(
+    showTrigger: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     var isExpanded by remember { mutableStateOf(false) }
@@ -98,20 +99,22 @@ fun DebugLogViewer(
     
     Box(modifier = modifier.fillMaxSize()) {
         // Floating button
-        FloatingActionButton(
-            onClick = { isExpanded = !isExpanded },
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(16.dp),
-            containerColor = if (logs.any { it.level == LogLevel.ERROR }) 
-                MaterialTheme.colorScheme.error 
-            else 
-                MaterialTheme.colorScheme.secondary
-        ) {
-            Icon(
-                Icons.Default.BugReport,
-                contentDescription = "Debug Logs"
-            )
+        if (showTrigger) {
+            FloatingActionButton(
+                onClick = { isExpanded = !isExpanded },
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(16.dp),
+                containerColor = if (logs.any { it.level == LogLevel.ERROR }) 
+                    MaterialTheme.colorScheme.error 
+                else 
+                    MaterialTheme.colorScheme.secondary
+            ) {
+                Icon(
+                    Icons.Default.BugReport,
+                    contentDescription = "Debug Logs"
+                )
+            }
         }
         
         // Log panel
@@ -157,10 +160,10 @@ fun DebugLogViewer(
                                 )
                             }
                             
-                            IconButton(onClick = { DebugLogManager.clear() }) {
+                            IconButton(onClick = { isExpanded = false }) {
                                 Icon(
                                     Icons.Default.Close,
-                                    contentDescription = "Clear",
+                                    contentDescription = "Close",
                                     tint = Color.White
                                 )
                             }

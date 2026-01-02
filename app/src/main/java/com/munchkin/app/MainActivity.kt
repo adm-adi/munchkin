@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
 import androidx.compose.foundation.layout.Box
+import com.munchkin.app.BuildConfig
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,31 +42,49 @@ class MainActivity : ComponentActivity() {
             val uiState by viewModel.uiState.collectAsState()
             
             MunchkinTheme {
-                // Intercept system back button
-                BackHandler(enabled = uiState.screen != Screen.HOME) {
-                    viewModel.goBack()
+                // Tutorial check
+                var showTutorial by remember { 
+                    mutableStateOf(!TutorialPrefs.isShown(this@MainActivity)) 
                 }
                 
-                Box(modifier = Modifier.fillMaxSize()) {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        color = MaterialTheme.colorScheme.background
-                    ) {
-                        AnimatedContent(
-                            targetState = uiState.screen,
-                            transitionSpec = {
-                                if (targetState.ordinal > initialState.ordinal) {
-                                    slideInHorizontally { it } + fadeIn() togetherWith 
-                                    slideOutHorizontally { -it } + fadeOut()
-                                } else {
-                                    slideInHorizontally { -it } + fadeIn() togetherWith 
-                                    slideOutHorizontally { it } + fadeOut()
-                                }
-                            },
-                            label = "screen"
-                        ) { screen ->
-                            when (screen) {
-                                Screen.HOME -> {
+                // Initialize SoundManager
+                LaunchedEffect(Unit) {
+                    com.munchkin.app.ui.components.SoundManager.init(this@MainActivity)
+                }
+                
+                if (showTutorial) {
+                    TutorialScreen(
+                        onFinish = {
+                            TutorialPrefs.markShown(this@MainActivity)
+                            showTutorial = false
+                        }
+                    )
+                } else {
+                    // Intercept system back button
+                    BackHandler(enabled = uiState.screen != Screen.HOME) {
+                        viewModel.goBack()
+                    }
+                    
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            color = MaterialTheme.colorScheme.background
+                        ) {
+                            AnimatedContent(
+                                targetState = uiState.screen,
+                                transitionSpec = {
+                                    if (targetState.ordinal > initialState.ordinal) {
+                                        slideInHorizontally { it } + fadeIn() togetherWith 
+                                        slideOutHorizontally { -it } + fadeOut()
+                                    } else {
+                                        slideInHorizontally { -it } + fadeIn() togetherWith 
+                                        slideOutHorizontally { it } + fadeOut()
+                                    }
+                                },
+                                label = "screen"
+                            ) { screen ->
+                                when (screen) {
+                                    Screen.HOME -> {
                                 val savedGame by viewModel.savedGame.collectAsState()
                                 val updateInfo by viewModel.updateInfo.collectAsState()
                                 val isDownloading by viewModel.isDownloading.collectAsState()
@@ -132,7 +151,8 @@ class MainActivity : ComponentActivity() {
                                         isHost = uiState.isHost,
                                         connectionInfo = connectionInfo,
                                         onStartGame = { viewModel.startGame() },
-                                        onLeaveGame = { viewModel.leaveGame() }
+                                        onLeaveGame = { viewModel.leaveGame() },
+                                        onRollDice = { viewModel.rollDiceForStart() }
                                     )
                                 }
                             }
@@ -142,21 +162,51 @@ class MainActivity : ComponentActivity() {
                                 val myPlayerId = uiState.myPlayerId
                                 
                                 if (gameState != null && myPlayerId != null) {
-                                    BoardScreen(
-                                        gameState = gameState,
-                                        myPlayerId = myPlayerId,
-                                        isHost = uiState.isHost,
-                                        connectionState = uiState.connectionState,
-                                        pendingWinnerId = uiState.pendingWinnerId,
-                                        onPlayerClick = { viewModel.navigateTo(Screen.PLAYER_DETAIL) },
-                                        onCombatClick = { viewModel.navigateTo(Screen.COMBAT) },
-                                        onCatalogClick = { viewModel.navigateTo(Screen.CATALOG) },
-                                        onSettingsClick = { viewModel.navigateTo(Screen.SETTINGS) },
-                                        onLeaveGame = { viewModel.leaveGame() },
-                                        onConfirmWin = { viewModel.confirmWin(it) },
-                                        onDismissWin = { viewModel.dismissWinConfirmation() },
-                                        onEndTurn = { viewModel.endTurn() }
-                                    )
+                                    // Auto-show combat to all players when active
+                                    if (gameState.combat != null) {
+                                        CombatScreen(
+                                            gameState = gameState,
+                                            myPlayerId = myPlayerId,
+                                            monsterSearchResults = uiState.monsterSearchResults,
+                                            onStartCombat = { viewModel.startCombat() },
+                                            onAddMonster = { name, level, mod, undead ->
+                                                viewModel.addMonster(name, level, mod, undead)
+                                            },
+                                            onSearchMonsters = { viewModel.searchMonsters(it) },
+                                            onRequestCreateGlobalMonster = { name, level, mod, undead ->
+                                                viewModel.requestCreateGlobalMonster(name, level, mod, undead)
+                                            },
+                                            onAddHelper = { viewModel.addHelper(it) },
+                                            onRemoveHelper = { viewModel.removeHelper() },
+                                            onModifyModifier = { target, delta -> viewModel.modifyCombatModifier(target, delta) },
+                                            onEndCombat = { viewModel.endCombat() },
+                                            onBack = { 
+                                                // Only main player can cancel combat via back
+                                                if (myPlayerId == gameState.combat?.mainPlayerId) {
+                                                    viewModel.endCombat()
+                                                }
+                                            }
+                                        )
+                                    } else {
+                                        BoardScreen(
+                                            gameState = gameState,
+                                            myPlayerId = myPlayerId,
+                                            isHost = uiState.isHost,
+                                            connectionState = uiState.connectionState,
+                                            pendingWinnerId = uiState.pendingWinnerId,
+                                            onPlayerClick = { viewModel.navigateTo(Screen.PLAYER_DETAIL) },
+                                            onCombatClick = { viewModel.navigateTo(Screen.COMBAT) },
+                                            onCatalogClick = { viewModel.navigateTo(Screen.CATALOG) },
+                                            onSettingsClick = { viewModel.navigateTo(Screen.SETTINGS) },
+                                            onLeaveGame = { viewModel.leaveGame() },
+                                            onConfirmWin = { viewModel.confirmWin(it) },
+                                            onDismissWin = { viewModel.dismissWinConfirmation() },
+                                            onEndTurn = { viewModel.endTurn() },
+                                            onToggleGender = { viewModel.toggleGender() },
+                                            onSwapPlayers = viewModel::swapPlayers,
+                                            logEntries = viewModel.gameLog.collectAsState().value
+                                        )
+                                    }
                                 }
                             }
                             
@@ -194,6 +244,7 @@ class MainActivity : ComponentActivity() {
                                         },
                                         onAddHelper = { viewModel.addHelper(it) },
                                         onRemoveHelper = { viewModel.removeHelper() },
+                                        onModifyModifier = { target, delta -> viewModel.modifyCombatModifier(target, delta) },
                                         onEndCombat = { viewModel.endCombat() },
                                         onBack = { viewModel.goBack() }
                                     )
@@ -256,14 +307,15 @@ class MainActivity : ComponentActivity() {
                                     onRefresh = { viewModel.loadLeaderboard() }
                                 )
                             }
-                        }
-                    }
+                        } // when
+                    } // AnimatedContent
+                    } // Surface
                     
                     // Debug log viewer with floating button
-                    DebugLogViewer()
-                }
-            }
-        }
-    }
-}
-}
+                    DebugLogViewer(showTrigger = BuildConfig.DEBUG)
+                } // Box
+            } // else (not showTutorial)
+            } // MunchkinTheme
+        } // setContent
+    } // onCreate
+} // MainActivity

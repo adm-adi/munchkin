@@ -71,6 +71,16 @@ function initTables() {
                 // Ignore duplicate
             }
         });
+        db.run(`ALTER TABLE monsters ADD COLUMN bad_stuff TEXT DEFAULT ''`, (err) => {
+            if (err && !err.message.includes("duplicate column name")) {
+                // Ignore duplicate
+            }
+        });
+        db.run(`ALTER TABLE monsters ADD COLUMN expansion TEXT DEFAULT 'base'`, (err) => {
+            if (err && !err.message.includes("duplicate column name")) {
+                // Ignore duplicate
+            }
+        });
     });
 }
 
@@ -141,12 +151,20 @@ function verifyUser(identifier, password) {
 
 function searchMonsters(query) {
     return new Promise((resolve, reject) => {
-        const sql = `SELECT * FROM monsters WHERE name LIKE ? ORDER BY name LIMIT 10`;
+        const sql = `SELECT * FROM monsters WHERE name LIKE ? ORDER BY name LIMIT 20`;
         db.all(sql, [`%${query}%`], (err, rows) => {
             if (err) resolve([]);
             else resolve(rows.map(row => ({
-                ...row,
-                isUndead: !!row.is_undead // Convert 0/1 to boolean
+                id: row.id,
+                name: row.name,
+                level: row.level,
+                modifier: row.modifier || 0,
+                treasures: row.treasures || 1,
+                levels: row.levels || 1,
+                isUndead: !!row.is_undead,
+                badStuff: row.bad_stuff || '',
+                expansion: row.expansion || 'base',
+                createdBy: row.created_by
             })));
         });
     });

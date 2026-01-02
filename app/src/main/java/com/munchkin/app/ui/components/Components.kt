@@ -199,7 +199,8 @@ fun PlayerCard(
     isTurn: Boolean = false,
     onToggleGender: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    actions: @Composable (RowScope.() -> Unit) = {}
 ) {
     val borderColor by animateColorAsState(
         targetValue = when {
@@ -394,6 +395,9 @@ fun PlayerCard(
                     }
                 }
             }
+            
+            // Custom Actions
+            actions()
         }
     }
 }

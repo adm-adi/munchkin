@@ -34,7 +34,8 @@ class GameEngine {
             gameId = gameId,
             joinCode = joinCode,
             hostId = hostMeta.playerId,
-            players = mapOf(hostMeta.playerId to hostState)
+            players = mapOf(hostMeta.playerId to hostState),
+            playerOrder = listOf(hostMeta.playerId)
         )
         
         _gameState.value = newState
@@ -247,11 +248,13 @@ class GameEngine {
             is PlayerJoin -> applyPlayerJoin(event, state)
             is PlayerLeave -> applyPlayerLeave(event, state)
             is GameStart -> state.copy(phase = GamePhase.IN_GAME)
+            is SwapPlayers -> applySwapPlayers(event, state)
             is GameEnd -> state.copy(phase = GamePhase.FINISHED)
             
             is SetName -> updatePlayer(state, event.targetPlayerId) { it.copy(name = event.name) }
             is SetAvatar -> updatePlayer(state, event.targetPlayerId) { it.copy(avatarId = event.avatarId) }
             is SetGender -> updatePlayer(state, event.targetPlayerId) { it.copy(gender = event.gender) }
+            is PlayerRoll -> updatePlayer(state, event.targetPlayerId ?: return state) { it.copy(lastRoll = event.value) }
             
             is IncLevel -> updatePlayer(state, event.targetPlayerId) { 
                 it.copy(level = (it.level + event.amount).coerceIn(state.settings.minLevel, state.settings.maxLevel))
@@ -300,11 +303,44 @@ class GameEngine {
             is CombatAddBonus -> applyCombatAddBonus(event, state)
             is CombatRemoveBonus -> applyCombatRemoveBonus(event, state)
             is CombatEnd -> applyCombatEnd(event, state)
+            is CombatModifyModifier -> applyCombatModifyModifier(event, state)
             
             else -> state
         }
     }
     
+    private fun applyCombatModifyModifier(event: CombatModifyModifier, state: GameState): GameState {
+        val combat = state.combat ?: return state
+        val updatedCombat = when (event.target) {
+            BonusTarget.HEROES -> combat.copy(heroModifier = combat.heroModifier + event.delta)
+            BonusTarget.MONSTER -> combat.copy(monsterModifier = combat.monsterModifier + event.delta)
+        }
+        return state.copy(combat = updatedCombat)
+    }
+    
+    private fun applySwapPlayers(event: SwapPlayers, state: GameState): GameState {
+        val p1 = event.targetPlayerId ?: return state
+        val p2 = event.otherPlayerId
+        
+        // Use current order or implicit order
+        val currentOrder = if (state.playerOrder.isNotEmpty()) {
+            state.playerOrder.toMutableList()
+        } else {
+            state.players.keys.sortedBy { it.value }.toMutableList()
+        }
+        
+        val idx1 = currentOrder.indexOf(p1)
+        val idx2 = currentOrder.indexOf(p2)
+        
+        if (idx1 != -1 && idx2 != -1) {
+            val temp = currentOrder[idx1]
+            currentOrder[idx1] = currentOrder[idx2]
+            currentOrder[idx2] = temp
+        }
+        
+        return state.copy(playerOrder = currentOrder)
+    }
+
     private fun applyPlayerJoin(event: PlayerJoin, state: GameState): GameState {
         val newPlayer = PlayerState(
             playerId = event.playerMeta.playerId,

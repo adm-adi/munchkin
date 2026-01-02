@@ -53,7 +53,8 @@ data class PlayerState(
     val hasHalfBreed: Boolean = false,
     val hasSuperMunchkin: Boolean = false,
     val lastKnownIp: String? = null,
-    val isConnected: Boolean = true
+    val isConnected: Boolean = true,
+    val lastRoll: Int? = null // For initial roll or others
 ) {
     /**
      * Combined combat power = level + gear + temp bonus
@@ -127,14 +128,19 @@ data class GameState(
     val phase: GamePhase = GamePhase.LOBBY,
     val winnerId: PlayerId? = null,
     val turnPlayerId: PlayerId? = null, // Current active player
+    val playerOrder: List<PlayerId> = emptyList(), // Custom Seat Order
     val createdAt: Long = System.currentTimeMillis(),
     val settings: GameSettings = GameSettings()
 ) {
     /**
-     * Get sorted list of players by join order (implicit by playerId)
+     * Get sorted list of players by explicit order or default
      */
     val playerList: List<PlayerState> 
-        get() = players.values.toList()
+        get() = if (playerOrder.isNotEmpty()) {
+            playerOrder.mapNotNull { players[it] } + players.values.filter { !playerOrder.contains(it.playerId) }
+        } else {
+            players.values.toList().sortedBy { it.playerId.value }
+        }
     
     /**
      * Check if game is full (6 players max)

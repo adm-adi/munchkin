@@ -32,7 +32,7 @@ class GameRoom {
         this.createdAt = Date.now();
         this.phase = "LOBBY";
         this.winnerId = null;
-        this.turnPlayerId = null;
+        this.turnPlayerId = hostId; // Start with host's turn
     }
 
     broadcast(message, excludePlayerId = null) {
@@ -204,6 +204,10 @@ function handleMessage(ws, message) {
 
         case 'END_TURN':
             handleEndTurn(ws);
+            break;
+
+        case 'COMBAT_DICE_ROLL':
+            handleCombatDiceRoll(ws, message);
             break;
 
         default:
@@ -589,6 +593,86 @@ function handleGameOver(ws, message) {
 
     // Cleanup game immediately or let it linger?
     // Usually keep it briefly for "Game Over" screen sync.
+}
+
+// ============== Turn Management ==============
+
+function handleEndTurn(ws) {
+    const clientInfo = clientGames.get(ws);
+    if (!clientInfo) {
+        return sendError(ws, "GENERAL_ERROR", "No estás en ninguna partida");
+    }
+
+    const game = games.get(clientInfo.gameId);
+    if (!game) {
+        return sendError(ws, "GENERAL_ERROR", "Partida no encontrada");
+    }
+
+    // Only current turn player can end their turn
+    if (game.turnPlayerId && game.turnPlayerId !== clientInfo.playerId) {
+        return sendError(ws, "GENERAL_ERROR", "No es tu turno");
+    }
+
+    // Get player order (array of player IDs)
+    const playerIds = Array.from(game.players.keys());
+    if (playerIds.length === 0) return;
+
+    // Find current player index
+    const currentIndex = playerIds.indexOf(game.turnPlayerId);
+
+    // Advance to next player (wrap around)
+    const nextIndex = (currentIndex + 1) % playerIds.length;
+    game.turnPlayerId = playerIds[nextIndex];
+    game.seq++;
+
+    const nextPlayer = game.players.get(game.turnPlayerId);
+    console.log(`🔄 Turn advanced to: ${nextPlayer?.name || game.turnPlayerId}`);
+
+    // Broadcast updated state
+    game.broadcast({
+        type: "STATE_SNAPSHOT",
+        gameState: game.buildGameState(),
+        seq: game.seq
+    });
+}
+
+function handleCombatDiceRoll(ws, message) {
+    const clientInfo = clientGames.get(ws);
+    if (!clientInfo) {
+        return sendError(ws, "GENERAL_ERROR", "No estás en ninguna partida");
+    }
+
+    const game = games.get(clientInfo.gameId);
+    if (!game) {
+        return sendError(ws, "GENERAL_ERROR", "Partida no encontrada");
+    }
+
+    const player = game.players.get(clientInfo.playerId);
+    if (!player) {
+        return sendError(ws, "GENERAL_ERROR", "Jugador no encontrado");
+    }
+
+    // Store dice roll in combat state (if combat active)
+    const { result, purpose, success } = message;
+    const diceRollInfo = {
+        playerId: clientInfo.playerId,
+        playerName: player.name,
+        result: result,
+        purpose: purpose || "RANDOM",
+        success: success || false,
+        timestamp: Date.now()
+    };
+
+    // Store in game for buildGameState to include
+    game.lastCombatDiceRoll = diceRollInfo;
+
+    console.log(`🎲 ${player.name} rolled ${result} for ${purpose} - ${success ? 'SUCCESS' : 'FAIL'}`);
+
+    // Broadcast the dice roll event to all players
+    game.broadcast({
+        type: "COMBAT_DICE_ROLL_RESULT",
+        diceRoll: diceRollInfo
+    });
 }
 
 // ============== Catalog Handlers ==============

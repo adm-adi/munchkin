@@ -12,9 +12,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.munchkin.app.R
 import com.munchkin.app.core.GameState
 import com.munchkin.app.core.PlayerId
@@ -34,6 +37,7 @@ fun LobbyScreen(
     connectionInfo: ConnectionInfo?,
     onStartGame: () -> Unit,
     onLeaveGame: () -> Unit,
+    onRollDice: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showLeaveDialog by remember { mutableStateOf(false) }
@@ -133,7 +137,36 @@ fun LobbyScreen(
                     PlayerCard(
                         player = player,
                         isMe = player.playerId == myPlayerId,
-                        isHost = player.playerId == gameState.hostId
+                        isHost = player.playerId == gameState.hostId,
+                        actions = {
+                            if (player.lastRoll != null) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = com.munchkin.app.ui.theme.NeonSecondary.copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = "🎲 ${player.lastRoll}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = com.munchkin.app.ui.theme.NeonSecondary,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            } else if (player.playerId == myPlayerId) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = onRollDice,
+                                    modifier = Modifier.height(40.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = com.munchkin.app.ui.theme.NeonPrimary,
+                                        contentColor = Color.Black
+                                    )
+                                ) {
+                                    Text("Lanzar 🎲", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
                     )
                 }
             }
