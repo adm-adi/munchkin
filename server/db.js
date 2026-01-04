@@ -177,10 +177,10 @@ function updateUser(userId, newUsername, newPassword) {
     });
 }
 
-function findUserByCredentials(email, password) {
+function findUserByEmailOrUsername(identifier) {
     return new Promise((resolve, reject) => {
-        // Search by email OR username (case insensitive for username usually better, but keeping exact for now)
-        const sql = `SELECT * FROM users WHERE email = ? OR username = ? `;
+        // Search by email OR username
+        const sql = `SELECT * FROM users WHERE email = ? OR username = ?`;
         db.get(sql, [identifier, identifier], (err, row) => {
             if (err) {
                 reject(err);
