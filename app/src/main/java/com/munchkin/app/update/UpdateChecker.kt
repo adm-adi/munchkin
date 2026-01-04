@@ -147,17 +147,63 @@ class UpdateChecker(private val context: Context) {
         }
     }
     
+    /**
+     * Compare semantic versions. Returns true if latest > current.
+     * Handles versions like "2.17.3", "v2.17.3", "2.17.3-beta", etc.
+     */
     private fun isNewerVersion(latest: String, current: String): Boolean {
-        val latestParts = latest.split(".").map { it.toIntOrNull() ?: 0 }
-        val currentParts = current.split(".").map { it.toIntOrNull() ?: 0 }
+        // Clean both versions: remove 'v' prefix and any suffix after '-'
+        val cleanLatest = cleanVersion(latest)
+        val cleanCurrent = cleanVersion(current)
         
-        for (i in 0 until maxOf(latestParts.size, currentParts.size)) {
+        Log.d(TAG, "Version comparison: cleanLatest='$cleanLatest', cleanCurrent='$cleanCurrent'")
+        
+        // If versions are exactly equal, no update needed
+        if (cleanLatest == cleanCurrent) {
+            Log.d(TAG, "Versions are equal, no update needed")
+            return false
+        }
+        
+        val latestParts = cleanLatest.split(".").mapNotNull { it.toIntOrNull() }
+        val currentParts = cleanCurrent.split(".").mapNotNull { it.toIntOrNull() }
+        
+        // If parsing failed, compare as strings
+        if (latestParts.isEmpty() || currentParts.isEmpty()) {
+            Log.w(TAG, "Failed to parse versions, comparing as strings")
+            return cleanLatest > cleanCurrent
+        }
+        
+        // Compare each part
+        val maxLen = maxOf(latestParts.size, currentParts.size)
+        for (i in 0 until maxLen) {
             val l = latestParts.getOrElse(i) { 0 }
             val c = currentParts.getOrElse(i) { 0 }
-            if (l > c) return true
-            if (l < c) return false
+            Log.d(TAG, "Comparing part $i: latest=$l, current=$c")
+            if (l > c) {
+                Log.d(TAG, "Latest is newer at part $i")
+                return true
+            }
+            if (l < c) {
+                Log.d(TAG, "Current is newer at part $i, no update needed")
+                return false
+            }
         }
+        
+        Log.d(TAG, "All parts equal, no update needed")
         return false
+    }
+    
+    /**
+     * Clean version string: remove 'v' prefix, trim whitespace, 
+     * and remove any suffix after '-' (like -beta, -debug, etc.)
+     */
+    private fun cleanVersion(version: String): String {
+        return version
+            .trim()
+            .removePrefix("v")
+            .removePrefix("V")
+            .split("-")[0]  // Remove suffixes like -beta, -debug
+            .trim()
     }
 }
 
