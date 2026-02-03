@@ -8,12 +8,15 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
@@ -33,9 +36,6 @@ import kotlin.math.sin
  * Visual Dungeon/Table View.
  * Displays players sitting around a table.
  */
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.ui.graphics.graphicsLayer
-
 @Composable
 fun TableScreen(
     players: List<PlayerState>,
@@ -210,6 +210,7 @@ fun PlayerAvatarNode(
                     },
                     shape = CircleShape
                 )
+        ) {
             Image(
                 painter = painterResource(id = drawableId),
                 contentDescription = player.name,
@@ -218,7 +219,8 @@ fun PlayerAvatarNode(
                     .padding(8.dp)
                     .then(if (!player.isConnected) Modifier.graphicsLayer { alpha = 0.5f } else Modifier),
                 contentScale = ContentScale.Fit
-            )            
+            )
+            
             if (!player.isConnected) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -249,8 +251,6 @@ fun PlayerAvatarNode(
                     modifier = Modifier.align(Alignment.Center)
                 )
             }
-            
-
             
             // Level Badge (TopStart)
             Box(

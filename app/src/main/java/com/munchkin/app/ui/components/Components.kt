@@ -235,184 +235,186 @@ fun PlayerCard(
         ),
         shape = RoundedCornerShape(16.dp)
     ) {
+        Box {
+            Row(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxWidth()
                     .then(if (!player.isConnected) Modifier.graphicsLayer { alpha = 0.6f } else Modifier)
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-            // Avatar with glow for current player
-            Box {
-                if (isMe) {
-                    Box(
-                        modifier = Modifier
-                            .size(56.dp)
-                            .background(
-                                com.munchkin.app.ui.theme.NeonPrimary.copy(alpha = 0.2f),
-                                CircleShape
-                            )
-                    )
-                }
-                PlayerAvatar(
-                    player = player,
-                    size = 48,
-                    showBorder = isMe
-                )
-            }
-            
-            Spacer(modifier = Modifier.width(16.dp))
-            
-            // Name and traits
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = player.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = if (isMe) FontWeight.SemiBold else FontWeight.Normal,
-                        color = com.munchkin.app.ui.theme.NeonGray100,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    if (isHost) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "👑",
-                            style = MaterialTheme.typography.bodySmall
+                // Avatar with glow for current player
+                Box {
+                    if (isMe) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .background(
+                                    com.munchkin.app.ui.theme.NeonPrimary.copy(alpha = 0.2f),
+                                    CircleShape
+                                )
                         )
                     }
-                    if (isMe) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = com.munchkin.app.ui.theme.NeonPrimary.copy(alpha = 0.2f)
-                        ) {
+                    PlayerAvatar(
+                        player = player,
+                        size = 48,
+                        showBorder = isMe
+                    )
+                }
+                
+                Spacer(modifier = Modifier.width(16.dp))
+                
+                // Name and traits
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = player.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = if (isMe) FontWeight.SemiBold else FontWeight.Normal,
+                            color = com.munchkin.app.ui.theme.NeonGray100,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (isHost) {
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "TÚ",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = com.munchkin.app.ui.theme.NeonPrimary,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                text = "👑",
+                                style = MaterialTheme.typography.bodySmall
                             )
                         }
+                        if (isMe) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = com.munchkin.app.ui.theme.NeonPrimary.copy(alpha = 0.2f)
+                            ) {
+                                Text(
+                                    text = "TÚ",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = com.munchkin.app.ui.theme.NeonPrimary,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.width(8.dp))
+                        
+                        // Gender Icon (Clickable for self)
+                        val genderSymbol = when (player.gender) {
+                            Gender.M -> "♂"
+                            Gender.F -> "♀"
+                            Gender.NA -> "Ø"
+                        }
+                        val genderColor = when (player.gender) {
+                            Gender.M -> Color(0xFF42A5F5) // Blue
+                            Gender.F -> Color(0xFFEC407A) // Pink
+                            Gender.NA -> com.munchkin.app.ui.theme.NeonGray400
+                        }
+                        
+                        Surface(
+                            shape = CircleShape,
+                            color = genderColor.copy(alpha = 0.1f),
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .then(if (isMe && onToggleGender != null) Modifier.clickable { onToggleGender() } else Modifier)
+                        ) {
+                            Text(
+                                text = genderSymbol,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = genderColor,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                        if (isTurn) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = com.munchkin.app.ui.theme.NeonWarning.copy(alpha = 0.2f)
+                            ) {
+                                Text(
+                                    text = "TURNO",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = com.munchkin.app.ui.theme.NeonWarning,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
+                }
                     
-                    Spacer(modifier = Modifier.width(8.dp))
-                    
-                    // Gender Icon (Clickable for self)
-                    val genderSymbol = when (player.gender) {
-                        Gender.M -> "♂"
-                        Gender.F -> "♀"
-                        Gender.NA -> "Ø"
+                    // Stats column
+                Column(horizontalAlignment = Alignment.End) {
+                    // Stats Row (Level & Power) with equal visibility
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Level
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = com.munchkin.app.ui.theme.NeonPrimary.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "Nivel ${player.level}",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = com.munchkin.app.ui.theme.NeonPrimary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        // Power
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = com.munchkin.app.ui.theme.NeonGray500.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "Fuerza ${player.combatPower}",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = com.munchkin.app.ui.theme.NeonGray100,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
                     }
-                    val genderColor = when (player.gender) {
-                        Gender.M -> Color(0xFF42A5F5) // Blue
-                        Gender.F -> Color(0xFFEC407A) // Pink
-                        Gender.NA -> com.munchkin.app.ui.theme.NeonGray400
-                    }
-                    
+                
+                // Custom Actions
+                Row {
+                    actions()
+                }
+            }
+        }
+            
+            if (!player.isConnected) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .padding(end = 16.dp),
+                    contentAlignment = Alignment.CenterEnd
+                ) {
                     Surface(
-                        shape = CircleShape,
-                        color = genderColor.copy(alpha = 0.1f),
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .then(if (isMe && onToggleGender != null) Modifier.clickable { onToggleGender() } else Modifier)
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
+                        shape = RoundedCornerShape(4.dp)
                     ) {
                         Text(
-                            text = genderSymbol,
-                            style = MaterialTheme.typography.titleMedium,
+                            text = "DESCONECTADO",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
                             fontWeight = FontWeight.Bold,
-                            color = genderColor,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
-                    if (isTurn) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = com.munchkin.app.ui.theme.NeonWarning.copy(alpha = 0.2f)
-                        ) {
-                            Text(
-                                text = "TURNO",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = com.munchkin.app.ui.theme.NeonWarning,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
-                
-                // Stats column
-            Column(horizontalAlignment = Alignment.End) {
-                // Stats Row (Level & Power) with equal visibility
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Level
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = com.munchkin.app.ui.theme.NeonPrimary.copy(alpha = 0.15f)
-                        ) {
-                            Text(
-                                text = "Nivel ${player.level}",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = com.munchkin.app.ui.theme.NeonPrimary,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-
-                    // Power
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = com.munchkin.app.ui.theme.NeonGray500.copy(alpha = 0.15f)
-                        ) {
-                            Text(
-                                text = "Fuerza ${player.combatPower}",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = com.munchkin.app.ui.theme.NeonGray100,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-                }
-            
-            // Custom Actions
-            Row {
-                actions()
-            }
-        }
-        
-        if (!player.isConnected) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(end = 16.dp),
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
-                    shape = RoundedCornerShape(4.dp)
-                ) {
-                    Text(
-                        text = "DESCONECTADO",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
                 }
             }
         }
     }
-    }
-}
 }
 
 /**
