@@ -101,7 +101,8 @@ fun PlayerDetailScreen(
                 ) {
                     Text(
                         text = stringResource(R.string.power),
-                        style = MaterialTheme.typography.titleMedium
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f)
                     )
                     Text(
                         text = "${player.combatPower}",

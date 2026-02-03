@@ -251,7 +251,7 @@ fun CombatScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = "${helper?.name ?: "?"} (Ayudante)",
                                         style = MaterialTheme.typography.titleMedium
@@ -307,7 +307,11 @@ fun CombatScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Bonus/Malus:", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    text = "Bonus/Malus:", 
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f)
+                                )
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     IconButton(onClick = { onModifyModifier(BonusTarget.HEROES, -1) }) {
                                         Text("➖", style = MaterialTheme.typography.titleLarge)
@@ -353,7 +357,8 @@ fun CombatScreen(
                                 ) {
                                     Text(
                                         text = monster.name,
-                                        style = MaterialTheme.typography.bodyLarge
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        modifier = Modifier.weight(1f)
                                     )
                                     Text(
                                         text = "Nivel ${monster.baseLevel}" + 
@@ -397,7 +402,11 @@ fun CombatScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Bonus/Malus:", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    text = "Bonus/Malus:", 
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f)
+                                )
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     IconButton(onClick = { onModifyModifier(BonusTarget.MONSTER, -1) }) {
                                         Text("➖", style = MaterialTheme.typography.titleLarge)
