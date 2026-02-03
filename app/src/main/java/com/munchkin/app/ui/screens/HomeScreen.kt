@@ -32,10 +32,13 @@ fun HomeScreen(
     savedGame: SavedGame?,
     updateInfo: UpdateInfo?,
     isDownloading: Boolean,
+    isLoading: Boolean = false,
+    error: String? = null,
     onCreateGame: () -> Unit,
     onJoinGame: () -> Unit,
     onResumeGame: () -> Unit,
     onDeleteSavedGame: () -> Unit,
+    onClearError: () -> Unit = {},
     onDownloadUpdate: () -> Unit,
     onDismissUpdate: () -> Unit,
     onSettings: () -> Unit,
@@ -66,6 +69,18 @@ fun HomeScreen(
                 onDismissUpdate()
             }
         )
+    }
+    
+    // Snackbar for errors
+    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
+    LaunchedEffect(error) {
+        if (error != null) {
+            snackbarHostState.showSnackbar(
+                message = error,
+                duration = androidx.compose.material3.SnackbarDuration.Short
+            )
+            onClearError()
+        }
     }
     
     Box(
@@ -307,11 +322,12 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.height(12.dp))
                             
                             GradientButton(
-                                text = "Continuar",
+                                text = if (isLoading) "Conectando..." else "Continuar",
                                 onClick = onResumeGame,
                                 modifier = Modifier.fillMaxWidth(),
-                                icon = Icons.Default.PlayArrow,
-                                gradientColors = GradientNeonFire
+                                icon = if (isLoading) null else Icons.Default.PlayArrow,
+                                gradientColors = GradientNeonFire,
+                                enabled = !isLoading
                             )
                             
                             Spacer(modifier = Modifier.height(8.dp))
@@ -344,5 +360,13 @@ fun HomeScreen(
             
             Spacer(modifier = Modifier.height(16.dp))
         }
+        
+        // Snackbar Host at bottom
+        androidx.compose.material3.SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+        )
     }
 }

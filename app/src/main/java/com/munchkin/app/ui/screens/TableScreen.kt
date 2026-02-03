@@ -63,6 +63,45 @@ fun TableScreen(
         
         val anglePerPlayer = 360f / players.size.coerceAtLeast(1)
         
+        // Turn indicator banner at top
+        val turnPlayer = players.find { it.playerId == turnPlayerId }
+        if (turnPlayer != null) {
+            val isMyTurn = turnPlayer.playerId == currentUser
+            androidx.compose.material3.Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                color = if (isMyTurn) 
+                    MaterialTheme.colorScheme.tertiary.copy(alpha = 0.9f)
+                else 
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                shadowElevation = 4.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                ) {
+                    if (!isMyTurn) {
+                        Text(
+                            text = "⏳",
+                            fontSize = 18.sp
+                        )
+                    }
+                    Text(
+                        text = if (isMyTurn) "¡Es tu turno!" else "Turno de ${turnPlayer.name}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isMyTurn) 
+                            Color.White 
+                        else 
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+        
         // Table Background (Wood or Rug?)
         Box(
             modifier = Modifier

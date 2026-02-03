@@ -357,10 +357,18 @@ function handleHello(ws, message) {
 
     // Check if reconnecting
     if (game.players.has(playerId)) {
-        // Reconnection
+        // Reconnection - mark as connected again
         const player = game.players.get(playerId);
         player.ws = ws;
+        player.isConnected = true;
         clientGames.set(ws, { gameId: game.id, playerId });
+
+        // Cancel cleanup timer if exists
+        if (game.cleanupTimer) {
+            clearTimeout(game.cleanupTimer);
+            game.cleanupTimer = null;
+            console.log(`⏰ Cleanup timer cancelled for ${joinCode}`);
+        }
 
         // Send WELCOME with playerId so client can properly navigate
         ws.send(JSON.stringify({
@@ -368,6 +376,13 @@ function handleHello(ws, message) {
             yourPlayerId: playerId,
             gameState: game.buildGameState()
         }));
+
+        // Broadcast reconnection to other players
+        game.broadcast({
+            type: "PLAYER_STATUS",
+            playerId: playerId,
+            isConnected: true
+        }, playerId);
 
         console.log(`🔄 Player ${playerMeta.name} reconnected to ${joinCode}`);
         return;
@@ -933,46 +948,64 @@ function handleDisconnect(ws) {
     if (game) {
         console.log(`👋 Player ${clientData.playerId} disconnected from ${game.joinCode}`);
 
-        // Remove player from game map immediately so size check is accurate
-        game.players.delete(clientData.playerId);
+        // Mark player as disconnected but KEEP in game for reconnection
+        const player = game.players.get(clientData.playerId);
+        if (player) {
+            player.ws = null;
+            player.isConnected = false;
+        }
 
-        // Broadcast disconnect
+        // Broadcast disconnect status
         game.broadcast({
             type: "PLAYER_STATUS",
             playerId: clientData.playerId,
             isConnected: false
         });
 
-        // If game is empty or only 1 player left who is also disconnecting (already removed above), delete it
-        if (game.players.size === 0) {
-            games.delete(clientData.gameId);
-            console.log(`🗑️ Game ${game.joinCode} deleted (empty)`);
+        // Count connected players
+        let connectedCount = 0;
+        for (const p of game.players.values()) {
+            if (p.isConnected !== false && p.ws) {
+                connectedCount++;
+            }
+        }
+
+        // Only delete game if ALL players are disconnected
+        if (connectedCount === 0) {
+            // Give players 5 minutes to reconnect before deleting the game
+            console.log(`⏳ All players disconnected from ${game.joinCode}, starting 5-minute cleanup timer`);
+            game.cleanupTimer = setTimeout(() => {
+                // Check again if still empty
+                let stillEmpty = true;
+                for (const p of game.players.values()) {
+                    if (p.isConnected !== false && p.ws) {
+                        stillEmpty = false;
+                        break;
+                    }
+                }
+                if (stillEmpty && games.has(clientData.gameId)) {
+                    games.delete(clientData.gameId);
+                    console.log(`🗑️ Game ${game.joinCode} deleted (all players disconnected for 5 min)`);
+                }
+            }, 5 * 60 * 1000); // 5 minutes
         } else {
-            // Host Migration: If host left, assign new host
+            // Host Migration: If host disconnected, assign new connected host
             if (game.hostId === clientData.playerId) {
-                const remainingPlayers = Array.from(game.players.values());
-                if (remainingPlayers.length > 0) {
-                    // Pick random or first
-                    const newHost = remainingPlayers[0];
-                    game.hostId = remainingPlayers[0].playerId; // The key in the map is the ID
-                    // Actually we need the ID from the map key or stored in object
-                    // In GameRoom constructor, players is Map<PlayerId, PlayerObject>
-                    // PlayerObject doesn't explicitly store ID in the object in some versions, check GameRoom.buildGameState
-                    // In line 114: playerId: playerId. So it IS available if we iterate entries, or we can use the key.
+                // Find first connected player
+                for (const [pid, p] of game.players.entries()) {
+                    if (p.isConnected !== false && p.ws) {
+                        game.hostId = pid;
+                        game.hostName = p.name;
+                        console.log(`👑 Host migrated to ${game.hostName} (${pid})`);
 
-                    // Let's get the key
-                    const newHostId = game.players.keys().next().value;
-                    game.hostId = newHostId;
-                    game.hostName = game.players.get(newHostId).name;
-
-                    console.log(`👑 Host migrated to ${game.hostName} (${newHostId})`);
-
-                    // Broadcast new state with new host
-                    game.broadcast({
-                        type: "STATE_SNAPSHOT",
-                        gameState: game.buildGameState(),
-                        seq: game.seq
-                    });
+                        // Broadcast new state with new host
+                        game.broadcast({
+                            type: "STATE_SNAPSHOT",
+                            gameState: game.buildGameState(),
+                            seq: game.seq
+                        });
+                        break;
+                    }
                 }
             }
         }

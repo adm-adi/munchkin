@@ -214,6 +214,13 @@ class GameViewModel : ViewModel() {
         }
     }
     
+    /**
+     * Clear error state.
+     */
+    fun clearError() {
+        _uiState.update { it.copy(error = null) }
+    }
+    
     // ============== Update Methods ==============
     
     /**
@@ -509,6 +516,11 @@ class GameViewModel : ViewModel() {
                         myPlayerId = playerId,
                         isHost = false
                     )
+                }
+                
+                // Save game immediately for reconnection
+                gameState?.let { state ->
+                    gameRepository?.saveGame(state, playerId, isHost = false)
                 }
                 
                 // Observe client state changes

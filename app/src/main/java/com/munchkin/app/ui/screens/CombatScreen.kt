@@ -137,6 +137,19 @@ fun CombatScreen(
                     }
                 },
                 actions = {
+                    // Cancel Combat Button (Only if combat is active)
+                    if (combatState != null) {
+                        IconButton(onClick = { 
+                            onEndCombat()
+                            onBack()
+                        }) {
+                            Icon(
+                                Icons.Default.Close, 
+                                contentDescription = "Cancelar Combate",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
                     // Run Away Button (Only if monsters exist)
                     if (combatState != null && combatState.monsters.isNotEmpty()) {
                          IconButton(onClick = { onRollCombatDice(DiceRollPurpose.RUN_AWAY) }) {
