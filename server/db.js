@@ -60,6 +60,21 @@ function initTables() {
             created_at INTEGER
         )`);
 
+        // Active Games Table (for persistence across restarts)
+        db.run(`CREATE TABLE IF NOT EXISTS active_games(
+            id TEXT PRIMARY KEY,
+            join_code TEXT UNIQUE NOT NULL,
+            host_id TEXT NOT NULL,
+            host_name TEXT NOT NULL,
+            phase TEXT DEFAULT 'LOBBY',
+            turn_player_id TEXT,
+            players_json TEXT,
+            combat_json TEXT,
+            created_at INTEGER,
+            last_activity_at INTEGER,
+            seq INTEGER DEFAULT 0
+        )`);
+
         // Ensure columns exist (for existing databases)
         db.run(`ALTER TABLE monsters ADD COLUMN treasures INTEGER DEFAULT 1`, (err) => {
             if (err && !err.message.includes("duplicate column name")) {
@@ -351,6 +366,136 @@ function getLeaderboard() {
     });
 }
 
+// ============== Active Game Persistence ==============
+
+/**
+ * Save or update an active game to the database.
+ * Called whenever game state changes significantly.
+ */
+function saveActiveGame(game) {
+    return new Promise((resolve, reject) => {
+        // Serialize players (without ws connections)
+        const playersData = {};
+        for (const [playerId, player] of game.players) {
+            playersData[playerId] = {
+                name: player.name,
+                avatarId: player.avatarId,
+                gender: player.gender,
+                userId: player.userId,
+                level: player.level,
+                gear: player.gear,
+                characterClass: player.characterClass,
+                characterRace: player.characterRace,
+                hasHalfBreed: player.hasHalfBreed,
+                hasSuperMunchkin: player.hasSuperMunchkin,
+                isConnected: player.isConnected !== false,
+                joinedAt: player.joinedAt
+            };
+        }
+
+        const sql = `INSERT OR REPLACE INTO active_games 
+            (id, join_code, host_id, host_name, phase, turn_player_id, players_json, combat_json, created_at, last_activity_at, seq)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+        db.run(sql, [
+            game.id,
+            game.joinCode,
+            game.hostId,
+            game.hostName,
+            game.phase || 'LOBBY',
+            game.turnPlayerId || null,
+            JSON.stringify(playersData),
+            game.combat ? JSON.stringify(game.combat) : null,
+            game.createdAt,
+            Date.now(),
+            game.seq || 0
+        ], function (err) {
+            if (err) {
+                console.error('❌ Error saving game:', err);
+                reject(err);
+            } else {
+                resolve(true);
+            }
+        });
+    });
+}
+
+/**
+ * Load all active games from the database.
+ * Called on server startup.
+ */
+function loadActiveGames() {
+    return new Promise((resolve, reject) => {
+        // Only load games less than 24 hours old
+        const maxAge = Date.now() - (24 * 60 * 60 * 1000);
+        const sql = `SELECT * FROM active_games WHERE last_activity_at > ?`;
+
+        db.all(sql, [maxAge], (err, rows) => {
+            if (err) {
+                console.error('❌ Error loading games:', err);
+                reject(err);
+                return;
+            }
+
+            const games = rows.map(row => ({
+                id: row.id,
+                joinCode: row.join_code,
+                hostId: row.host_id,
+                hostName: row.host_name,
+                phase: row.phase,
+                turnPlayerId: row.turn_player_id,
+                players: JSON.parse(row.players_json || '{}'),
+                combat: row.combat_json ? JSON.parse(row.combat_json) : null,
+                createdAt: row.created_at,
+                lastActivityAt: row.last_activity_at,
+                seq: row.seq
+            }));
+
+            console.log(`📂 Loaded ${games.length} active games from database`);
+            resolve(games);
+        });
+    });
+}
+
+/**
+ * Delete an active game from the database.
+ * Called when game ends or is cleaned up.
+ */
+function deleteActiveGame(gameId) {
+    return new Promise((resolve, reject) => {
+        db.run(`DELETE FROM active_games WHERE id = ?`, [gameId], function (err) {
+            if (err) {
+                console.error('❌ Error deleting game:', err);
+                reject(err);
+            } else {
+                console.log(`🗑️ Deleted game ${gameId} from database`);
+                resolve(true);
+            }
+        });
+    });
+}
+
+/**
+ * Clean up old games from the database.
+ * Called periodically.
+ */
+function cleanupOldGames() {
+    return new Promise((resolve, reject) => {
+        const maxAge = Date.now() - (24 * 60 * 60 * 1000); // 24 hours
+        db.run(`DELETE FROM active_games WHERE last_activity_at < ?`, [maxAge], function (err) {
+            if (err) {
+                console.error('❌ Error cleaning up games:', err);
+                reject(err);
+            } else {
+                if (this.changes > 0) {
+                    console.log(`🧹 Cleaned up ${this.changes} old games`);
+                }
+                resolve(this.changes);
+            }
+        });
+    });
+}
+
 module.exports = {
     db,
     createUser,
@@ -362,5 +507,10 @@ module.exports = {
     recordGame,
     getUserHistory,
     getLeaderboard,
-    updateUser
+    updateUser,
+    // Game persistence
+    saveActiveGame,
+    loadActiveGames,
+    deleteActiveGame,
+    cleanupOldGames
 };

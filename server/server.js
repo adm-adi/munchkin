@@ -70,6 +70,49 @@ const games = new Map();
 // Store client -> gameId mapping
 const clientGames = new Map();
 
+// Load persisted games on startup
+async function loadGamesFromDatabase() {
+    try {
+        const savedGames = await db.loadActiveGames();
+        for (const saved of savedGames) {
+            const game = new GameRoom(saved.hostId, saved.joinCode, saved.hostName, 0, 'MALE');
+            game.id = saved.id;
+            game.phase = saved.phase;
+            game.turnPlayerId = saved.turnPlayerId;
+            game.combat = saved.combat;
+            game.createdAt = saved.createdAt;
+            game.seq = saved.seq;
+
+            // Restore players (without ws connections - they'll reconnect)
+            for (const [playerId, playerData] of Object.entries(saved.players)) {
+                game.players.set(playerId, {
+                    ws: null,
+                    name: playerData.name,
+                    avatarId: playerData.avatarId || 0,
+                    gender: playerData.gender || 'MALE',
+                    userId: playerData.userId,
+                    level: playerData.level || 1,
+                    gear: playerData.gear || 0,
+                    characterClass: playerData.characterClass || 'NONE',
+                    characterRace: playerData.characterRace || 'HUMAN',
+                    hasHalfBreed: playerData.hasHalfBreed || false,
+                    hasSuperMunchkin: playerData.hasSuperMunchkin || false,
+                    isConnected: false, // All start disconnected until they reconnect
+                    joinedAt: playerData.joinedAt
+                });
+            }
+
+            games.set(game.id, game);
+            console.log(`🔄 Restored game ${game.joinCode} with ${game.players.size} players`);
+        }
+    } catch (err) {
+        console.error('❌ Failed to load games from database:', err);
+    }
+}
+
+// Call on startup (after a brief delay to ensure DB is ready)
+setTimeout(() => loadGamesFromDatabase(), 1000);
+
 class GameRoom {
     constructor(hostId, joinCode, hostName, avatarId, gender) {
         this.id = uuidv4();
@@ -316,6 +359,9 @@ function handleCreateGame(ws, message) {
 
     console.log('📤 Sending WELCOME:', JSON.stringify(response, null, 2));
     ws.send(JSON.stringify(response));
+
+    // Persist game to database
+    db.saveActiveGame(game).catch(err => console.error('Failed to save game:', err));
 }
 
 function handleListGames(ws) {
@@ -429,6 +475,9 @@ function handleHello(ws, message) {
         gameState: game.buildGameState(),
         seq: game.seq
     });
+
+    // Persist updated game
+    db.saveActiveGame(game).catch(err => console.error('Failed to save game:', err));
 }
 
 function handleEvent(ws, message) {
@@ -456,6 +505,13 @@ function handleEvent(ws, message) {
         fromPlayerId: playerId,
         seq: game.seq
     });
+
+    // Persist game state after significant events
+    const saveableEvents = ['GAME_START', 'INC_LEVEL', 'DEC_LEVEL', 'SET_LEVEL', 'SET_GEAR',
+        'SET_CLASS', 'SET_RACE', 'COMBAT_START', 'COMBAT_END', 'GAME_END'];
+    if (saveableEvents.includes(event.type)) {
+        db.saveActiveGame(game).catch(err => console.error('Failed to save game:', err));
+    }
 }
 
 function applyEvent(game, event, playerId) {
@@ -985,6 +1041,7 @@ function handleDisconnect(ws) {
                 }
                 if (stillEmpty && games.has(clientData.gameId)) {
                     games.delete(clientData.gameId);
+                    db.deleteActiveGame(clientData.gameId).catch(err => console.error('Failed to delete game from DB:', err));
                     console.log(`🗑️ Game ${game.joinCode} deleted (all players disconnected for 5 min)`);
                 }
             }, 5 * 60 * 1000); // 5 minutes
@@ -1038,6 +1095,7 @@ function handleDeleteGame(ws, message) {
     // Better to let client handle GAME_DELETED event and disconnect.
 
     games.delete(game.id);
+    db.deleteActiveGame(game.id).catch(err => console.error('Failed to delete game from DB:', err));
 }
 
 function sendError(ws, code, message) {
@@ -1056,9 +1114,13 @@ setInterval(() => {
     for (const [gameId, game] of games) {
         if (now - game.createdAt > maxAge) {
             games.delete(gameId);
+            db.deleteActiveGame(gameId).catch(err => console.error('Failed to delete game from DB:', err));
             console.log(`🧹 Cleaned up old game ${game.joinCode}`);
         }
     }
+
+    // Cleanup database orphans
+    db.cleanupOldGames().catch(err => console.error('Failed to cleanup DB:', err));
 }, 60 * 60 * 1000);
 
 console.log('✅ Server ready to accept connections');
