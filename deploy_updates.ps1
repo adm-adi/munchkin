@@ -29,7 +29,7 @@ if (-not (Test-Path $ADB)) {
 $devices = & $ADB devices | Select-String -Pattern "\tdevice$"
 
 if (-not $devices) {
-    Write-Warning "No devices connected! Initiating Release Process..." -ForegroundColor Magenta
+    Write-Host "No devices connected! Initiating Release Process..." -ForegroundColor Magenta
     
     # 3b. Release Process
     try {
