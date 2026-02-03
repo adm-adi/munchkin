@@ -4,7 +4,6 @@ $ErrorActionPreference = "Stop"
 $env:JAVA_HOME = "D:\Program Files\Android\jbr"
 $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 $ADB = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
-$PYTHON = "python" # Assumes python is in PATH
 
 Write-Host "Starting Deployment..." -ForegroundColor Cyan
 
@@ -34,12 +33,34 @@ if (-not $devices) {
     # 3b. Release Process
     try {
         Write-Host "Bumping version..." -ForegroundColor Cyan
-        $newVersion = & $PYTHON scripts/bump_version.py
-        $newVersion = $newVersion.Trim()
         
-        if (-not $newVersion) {
-            throw "Failed to get new version"
+        $gradleFile = "app/build.gradle.kts"
+        $content = Get-Content $gradleFile -Raw
+        
+        # Bump versionCode
+        if ($content -match 'versionCode\s*=\s*(\d+)') {
+            $currentCode = [int]$matches[1]
+            $newCode = $currentCode + 1
+            $content = $content -replace "versionCode\s*=\s*$currentCode", "versionCode = $newCode"
         }
+        else {
+            throw "versionCode not found in $gradleFile"
+        }
+        
+        # Bump versionName
+        $newVersion = ""
+        if ($content -match 'versionName\s*=\s*"(\d+\.\d+\.\d+)"') {
+            $currentName = $matches[1]
+            $parts = $currentName.Split('.')
+            $parts[-1] = [int]$parts[-1] + 1
+            $newVersion = [string]::Join(".", $parts)
+            $content = $content -replace "versionName\s*=\s*`"$currentName`"", "versionName = `"$newVersion`""
+        }
+        else {
+            throw "versionName not found in $gradleFile"
+        }
+        
+        Set-Content -Path $gradleFile -Value $content
         
         Write-Host "New Version: $newVersion" -ForegroundColor Green
         
@@ -68,8 +89,6 @@ if (-not $devices) {
     }
     catch {
         Write-Error "Release failed: $_"
-        # Reset changes to build.gradle.kts if failed?
-        # & "C:\Program Files\Git\cmd\git.exe" checkout app/build.gradle.kts
     }
     
     exit
