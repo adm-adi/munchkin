@@ -208,6 +208,7 @@ fun PlayerAvatarNode(
                     shape = CircleShape
                 )
         ) {
+            Image(
                 painter = painterResource(id = drawableId),
                 contentDescription = player.name,
                 modifier = Modifier
