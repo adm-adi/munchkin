@@ -622,6 +622,12 @@ function applyEvent(game, event, playerId) {
             console.log(`🏁 Game ${game.joinCode} explicit end. Winner: ${event.winnerId}`);
             closeGame(game, event.winnerId);
             break;
+        case 'END_TURN':
+            const nextPlayerId = getNextTurnPlayerId(game);
+            game.turnPlayerId = nextPlayerId;
+            game.combat = null; // Clear combat state
+            console.log(`cw Turn passed to ${game.players.get(nextPlayerId)?.name}`);
+            break;
     }
 
     // Check Win Condition
@@ -630,6 +636,33 @@ function applyEvent(game, event, playerId) {
         closeGame(game, player.id);
     }
 }
+
+function getNextTurnPlayerId(game) {
+    if (!game.turnPlayerId) return game.hostId;
+
+    // Sort players by ID to ensure deterministic order (matching client logic)
+    // In future, support game.playerOrder if added
+    const playerIds = Array.from(game.players.keys()).sort();
+
+    let currentIndex = playerIds.indexOf(game.turnPlayerId);
+    if (currentIndex === -1) currentIndex = 0;
+
+    // Loop to find next connected
+    // We check length + 1 times to handle wrap around and specific case where only 1 player remains
+    for (let i = 1; i <= playerIds.length; i++) {
+        const nextIndex = (currentIndex + i) % playerIds.length;
+        const nextId = playerIds[nextIndex];
+        const player = game.players.get(nextId);
+
+        // Skip disconnected players
+        if (player && (player.isConnected !== false)) {
+            return nextId;
+        }
+    }
+
+    return game.turnPlayerId; // Fallback: keep same player if everyone else disconnected
+}
+
 
 function closeGame(game, winnerId) {
     if (game.ended) return; // Already closed
@@ -1065,6 +1098,27 @@ function handleDisconnect(ws) {
                     }
                 }
             }
+
+            // Turn Migration: If turn player disconnected, advance turn
+            if (game.turnPlayerId === clientData.playerId) {
+                const nextPlayerId = getNextTurnPlayerId(game);
+                if (nextPlayerId !== game.turnPlayerId) {
+                    game.turnPlayerId = nextPlayerId;
+                    game.combat = null; // Clear combat
+
+                    console.log(`⏩ Auto-advancing turn from disconnected player to ${game.players.get(nextPlayerId)?.name}`);
+
+                    // Broadcast new state
+                    game.broadcast({
+                        type: "STATE_SNAPSHOT",
+                        gameState: game.buildGameState(),
+                        seq: game.seq
+                    });
+                }
+            }
+
+            // Persist changes
+            db.saveActiveGame(game).catch(err => console.error('Failed to save game:', err));
         }
     }
 

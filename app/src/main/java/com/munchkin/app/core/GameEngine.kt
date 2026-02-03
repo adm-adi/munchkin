@@ -481,8 +481,20 @@ class GameEngine {
         val currentIndex = playerList.indexOf(currentPlayerId)
         if (currentIndex == -1) return state // Should not happen
         
-        val nextIndex = (currentIndex + 1) % playerList.size
-        val nextPlayerId = playerList[nextIndex]
+        // Find next connected player
+        var nextPlayerId = currentPlayerId
+        for (i in 1..playerList.size) {
+             val nextIndex = (currentIndex + i) % playerList.size
+             val candidateId = playerList[nextIndex]
+             val candidate = state.players[candidateId]
+             
+             // Check if connected (default to true if unknown, but should rely on state)
+             // GameEngine logic: assumes state.players has up-to-date isConnected
+             if (candidate?.isConnected == true) {
+                 nextPlayerId = candidateId
+                 break
+             }
+        }
         
         return state.copy(
             turnPlayerId = nextPlayerId,

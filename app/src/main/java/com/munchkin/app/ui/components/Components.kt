@@ -235,12 +235,14 @@ fun PlayerCard(
         ),
         shape = RoundedCornerShape(16.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Box {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (!player.isConnected) Modifier.graphicsLayer { alpha = 0.6f; saturation = 0f } else Modifier)
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
             // Avatar with glow for current player
             Box {
                 if (isMe) {
@@ -388,6 +390,29 @@ fun PlayerCard(
                 actions()
             }
         }
+        
+        if (!player.isConnected) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .padding(end = 16.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Text(
+                        text = "DESCONECTADO",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+        }
+    }
     }
 }
 }
