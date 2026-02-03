@@ -1,7 +1,9 @@
 package com.munchkin.app.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,6 +34,7 @@ import com.munchkin.app.core.Gender
 import com.munchkin.app.ui.theme.getAvatarColor
 import com.munchkin.app.network.UserProfile
 import com.munchkin.app.network.DiscoveredGame
+import kotlinx.coroutines.launch
 
 /**
  * Screen for joining an existing game.
@@ -60,6 +63,49 @@ fun JoinGameScreen(
     var selectedGender by remember { mutableStateOf(Gender.NA) }
     
     val isNameLocked = userProfile != null
+    
+    // Validation states
+    var nameError by remember { mutableStateOf(false) }
+    var genderError by remember { mutableStateOf(false) }
+    
+    // Shake animation for validation feedback
+    var shakeKey by remember { mutableIntStateOf(0) }
+    val shakeOffset by animateFloatAsState(
+        targetValue = if (shakeKey % 2 == 0) 0f else 10f,
+        animationSpec = repeatable(
+            iterations = 3,
+            animation = tween(50),
+            repeatMode = RepeatMode.Reverse
+        ),
+        finishedListener = { shakeKey = 0 },
+        label = "shake"
+    )
+    
+    val scope = rememberCoroutineScope()
+    
+    // Validation function
+    fun validateFields(): Boolean {
+        val isNameValid = name.isNotBlank()
+        val isGenderValid = selectedGender != Gender.NA
+        
+        nameError = !isNameValid
+        genderError = !isGenderValid
+        
+        if (!isNameValid || !isGenderValid) {
+            shakeKey++
+            return false
+        }
+        return true
+    }
+    
+    // Clear errors when user interacts
+    LaunchedEffect(name) {
+        if (name.isNotBlank()) nameError = false
+    }
+    
+    LaunchedEffect(selectedGender) {
+        if (selectedGender != Gender.NA) genderError = false
+    }
     
     // Request available games on screen load
     LaunchedEffect(Unit) {
@@ -141,22 +187,34 @@ fun JoinGameScreen(
                         value = name,
                         onValueChange = { if (!isNameLocked) name = it.take(20) },
                         label = { Text(stringResource(R.string.your_name)) },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .offset(x = if (nameError) shakeOffset.dp else 0.dp),
                         singleLine = true,
                         readOnly = isNameLocked,
+                        isError = nameError,
                         leadingIcon = {
                             Icon(Icons.Default.Person, contentDescription = null)
                         },
                         trailingIcon = if (isNameLocked) {
                             { Icon(Icons.Default.Lock, contentDescription = "Locked", tint = MaterialTheme.colorScheme.primary) }
-                        } else null
+                        } else null,
+                        supportingText = if (nameError && !isNameLocked) {
+                            { Text("El nombre es obligatorio", color = MaterialTheme.colorScheme.error) }
+                        } else null,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            errorBorderColor = MaterialTheme.colorScheme.error,
+                            errorLabelColor = MaterialTheme.colorScheme.error
+                        )
                     )
                     
                     Spacer(modifier = Modifier.height(12.dp))
                     
                     // Avatar + Gender row
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .offset(x = if (genderError) shakeOffset.dp else 0.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -210,7 +268,17 @@ fun JoinGameScreen(
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                                         selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
+                                    ),
+                                    border = if (genderError && selectedGender != gender) {
+                                        FilterChipDefaults.filterChipBorder(
+                                            enabled = true,
+                                            selected = false,
+                                            borderColor = MaterialTheme.colorScheme.error,
+                                            selectedBorderColor = MaterialTheme.colorScheme.error,
+                                            borderWidth = 2.dp,
+                                            selectedBorderWidth = 2.dp
+                                        )
+                                    } else null
                                 )
                             }
                         }
@@ -250,11 +318,13 @@ fun JoinGameScreen(
                     
                     Button(
                         onClick = {
-                            // Join using server URL with code
-                            val wsUrl = "ws://23.88.48.58:8765"
-                            onJoinGame(wsUrl, joinCode, name, selectedAvatarId, selectedGender)
+                            if (validateFields()) {
+                                // Join using server URL with code
+                                val wsUrl = "ws://23.88.48.58:8765"
+                                onJoinGame(wsUrl, joinCode, name, selectedAvatarId, selectedGender)
+                            }
                         },
-                        enabled = joinCode.length >= 4 && name.isNotBlank() && !isLoading,
+                        enabled = joinCode.length >= 4 && !isLoading,
                         modifier = Modifier.height(56.dp)
                     ) {
                         if (isLoading) {
@@ -328,8 +398,10 @@ fun JoinGameScreen(
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable(enabled = name.isNotBlank() && !isLoading) {
-                                    onJoinDiscoveredGame(game, name, selectedAvatarId, selectedGender)
+                                .clickable(enabled = !isLoading) {
+                                    if (validateFields()) {
+                                        onJoinDiscoveredGame(game, name, selectedAvatarId, selectedGender)
+                                    }
                                 },
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
