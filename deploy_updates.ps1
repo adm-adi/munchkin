@@ -101,7 +101,17 @@ foreach ($devLine in $devices) {
     
     $env:ANDROID_SERIAL = $deviceId
     try {
-        .\gradlew.bat installDebug
+        # Uninstall first to avoid signature conflicts (User requested Release build for testing)
+        try {
+            Write-Host "Uninstalling old version..." -ForegroundColor Yellow
+            & $ADB -s $deviceId uninstall com.munchkin.app
+        }
+        catch {
+            Write-Host "Uninstall failed or app not installed (ignoring)." -ForegroundColor Gray
+        }
+
+        Write-Host "Installing Release build..." -ForegroundColor Cyan
+        .\gradlew.bat installRelease
         Write-Host "Installation complete for $deviceId" -ForegroundColor Green
     }
     catch {

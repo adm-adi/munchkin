@@ -401,31 +401,33 @@ fun CombatScreen(
                     }
                 }
                 
-                // End combat button
-                item {
-                    result?.let { r ->
-                        Button(
-                            onClick = {
-                                if (r.outcome == CombatOutcome.WIN) {
-                                    combatAnimation = com.munchkin.app.ui.components.CombatAnimationType.VICTORY
-                                } else {
-                                    combatAnimation = com.munchkin.app.ui.components.CombatAnimationType.DEFEAT
-                                }
-                            },
-                            enabled = combatState.monsters.isNotEmpty(),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (r.outcome == CombatOutcome.WIN) 
-                                    androidx.compose.ui.graphics.Color(0xFF4CAF50) 
-                                else 
-                                    MaterialTheme.colorScheme.error,
-                                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        ) {
-                            Text(if (r.outcome == CombatOutcome.WIN) "¡VICTORIA! (Terminar)" else "ASUMIR DERROTA")
+                // End combat button (Only main player)
+                if (myPlayerId == combatState.mainPlayerId) {
+                    item {
+                        result?.let { r ->
+                            Button(
+                                onClick = {
+                                    if (r.outcome == CombatOutcome.WIN) {
+                                        combatAnimation = com.munchkin.app.ui.components.CombatAnimationType.VICTORY
+                                    } else {
+                                        combatAnimation = com.munchkin.app.ui.components.CombatAnimationType.DEFEAT
+                                    }
+                                },
+                                enabled = combatState.monsters.isNotEmpty(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (r.outcome == CombatOutcome.WIN) 
+                                        androidx.compose.ui.graphics.Color(0xFF4CAF50) 
+                                    else 
+                                        MaterialTheme.colorScheme.error,
+                                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            ) {
+                                Text(if (r.outcome == CombatOutcome.WIN) "¡VICTORIA! (Terminar)" else "ASUMIR DERROTA")
+                            }
                         }
                     }
                 }
