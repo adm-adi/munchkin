@@ -326,7 +326,9 @@ class GameEngine {
             is CombatAddBonus -> applyCombatAddBonus(event, state)
             is CombatRemoveBonus -> applyCombatRemoveBonus(event, state)
             is CombatEnd -> applyCombatEnd(event, state)
+            is CombatEnd -> applyCombatEnd(event, state)
             is CombatModifyModifier -> applyCombatModifyModifier(event, state)
+            is CombatSetModifier -> applyCombatSetModifier(event, state)
             
             else -> state
         }
@@ -337,6 +339,15 @@ class GameEngine {
         val updatedCombat = when (event.target) {
             BonusTarget.HEROES -> combat.copy(heroModifier = combat.heroModifier + event.delta)
             BonusTarget.MONSTER -> combat.copy(monsterModifier = combat.monsterModifier + event.delta)
+        }
+        return state.copy(combat = updatedCombat)
+    }
+    
+    private fun applyCombatSetModifier(event: CombatSetModifier, state: GameState): GameState {
+        val combat = state.combat ?: return state
+        val updatedCombat = when (event.target) {
+            BonusTarget.HEROES -> combat.copy(heroModifier = event.value)
+            BonusTarget.MONSTER -> combat.copy(monsterModifier = event.value)
         }
         return state.copy(combat = updatedCombat)
     }

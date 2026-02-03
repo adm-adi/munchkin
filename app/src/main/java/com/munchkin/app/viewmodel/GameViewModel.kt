@@ -923,13 +923,23 @@ class GameViewModel : ViewModel() {
      * Modify combat bonus/malus for heroes or monsters.
      */
     fun modifyCombatModifier(target: BonusTarget, delta: Int) {
+        val currentState = _uiState.value.gameState ?: return
+        val currentCombat = currentState.combat ?: return
+        
+        // Calculate the absolute new value locally
+        val currentValue = when (target) {
+            BonusTarget.HEROES -> currentCombat.heroModifier
+            BonusTarget.MONSTER -> currentCombat.monsterModifier
+        }
+        val newValue = currentValue + delta
+        
         sendPlayerEvent { playerId ->
-            CombatModifyModifier(
+            CombatSetModifier(
                 eventId = UUID.randomUUID().toString(),
                 actorId = playerId,
                 timestamp = System.currentTimeMillis(),
                 target = target,
-                delta = delta
+                value = newValue
             )
         }
     }

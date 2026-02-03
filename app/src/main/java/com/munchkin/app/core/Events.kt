@@ -399,6 +399,17 @@ data class CombatModifyModifier(
     val delta: Int           // +1 or -1
 ) : GameEvent()
 
+@Serializable
+@SerialName("COMBAT_SET_MODIFIER")
+data class CombatSetModifier(
+    override val eventId: String,
+    override val actorId: PlayerId,
+    override val timestamp: Long,
+    override val targetPlayerId: PlayerId? = null,
+    val target: BonusTarget, // HEROES or MONSTER
+    val value: Int           // Absolute value
+) : GameEvent()
+
 // ============== Combat Dice Roll ==============
 
 @Serializable

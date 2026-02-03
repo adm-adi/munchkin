@@ -516,7 +516,7 @@ function handleEvent(ws, message) {
         'SET_CLASS', 'SET_RACE', 'COMBAT_START', 'COMBAT_END', 'GAME_END',
         'COMBAT_ADD_MONSTER', 'COMBAT_REMOVE_MONSTER', 'COMBAT_UPDATE_MONSTER',
         'COMBAT_ADD_HELPER', 'COMBAT_REMOVE_HELPER',
-        'COMBAT_MODIFY_MODIFIER', 'COMBAT_ADD_BONUS', 'COMBAT_REMOVE_BONUS'
+        'COMBAT_MODIFY_MODIFIER', 'COMBAT_SET_MODIFIER', 'COMBAT_ADD_BONUS', 'COMBAT_REMOVE_BONUS'
     ];
     if (saveableEvents.includes(event.type)) {
         db.saveActiveGame(game).catch(err => console.error('Failed to save game:', err));
@@ -602,6 +602,12 @@ function applyEvent(game, event, playerId) {
             if (game.combat) {
                 if (event.target === 'HEROES') game.combat.heroModifier += event.delta;
                 else game.combat.monsterModifier += event.delta;
+            }
+            break;
+        case 'COMBAT_SET_MODIFIER':
+            if (game.combat) {
+                if (event.target === 'HEROES') game.combat.heroModifier = event.value;
+                else game.combat.monsterModifier = event.value;
             }
             break;
         case 'COMBAT_ADD_BONUS':
