@@ -29,7 +29,6 @@ output.json
 
 # Gradle
 .gradle/
-gradle/wrapper/gradle-wrapper.jar
 
 # Keystore (security)
 *.keystore
