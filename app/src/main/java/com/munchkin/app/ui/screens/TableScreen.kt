@@ -33,6 +33,9 @@ import kotlin.math.sin
  * Visual Dungeon/Table View.
  * Displays players sitting around a table.
  */
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.graphics.graphicsLayer
+
 @Composable
 fun TableScreen(
     players: List<PlayerState>,
@@ -207,17 +210,15 @@ fun PlayerAvatarNode(
                     },
                     shape = CircleShape
                 )
-        ) {
             Image(
                 painter = painterResource(id = drawableId),
                 contentDescription = player.name,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(8.dp)
-                    .then(if (!player.isConnected) Modifier.graphicsLayer { alpha = 0.5f; saturation = 0f } else Modifier),
+                    .then(if (!player.isConnected) Modifier.graphicsLayer { alpha = 0.5f } else Modifier),
                 contentScale = ContentScale.Fit
-            )
-            
+            )            
             if (!player.isConnected) {
                 Box(
                     modifier = Modifier.fillMaxSize(),

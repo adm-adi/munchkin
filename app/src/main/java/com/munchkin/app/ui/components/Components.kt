@@ -235,11 +235,9 @@ fun PlayerCard(
         ),
         shape = RoundedCornerShape(16.dp)
     ) {
-        Box {
-            Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .then(if (!player.isConnected) Modifier.graphicsLayer { alpha = 0.6f; saturation = 0f } else Modifier)
+                    .fillMaxSize()
+                    .then(if (!player.isConnected) Modifier.graphicsLayer { alpha = 0.6f } else Modifier)
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -394,7 +392,7 @@ fun PlayerCard(
         if (!player.isConnected) {
             Box(
                 modifier = Modifier
-                    .matchParentSize()
+                    .fillMaxSize()
                     .padding(end = 16.dp),
                 contentAlignment = Alignment.CenterEnd
             ) {
