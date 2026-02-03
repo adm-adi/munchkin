@@ -312,7 +312,12 @@ class GameClient {
                         }
                         
                         DLog.i(TAG, "✅ Parsed as: ${message::class.simpleName}")
-                        handleMessage(message)
+                        try {
+                            handleMessage(message)
+                        } catch (e: Exception) {
+                            DLog.e(TAG, "Error handling message: ${e.message}")
+                            Log.e(TAG, "Error handling message", e)
+                        }
                     }
                     is Frame.Close -> {
                         Log.i(TAG, "Server closed connection")
