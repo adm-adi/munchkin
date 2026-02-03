@@ -169,10 +169,15 @@ class GameRoom {
                 hasSuperMunchkin: player.hasSuperMunchkin || false,
                 lastKnownIp: null,
                 lastRoll: player.lastRoll || null,
-                isConnected: true,
+                isConnected: !!player.isConnected,
                 characterClass: player.characterClass || "NONE",
                 characterRace: player.characterRace || "HUMAN"
             };
+        }
+
+        // Add debug log for combat state serialization
+        if (this.combat) {
+            console.log(`📦 buildingGameState: Sending Combat State with ${this.combat.tempBonuses.length} bonuses and mods H:${this.combat.heroModifier}/M:${this.combat.monsterModifier}`);
         }
 
         return {
@@ -508,7 +513,11 @@ function handleEvent(ws, message) {
 
     // Persist game state after significant events
     const saveableEvents = ['GAME_START', 'INC_LEVEL', 'DEC_LEVEL', 'SET_LEVEL', 'SET_GEAR',
-        'SET_CLASS', 'SET_RACE', 'COMBAT_START', 'COMBAT_END', 'GAME_END'];
+        'SET_CLASS', 'SET_RACE', 'COMBAT_START', 'COMBAT_END', 'GAME_END',
+        'COMBAT_ADD_MONSTER', 'COMBAT_REMOVE_MONSTER', 'COMBAT_UPDATE_MONSTER',
+        'COMBAT_ADD_HELPER', 'COMBAT_REMOVE_HELPER',
+        'COMBAT_MODIFY_MODIFIER', 'COMBAT_ADD_BONUS', 'COMBAT_REMOVE_BONUS'
+    ];
     if (saveableEvents.includes(event.type)) {
         db.saveActiveGame(game).catch(err => console.error('Failed to save game:', err));
     }

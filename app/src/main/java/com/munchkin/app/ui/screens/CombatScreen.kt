@@ -137,8 +137,8 @@ fun CombatScreen(
                     }
                 },
                 actions = {
-                    // Cancel Combat Button (Only if combat is active)
-                    if (combatState != null) {
+                    // Cancel Combat Button (Only main player)
+                    if (combatState != null && myPlayerId == combatState.mainPlayerId) {
                         IconButton(onClick = { 
                             onEndCombat()
                             onBack()
@@ -150,8 +150,9 @@ fun CombatScreen(
                             )
                         }
                     }
-                    // Run Away Button (Only if monsters exist)
-                    if (combatState != null && combatState.monsters.isNotEmpty()) {
+                    // Run Away Button (Main Player + Helper)
+                    val isParticipant = combatState != null && (myPlayerId == combatState.mainPlayerId || myPlayerId == combatState.helperPlayerId)
+                    if (combatState != null && combatState.monsters.isNotEmpty() && isParticipant) {
                          IconButton(onClick = { onRollCombatDice(DiceRollPurpose.RUN_AWAY) }) {
                              Icon(
                                  Icons.Default.DirectionsRun, 
@@ -287,8 +288,19 @@ fun CombatScreen(
                             }
                         }
                         
-                        // Quick modifier buttons (only main player can modify)
-                        if (myPlayerId == combatState.mainPlayerId) {
+                        // Quick modifier buttons (Only Main Player + Helper)
+                        val isParticipant = myPlayerId == combatState.mainPlayerId || myPlayerId == combatState.helperPlayerId
+                        
+                        // NOTE: User requested "users that are not involved... shouldn't have access to any action".
+                        // Assuming this means Main Player and Helper CAN modify.
+                        // Or strictly: "only those that helps can push the escape button and dice".
+                        // Does that mean Helper CANNOT push modifier buttons?
+                        // Usually helpers contribute cards. "Action" implies UI interaction.
+                        // I will restrictive: ONE-SHOTS (+/-) are ACTIONS anyone can ostensibly do in real game, 
+                        // but user said "make it disappear".
+                        // So I will restrict to Main + Helper for now based on "involved".
+                        
+                        if (isParticipant) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -374,8 +386,11 @@ fun CombatScreen(
                             }
                         }
                         
-                        // Quick modifier buttons for monsters (only main player can modify, and only if monsters exist)
-                        if (myPlayerId == combatState.mainPlayerId && combatState.monsters.isNotEmpty()) {
+                        // Quick modifier buttons for monsters (Only Main Player + Helper)
+                        // Consistent with HEROES buttons restriction
+                        val isParticipant = myPlayerId == combatState.mainPlayerId || myPlayerId == combatState.helperPlayerId
+                        
+                        if (isParticipant && combatState.monsters.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
