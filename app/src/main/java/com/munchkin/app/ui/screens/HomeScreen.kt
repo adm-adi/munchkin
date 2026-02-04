@@ -188,10 +188,10 @@ fun HomeScreen(
                             text = { Text("Ajustes", color = Color.White) },
                             onClick = {
                                 showMenu = false
-                                onLeaderboardClick()
+                                onSettings()
                             },
                              leadingIcon = {
-                                Icon(Icons.Default.EmojiEvents, null, tint = NeonWarning)
+                                Icon(Icons.Default.Settings, null, tint = NeonWarning)
                             }
                         )
                         DropdownMenuItem(
