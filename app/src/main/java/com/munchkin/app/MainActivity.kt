@@ -29,7 +29,7 @@ import com.munchkin.app.ui.theme.MunchkinTheme
 import com.munchkin.app.viewmodel.GameViewModel
 import com.munchkin.app.viewmodel.Screen
 
-class MainActivity : androidx.appcompat.app.AppCompatActivity() {
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
