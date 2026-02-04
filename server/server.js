@@ -1,6 +1,5 @@
 /**
  * Munchkin Tracker - WebSocket Server
- * Runs on Hetzner VPS (23.88.48.58:8765)
  * 
  * IMPORTANT: This server must send JSON that matches the kotlinx.serialization
  * format expected by the Android client (Protocol.kt / Models.kt)
@@ -14,13 +13,47 @@ const db = require('./db');
 
 const PORT = 8765;
 
+// Rate limiting for authentication endpoints
+const authRateLimits = new Map(); // IP -> { attempts: number, lastAttempt: timestamp }
+const RATE_LIMIT_MAX_ATTEMPTS = 5;
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+function isRateLimited(ip) {
+    const record = authRateLimits.get(ip);
+    if (!record) return false;
+
+    // Reset if window expired
+    if (Date.now() - record.lastAttempt > RATE_LIMIT_WINDOW_MS) {
+        authRateLimits.delete(ip);
+        return false;
+    }
+
+    return record.attempts >= RATE_LIMIT_MAX_ATTEMPTS;
+}
+
+function recordAuthAttempt(ip, success) {
+    if (success) {
+        authRateLimits.delete(ip);
+        return;
+    }
+
+    const record = authRateLimits.get(ip) || { attempts: 0, lastAttempt: 0 };
+    record.attempts++;
+    record.lastAttempt = Date.now();
+    authRateLimits.set(ip, record);
+}
+
 // HTTP Server handling API + WebSockets
 const server = http.createServer((req, res) => {
-    // CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    // CORS headers - restricted to mobile app and local development
+    const allowedOrigins = ['capacitor://localhost', 'http://localhost'];
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.some(allowed => origin.startsWith(allowed))) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    }
     res.setHeader('Access-Control-Request-Method', '*');
     res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET');
-    res.setHeader('Access-Control-Allow-Headers', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     if (req.method === 'OPTIONS') {
         res.writeHead(200);
@@ -229,6 +262,7 @@ function findGameByCode(joinCode) {
 
 wss.on('connection', (ws, req) => {
     const clientIp = req.socket.remoteAddress;
+    ws.clientIp = clientIp; // Store for rate limiting
     console.log(`📱 Client connected from ${clientIp}`);
 
     ws.on('message', (data) => {
@@ -747,6 +781,14 @@ function handleRegister(ws, message) {
 }
 
 function handleLogin(ws, message) {
+    const clientIp = ws.clientIp || 'unknown';
+
+    // Rate limiting check
+    if (isRateLimited(clientIp)) {
+        sendError(ws, 'RATE_LIMITED', 'Demasiados intentos. Espera 15 minutos.');
+        return;
+    }
+
     const { email, password } = message;
 
     if (!email || !password) {
@@ -757,6 +799,7 @@ function handleLogin(ws, message) {
     db.verifyUser(email, password)
         .then(user => {
             if (user) {
+                recordAuthAttempt(clientIp, true); // Clear rate limit on success
                 console.log(`✅ User logged in: ${user.username}`);
                 ws.send(JSON.stringify({
                     type: 'AUTH_SUCCESS',
@@ -768,6 +811,7 @@ function handleLogin(ws, message) {
                     }
                 }));
             } else {
+                recordAuthAttempt(clientIp, false); // Record failed attempt
                 console.log(`❌ Login failed for ${email}`);
                 sendError(ws, 'AUTH_FAILED', 'Email o contraseña incorrectos');
             }

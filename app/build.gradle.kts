@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -24,10 +26,16 @@ android {
     
     signingConfigs {
         create("release") {
+            // Load credentials from local.properties (gitignored)
+            val localPropsFile = rootProject.file("local.properties")
+            val localProperties = Properties()
+            if (localPropsFile.exists()) {
+                localProperties.load(localPropsFile.inputStream())
+            }
             storeFile = file("../munchkin.keystore")
-            storePassword = "munchkin123"
-            keyAlias = "munchkin"
-            keyPassword = "munchkin123"
+            storePassword = localProperties.getProperty("KEYSTORE_STORE_PASSWORD") ?: ""
+            keyAlias = localProperties.getProperty("KEYSTORE_KEY_ALIAS") ?: ""
+            keyPassword = localProperties.getProperty("KEYSTORE_KEY_PASSWORD") ?: ""
         }
     }
 
