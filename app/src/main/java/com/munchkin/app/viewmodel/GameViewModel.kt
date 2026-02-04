@@ -207,10 +207,44 @@ class GameViewModel : ViewModel() {
     /**
      * Delete saved game.
      */
+    /**
+     * Delete saved game.
+     */
     fun deleteSavedGame() {
+        val saved = _savedGame.value ?: return
+        
         viewModelScope.launch {
+            // If host, try to tell server to delete
+            if (saved.isHost) {
+                _uiState.update { it.copy(isLoading = true) }
+                try {
+                    // Temporary connection to delete
+                    val client = GameClient()
+                    
+                    val playerMeta = PlayerMeta(
+                        playerId = saved.myPlayerId,
+                        name = "Host", // Name doesn't matter for this op validation
+                        avatarId = 0,
+                        gender = Gender.M,
+                        userId = _uiState.value.userProfile?.id
+                    )
+                    
+                    val connectResult = client.connect(SERVER_URL, saved.gameState.joinCode, playerMeta)
+                    if (connectResult.isSuccess) {
+                        client.sendDeleteGame()
+                        // Wait a bit for server to process broadcast
+                        kotlinx.coroutines.delay(500)
+                        client.disconnect()
+                    }
+                } catch (e: Exception) {
+                    DLog.e("GameVM", "Failed to delete on server: ${e.message}")
+                }
+            }
+            
+            // Delete locally
             gameRepository?.deleteAllSavedGames()
             _savedGame.value = null
+            _uiState.update { it.copy(isLoading = false, error = null) }
         }
     }
     
@@ -1302,7 +1336,15 @@ class GameViewModel : ViewModel() {
         
         viewModelScope.launch {
             gameClient?.errors?.collect { error ->
-                _events.emit(GameUiEvent.ShowError(error))
+                if (error == "La partida ha sido eliminada por el anfitrión") {
+                    _events.emit(GameUiEvent.ShowMessage(error))
+                    // Clear local save and state
+                    gameRepository?.deleteAllSavedGames()
+                    _savedGame.value = null
+                    _uiState.update { GameUiState(screen = Screen.HOME) }
+                } else {
+                    _events.emit(GameUiEvent.ShowError(error))
+                }
             }
         }
     }

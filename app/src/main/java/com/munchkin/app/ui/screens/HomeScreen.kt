@@ -226,19 +226,21 @@ fun HomeScreen(
                                 enabled = !isLoading
                             )
                             
-                            Spacer(modifier = Modifier.height(8.dp))
-                            
-                            OutlinedButton(
-                                onClick = onDeleteSavedGame,
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = MaterialTheme.colorScheme.error
-                                ),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
-                            ) {
-                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Eliminar partida")
+                            if (saved.isHost) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                
+                                OutlinedButton(
+                                    onClick = onDeleteSavedGame,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = MaterialTheme.colorScheme.error
+                                    ),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Eliminar partida")
+                                }
                             }
                         }
                     }
