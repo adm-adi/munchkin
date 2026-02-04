@@ -392,7 +392,7 @@ fun PlayerCard(
             }
         }
             
-            if (!player.isConnected) {
+            if (!player.isConnected && !isMe) {
                 Box(
                     modifier = Modifier
                         .matchParentSize()
