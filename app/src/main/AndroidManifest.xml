@@ -34,6 +34,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MunchkinTracker"
         android:usesCleartextTraffic="true"
+        android:localeConfig="@xml/locales_config"
         tools:targetApi="34">
         
         <activity

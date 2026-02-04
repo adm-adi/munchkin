@@ -130,6 +130,8 @@
     <string name="version">Versión</string>
     <string name="check_updates">Buscar actualizaciones</string>
     <string name="licenses">Licencias</string>
+    <string name="language">Idioma</string>
+    <string name="language_system">Sistema</string>
     
     <!-- Updates -->
     <string name="updates_title">Actualizaciones</string>
