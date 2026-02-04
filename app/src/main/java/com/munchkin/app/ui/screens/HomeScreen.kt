@@ -114,113 +114,6 @@ fun HomeScreen(
                 )
         )
         
-        // Settings button
-        // Top Bar (Auth + Settings)
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp)
-                .statusBarsPadding(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Auth Profile Button
-            Box {
-                var showMenu by remember { mutableStateOf(false) }
-                
-                TextButton(onClick = { 
-                    if (userProfile != null) {
-                        showMenu = true
-                    } else {
-                        onAuth()
-                    }
-                }) {
-                    if (userProfile != null) {
-                        Text(
-                            text = userProfile.username,
-                            color = NeonSecondary,
-                            fontWeight = FontWeight.Bold
-                        )
-                    } else {
-                        Text(
-                            text = "Iniciar Sesión",
-                            color = NeonGray400
-                        )
-                    }
-                }
-                
-                if (userProfile != null) {
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false },
-                        modifier = Modifier.background(NeonSurface)
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Cerrar sesión", color = Color.White) },
-                            onClick = {
-                                showMenu = false
-                                onLogout()
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Default.Logout, null, tint = NeonError)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Ranking Global", color = Color.White) },
-                            onClick = {
-                                showMenu = false
-                                onLeaderboardClick()
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Default.Leaderboard, null, tint = NeonSecondary)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Mis Partidas", color = Color.White) },
-                            onClick = {
-                                showMenu = false
-                                onHistoryClick()
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Default.History, null, tint = NeonWarning)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Ajustes", color = Color.White) },
-                            onClick = {
-                                showMenu = false
-                                onSettings()
-                            },
-                             leadingIcon = {
-                                Icon(Icons.Default.Settings, null, tint = NeonWarning)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Ver Perfil", color = Color.White) },
-                            onClick = {
-                                showMenu = false
-                                // We might need a lambda for this, but for now assuming userProfile is enough context 
-                                // Actually we passed standard callbacks. Let's add onProfileClick
-                            },
-                             leadingIcon = {
-                                Icon(Icons.Default.Person, null, tint = NeonPrimary)
-                            }
-                        )
-                    }
-                }
-            }
-            
-            Spacer(Modifier.width(8.dp))
-            
-            // Settings Button
-            IconButton(onClick = onSettings) {
-                Icon(
-                    Icons.Default.Settings,
-                    contentDescription = stringResource(R.string.settings),
-                    tint = NeonGray400
-                )
-            }
-        }
-        
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -362,6 +255,110 @@ fun HomeScreen(
             )
             
             Spacer(modifier = Modifier.height(16.dp))
+        }
+        
+        // Top Bar (Auth + Settings) - Positioned AFTER Column to be on top for touch events
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(16.dp)
+                .statusBarsPadding(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Auth Profile Button
+            Box {
+                var showMenu by remember { mutableStateOf(false) }
+                
+                TextButton(onClick = { 
+                    if (userProfile != null) {
+                        showMenu = true
+                    } else {
+                        onAuth()
+                    }
+                }) {
+                    if (userProfile != null) {
+                        Text(
+                            text = userProfile.username,
+                            color = NeonSecondary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    } else {
+                        Text(
+                            text = "Iniciar Sesión",
+                            color = NeonGray400
+                        )
+                    }
+                }
+                
+                if (userProfile != null) {
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false },
+                        modifier = Modifier.background(NeonSurface)
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Cerrar sesión", color = Color.White) },
+                            onClick = {
+                                showMenu = false
+                                onLogout()
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Logout, null, tint = NeonError)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Ranking Global", color = Color.White) },
+                            onClick = {
+                                showMenu = false
+                                onLeaderboardClick()
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Leaderboard, null, tint = NeonSecondary)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Mis Partidas", color = Color.White) },
+                            onClick = {
+                                showMenu = false
+                                onHistoryClick()
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.History, null, tint = NeonWarning)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Ajustes", color = Color.White) },
+                            onClick = {
+                                showMenu = false
+                                onSettings()
+                            },
+                             leadingIcon = {
+                                Icon(Icons.Default.Settings, null, tint = NeonWarning)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Ver Perfil", color = Color.White) },
+                            onClick = {
+                                showMenu = false
+                            },
+                             leadingIcon = {
+                                Icon(Icons.Default.Person, null, tint = NeonPrimary)
+                            }
+                        )
+                    }
+                }
+            }
+            
+            Spacer(Modifier.width(8.dp))
+            
+            // Settings Button
+            IconButton(onClick = onSettings) {
+                Icon(
+                    Icons.Default.Settings,
+                    contentDescription = stringResource(R.string.settings),
+                    tint = NeonGray400
+                )
+            }
         }
         
         // Snackbar Host at bottom
