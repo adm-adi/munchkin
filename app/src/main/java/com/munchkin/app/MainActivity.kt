@@ -30,6 +30,11 @@ import com.munchkin.app.viewmodel.GameViewModel
 import com.munchkin.app.viewmodel.Screen
 
 class MainActivity : ComponentActivity() {
+    
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(com.munchkin.app.util.LocaleManager.wrapContext(newBase))
+    }
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
