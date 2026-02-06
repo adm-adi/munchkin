@@ -90,14 +90,14 @@ fun CombatScreen(
     if (showAddHelper) {
         AlertDialog(
             onDismissRequest = { showAddHelper = false },
-            title = { Text("Seleccionar Ayudante") },
+            title = { Text(stringResource(R.string.select_helper)) },
             text = {
                 LazyColumn {
                     val candidates = gameState.playerList.filter { 
                         it.playerId != combatState?.mainPlayerId && it.playerId != combatState?.helperPlayerId 
                     }
                     if (candidates.isEmpty()) {
-                        item { Text("No hay más jugadores disponibles.") }
+                        item { Text(stringResource(R.string.no_players_available)) }
                     } else {
                         items(candidates) { player ->
                             ListItem(
@@ -115,7 +115,7 @@ fun CombatScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showAddHelper = false }) {
-                    Text("Cancelar")
+                    Text(stringResource(R.string.cancel))
                 }
             }
         )
@@ -187,7 +187,7 @@ fun CombatScreen(
                         onClick = onStartCombat,
                         modifier = Modifier.height(56.dp)
                     ) {
-                        Text("Iniciar Combate")
+                        Text(stringResource(R.string.start_combat))
                     }
                 }
             }
@@ -551,19 +551,19 @@ fun MonsterSearchDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Añadir Monstruo") },
+        title = { Text(stringResource(R.string.add_monster)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    label = { Text("Buscar Monstruo (Ej: Dragón...)") },
+                    label = { Text(stringResource(R.string.search_monster_hint)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
 
                 if (query.isNotEmpty() && searchResults.isNotEmpty()) {
-                    Text("Resultados:", style = MaterialTheme.typography.labelSmall)
+                    Text(stringResource(R.string.results_label), style = MaterialTheme.typography.labelSmall)
                     LazyColumn(
                         modifier = Modifier.heightIn(max = 150.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -586,13 +586,13 @@ fun MonsterSearchDialog(
                 }
                 
                 HorizontalDivider()
-                Text("O crear nuevo:", style = MaterialTheme.typography.labelSmall)
+                Text(stringResource(R.string.or_create_new), style = MaterialTheme.typography.labelSmall)
                 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = level,
                         onValueChange = { level = it.filter { c -> c.isDigit() } },
-                        label = { Text("Nivel") },
+                        label = { Text(stringResource(R.string.level)) },
                         modifier = Modifier.weight(1f),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
@@ -609,11 +609,11 @@ fun MonsterSearchDialog(
                 },
                 enabled = query.isNotBlank()
             ) {
-                Text("Crear Nuevo")
+                Text(stringResource(R.string.create_new_button))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         }
     )
     }

@@ -239,7 +239,7 @@ fun HomeScreen(
                                 ) {
                                     Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Eliminar partida")
+                                    Text(stringResource(R.string.delete_party))
                                 }
                             }
                         }
@@ -299,7 +299,7 @@ fun HomeScreen(
                         modifier = Modifier.background(NeonSurface)
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Cerrar sesión", color = Color.White) },
+                            text = { Text(stringResource(R.string.logout), color = Color.White) },
                             onClick = {
                                 showMenu = false
                                 onLogout()
@@ -309,7 +309,7 @@ fun HomeScreen(
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("Ranking Global", color = Color.White) },
+                            text = { Text(stringResource(R.string.global_ranking), color = Color.White) },
                             onClick = {
                                 showMenu = false
                                 onLeaderboardClick()
@@ -319,7 +319,7 @@ fun HomeScreen(
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("Mis Partidas", color = Color.White) },
+                            text = { Text(stringResource(R.string.my_games), color = Color.White) },
                             onClick = {
                                 showMenu = false
                                 onHistoryClick()
@@ -329,7 +329,7 @@ fun HomeScreen(
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("Ajustes", color = Color.White) },
+                            text = { Text(stringResource(R.string.settings), color = Color.White) },
                             onClick = {
                                 showMenu = false
                                 onSettings()
@@ -339,7 +339,7 @@ fun HomeScreen(
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("Ver Perfil", color = Color.White) },
+                            text = { Text(stringResource(R.string.view_profile), color = Color.White) },
                             onClick = {
                                 showMenu = false
                             },

@@ -169,4 +169,61 @@
     <string name="back">Atrás</string>
     <string name="yes">Sí</string>
     <string name="no">No</string>
+    
+    <!-- Auth -->
+    <string name="username">Nombre de usuario</string>
+    <string name="email_or_username">Email (o usuario)</string>
+    <string name="password">Contraseña</string>
+    
+    <!-- Board -->
+    <string name="game_label">Partida</string>
+    <string name="delete_game">Borrar Partida</string>
+    <string name="end_turn">Terminar Turno</string>
+    
+    <!-- Combat -->
+    <string name="select_helper">Seleccionar Ayudante</string>
+    <string name="start_combat">Iniciar Combate</string>
+    <string name="search_monster_hint">Buscar Monstruo (Ej: Dragón…)</string>
+    <string name="results_label">Resultados:</string>
+    <string name="or_create_new">O crear nuevo:</string>
+    <string name="create_new_button">Crear Nuevo</string>
+    <string name="no_players_available">No hay más jugadores disponibles.</string>
+    <string name="level_power_format">Nivel %1$d | Fuerza %2$d</string>
+    
+    <!-- History -->
+    <string name="winner_label">Ganador:</string>
+    
+    <!-- Home -->
+    <string name="delete_party">Eliminar partida</string>
+    <string name="logout">Cerrar sesión</string>
+    <string name="global_ranking">Ranking Global</string>
+    <string name="my_games">Mis Partidas</string>
+    <string name="view_profile">Ver Perfil</string>
+    
+    <!-- Join -->
+    <string name="name_required_error">El nombre es obligatorio</string>
+    <string name="join">Unirse</string>
+    
+    <!-- Lobby -->
+    <string name="roll_dice">Lanzar 🎲</string>
+    
+    <!-- Monster Catalog -->
+    <string name="monster_catalog">Catálogo de Monstruos</string>
+    <string name="search_monster_placeholder">Buscar monstruo…</string>
+    <string name="treasures_format">Tesoros: %1$d</string>
+    <string name="levels_format">Niveles: %1$d</string>
+    
+    <!-- Profile -->
+    <string name="username_label">Usuario</string>
+    <string name="new_password_optional">Nueva Contraseña (Opcional)</string>
+    
+    <!-- Tutorial -->
+    <string name="skip">Saltar</string>
+    
+    <!-- Update Dialog -->
+    <string name="later">Luego</string>
+    <string name="update">Actualizar</string>
+    
+    <!-- QR Scanner -->
+    <string name="grant_permission">Dar permiso</string>
 </resources>

@@ -26,6 +26,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import androidx.compose.ui.res.stringResource
+import com.munchkin.app.R
 
 /**
  * Tutorial/Onboarding screen for first-time users.
@@ -102,7 +104,7 @@ fun TutorialScreen(
                 // Skip button
                 if (pagerState.currentPage < pages.size - 1) {
                     TextButton(onClick = onFinish) {
-                        Text("Saltar", color = Color.White.copy(alpha = 0.7f))
+                        Text(stringResource(R.string.skip), color = Color.White.copy(alpha = 0.7f))
                     }
                 } else {
                     Spacer(modifier = Modifier.width(80.dp))

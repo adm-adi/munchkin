@@ -164,19 +164,6 @@ fun TableScreen(
             androidx.compose.material3.Button(
                 onClick = onEndTurn,
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 32.dp, start = 16.dp), // Avoid potentially overlapping FAB if it was center (it is End)
-                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.tertiary
-                )
-            ) {
-                Text("Terminar Turno")
-            }
-        }
-    }
-}
-
-@Composable
 fun PlayerAvatarNode(
     player: PlayerState,
     isMe: Boolean,

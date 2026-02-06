@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.munchkin.app.ui.theme.*
 import com.munchkin.app.update.UpdateInfo
+import androidx.compose.ui.res.stringResource
+import com.munchkin.app.R
 
 /**
  * Dialog showing update is available with download option.
@@ -136,7 +138,7 @@ fun UpdateDialog(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Luego")
+                        Text(stringResource(R.string.later))
                     }
                     
                     Button(
@@ -156,7 +158,7 @@ fun UpdateDialog(
                                 strokeCap = StrokeCap.Round
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Descargando...")
+                            Text(stringResource(R.string.downloading))
                         } else {
                             Icon(
                                 Icons.Default.Download,
@@ -164,7 +166,7 @@ fun UpdateDialog(
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Actualizar")
+                            Text(stringResource(R.string.update))
                         }
                     }
                 }

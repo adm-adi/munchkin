@@ -224,7 +224,7 @@ fun LobbyScreen(
                                             contentColor = Color.Black
                                         )
                                     ) {
-                                        Text("Lanzar 🎲", fontWeight = FontWeight.Bold)
+                                        Text(stringResource(R.string.roll_dice), fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }

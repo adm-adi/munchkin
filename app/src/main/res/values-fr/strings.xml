@@ -169,4 +169,61 @@
     <string name="back">Retour</string>
     <string name="yes">Oui</string>
     <string name="no">Non</string>
+    
+    <!-- Auth -->
+    <string name="username">Nom d\'utilisateur</string>
+    <string name="email_or_username">Email (ou nom d\'utilisateur)</string>
+    <string name="password">Mot de passe</string>
+    
+    <!-- Board -->
+    <string name="game_label">Partie</string>
+    <string name="delete_game">Supprimer la partie</string>
+    <string name="end_turn">Terminer le tour</string>
+    
+    <!-- Combat -->
+    <string name="select_helper">Choisir un assistant</string>
+    <string name="start_combat">Lancer le combat</string>
+    <string name="search_monster_hint">Rechercher un monstre (ex: Dragon…)</string>
+    <string name="results_label">Résultats :</string>
+    <string name="or_create_new">Ou créer nouveau :</string>
+    <string name="create_new_button">Créer nouveau</string>
+    <string name="no_players_available">Aucun autre joueur disponible.</string>
+    <string name="level_power_format">Niveau %1$d | Puissance %2$d</string>
+    
+    <!-- History -->
+    <string name="winner_label">Gagnant :</string>
+    
+    <!-- Home -->
+    <string name="delete_party">Supprimer la partie</string>
+    <string name="logout">Déconnexion</string>
+    <string name="global_ranking">Classement mondial</string>
+    <string name="my_games">Mes parties</string>
+    <string name="view_profile">Voir le profil</string>
+    
+    <!-- Join -->
+    <string name="name_required_error">Le nom est obligatoire</string>
+    <string name="join">Rejoindre</string>
+    
+    <!-- Lobby -->
+    <string name="roll_dice">Lancer 🎲</string>
+    
+    <!-- Monster Catalog -->
+    <string name="monster_catalog">Catalogue de monstres</string>
+    <string name="search_monster_placeholder">Rechercher un monstre…</string>
+    <string name="treasures_format">Trésors : %1$d</string>
+    <string name="levels_format">Niveaux : %1$d</string>
+    
+    <!-- Profile -->
+    <string name="username_label">Utilisateur</string>
+    <string name="new_password_optional">Nouveau mot de passe (facultatif)</string>
+    
+    <!-- Tutorial -->
+    <string name="skip">Passer</string>
+    
+    <!-- Update Dialog -->
+    <string name="later">Plus tard</string>
+    <string name="update">Mettre à jour</string>
+    
+    <!-- QR Scanner -->
+    <string name="grant_permission">Accorder la permission</string>
 </resources>

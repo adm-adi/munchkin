@@ -68,7 +68,7 @@ fun BoardScreen(
             TopAppBar(
                 title = { 
                     Column {
-                        Text("Partida")
+                        Text(stringResource(R.string.game_label))
                         if (connectionState == ConnectionState.RECONNECTING) {
                             Text(
                                 text = stringResource(R.string.reconnecting),
@@ -119,7 +119,7 @@ fun BoardScreen(
                             )
                             DropdownMenuItem(
                                 text = { 
-                                    if (isHost) Text("Borrar Partida") else Text(stringResource(R.string.leave_game)) 
+                                    if (isHost) Text(stringResource(R.string.delete_game)) else Text(stringResource(R.string.leave_game)) 
                                 },
                                 onClick = {
                                     showMenu = false
@@ -353,7 +353,7 @@ fun BoardScreen(
                             ) {
                                 Icon(Icons.Default.SkipNext, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Terminar Turno")
+                                Text(stringResource(R.string.end_turn))
                             }
                         }
                     }

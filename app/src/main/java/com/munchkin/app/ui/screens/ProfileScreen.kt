@@ -27,6 +27,8 @@ import com.munchkin.app.ui.components.GlassTopAppBar
 import com.munchkin.app.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.compose.ui.res.stringResource
+import com.munchkin.app.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -179,7 +181,7 @@ fun ProfileHeader(
                         OutlinedTextField(
                             value = editedUsername,
                             onValueChange = { editedUsername = it },
-                            label = { Text("Usuario") },
+                            label = { Text(stringResource(R.string.username_label)) },
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = NeonGray100,
@@ -192,7 +194,7 @@ fun ProfileHeader(
                         OutlinedTextField(
                             value = editedPassword,
                             onValueChange = { editedPassword = it },
-                            label = { Text("Nueva Contraseña (Opcional)") },
+                            label = { Text(stringResource(R.string.new_password_optional)) },
                             singleLine = true,
                             visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                             colors = OutlinedTextFieldDefaults.colors(
@@ -218,7 +220,7 @@ fun ProfileHeader(
                             editedPassword = ""
                         }
                     ) {
-                        Text("Cancelar", color = NeonError)
+                        Text(stringResource(R.string.cancel), color = NeonError)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
@@ -230,7 +232,7 @@ fun ProfileHeader(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = NeonPrimary)
                     ) {
-                        Text("Guardar")
+                        Text(stringResource(R.string.save))
                     }
                 }
             }

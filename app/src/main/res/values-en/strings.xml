@@ -169,4 +169,61 @@
     <string name="back">Back</string>
     <string name="yes">Yes</string>
     <string name="no">No</string>
+    
+    <!-- Auth -->
+    <string name="username">Username</string>
+    <string name="email_or_username">Email (or username)</string>
+    <string name="password">Password</string>
+    
+    <!-- Board -->
+    <string name="game_label">Game</string>
+    <string name="delete_game">Delete Game</string>
+    <string name="end_turn">End Turn</string>
+    
+    <!-- Combat -->
+    <string name="select_helper">Select Helper</string>
+    <string name="start_combat">Start Combat</string>
+    <string name="search_monster_hint">Search Monster (e.g. Dragon…)</string>
+    <string name="results_label">Results:</string>
+    <string name="or_create_new">Or create new:</string>
+    <string name="create_new_button">Create New</string>
+    <string name="no_players_available">No other players available.</string>
+    <string name="level_power_format">Level %1$d | Power %2$d</string>
+    
+    <!-- History -->
+    <string name="winner_label">Winner:</string>
+    
+    <!-- Home -->
+    <string name="delete_party">Delete party</string>
+    <string name="logout">Log out</string>
+    <string name="global_ranking">Global Ranking</string>
+    <string name="my_games">My Games</string>
+    <string name="view_profile">View Profile</string>
+    
+    <!-- Join -->
+    <string name="name_required_error">Name is required</string>
+    <string name="join">Join</string>
+    
+    <!-- Lobby -->
+    <string name="roll_dice">Roll 🎲</string>
+    
+    <!-- Monster Catalog -->
+    <string name="monster_catalog">Monster Catalog</string>
+    <string name="search_monster_placeholder">Search monster…</string>
+    <string name="treasures_format">Treasures: %1$d</string>
+    <string name="levels_format">Levels: %1$d</string>
+    
+    <!-- Profile -->
+    <string name="username_label">Username</string>
+    <string name="new_password_optional">New Password (Optional)</string>
+    
+    <!-- Tutorial -->
+    <string name="skip">Skip</string>
+    
+    <!-- Update Dialog -->
+    <string name="later">Later</string>
+    <string name="update">Update</string>
+    
+    <!-- QR Scanner -->
+    <string name="grant_permission">Grant permission</string>
 </resources>

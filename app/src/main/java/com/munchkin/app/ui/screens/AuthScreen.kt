@@ -22,6 +22,8 @@ import com.munchkin.app.ui.theme.NeonBackground
 import com.munchkin.app.ui.theme.NeonWarning
 import com.munchkin.app.ui.theme.NeonSurface
 import com.munchkin.app.ui.theme.NeonPrimary
+import androidx.compose.ui.res.stringResource
+import com.munchkin.app.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -93,7 +95,7 @@ fun AuthScreen(
                             OutlinedTextField(
                                 value = username,
                                 onValueChange = { username = it },
-                                label = { Text("Nombre de usuario") },
+                                label = { Text(stringResource(R.string.username)) },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                                 leadingIcon = { Icon(Icons.Default.Person, null) },
@@ -107,7 +109,7 @@ fun AuthScreen(
                             OutlinedTextField(
                                 value = email,
                                 onValueChange = { email = it },
-                                label = { Text("Email (o usuario)") },
+                                label = { Text(stringResource(R.string.email_or_username)) },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                                 leadingIcon = { Icon(Icons.Default.Email, null) },
@@ -121,7 +123,7 @@ fun AuthScreen(
                         OutlinedTextField(
                             value = password,
                             onValueChange = { password = it },
-                            label = { Text("Contraseña") },
+                            label = { Text(stringResource(R.string.password)) },
                             singleLine = true,
                             visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                             modifier = Modifier.fillMaxWidth(),

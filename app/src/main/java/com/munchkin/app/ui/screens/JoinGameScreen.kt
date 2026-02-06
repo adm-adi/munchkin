@@ -203,7 +203,7 @@ fun JoinGameScreen(
                             { Icon(Icons.Default.Lock, contentDescription = "Locked", tint = MaterialTheme.colorScheme.primary) }
                         } else null,
                         supportingText = if (nameError && !isNameLocked) {
-                            { Text("El nombre es obligatorio", color = MaterialTheme.colorScheme.error) }
+                            { Text(stringResource(R.string.name_required_error), color = MaterialTheme.colorScheme.error) }
                         } else null,
                         colors = OutlinedTextFieldDefaults.colors(
                             errorBorderColor = MaterialTheme.colorScheme.error,
@@ -308,7 +308,7 @@ fun JoinGameScreen(
                     OutlinedTextField(
                         value = joinCode,
                         onValueChange = { joinCode = it.uppercase().filter { c -> c.isLetterOrDigit() }.take(6) },
-                        label = { Text("Código") },
+                        label = { Text(stringResource(R.string.join_code)) },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                         textStyle = MaterialTheme.typography.titleMedium.copy(
@@ -339,7 +339,7 @@ fun JoinGameScreen(
                         } else {
                             Icon(Icons.Default.Login, contentDescription = null)
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Unirse")
+                            Text(stringResource(R.string.join))
                         }
                     }
                 }

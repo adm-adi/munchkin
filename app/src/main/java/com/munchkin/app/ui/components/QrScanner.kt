@@ -25,6 +25,8 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.Executors
+import androidx.compose.ui.res.stringResource
+import com.munchkin.app.R
 
 /**
  * QR Code scanner composable using CameraX and ML Kit.
@@ -157,11 +159,11 @@ fun QrScanner(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(onClick = { cameraPermission.launchPermissionRequest() }) {
-                    Text("Dar permiso")
+                    Text(stringResource(R.string.grant_permission))
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 TextButton(onClick = onClose) {
-                    Text("Cancelar")
+                    Text(stringResource(R.string.cancel))
                 }
             }
         }
