@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.sp
 import com.munchkin.app.core.PlayerId
 import com.munchkin.app.core.PlayerState
 import com.munchkin.app.ui.theme.AvatarResources
+import androidx.compose.ui.res.stringResource
+import com.munchkin.app.R
 import com.munchkin.app.ui.theme.getAvatarColor
 import kotlin.math.cos
 import kotlin.math.sin
@@ -164,6 +166,19 @@ fun TableScreen(
             androidx.compose.material3.Button(
                 onClick = onEndTurn,
                 modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 32.dp, start = 16.dp),
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.tertiary
+                )
+            ) {
+                Text(stringResource(R.string.end_turn))
+            }
+        }
+    }
+}
+
+@Composable
 fun PlayerAvatarNode(
     player: PlayerState,
     isMe: Boolean,
