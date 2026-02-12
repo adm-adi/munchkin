@@ -1208,7 +1208,7 @@ class GameViewModel : ViewModel() {
             gameEngine = null
             
             _uiState.update {
-                GameUiState(screen = Screen.HOME)
+                GameUiState(screen = Screen.HOME, userProfile = it.userProfile)
             }
         }
     }
@@ -1341,7 +1341,7 @@ class GameViewModel : ViewModel() {
                     // Clear local save and state
                     gameRepository?.deleteAllSavedGames()
                     _savedGame.value = null
-                    _uiState.update { GameUiState(screen = Screen.HOME) }
+                    _uiState.update { GameUiState(screen = Screen.HOME, userProfile = it.userProfile) }
                 } else {
                     _events.emit(GameUiEvent.ShowError(error))
                 }
