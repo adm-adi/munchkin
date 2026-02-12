@@ -23,6 +23,7 @@ import com.munchkin.app.network.CatalogMonster
 import com.munchkin.app.ui.components.CombatResultBanner
 import com.munchkin.app.ui.components.PlayerAvatar
 import com.munchkin.app.ui.components.QuickModifierButtons
+import com.munchkin.app.ui.components.RunAwayDialog
 import androidx.compose.foundation.clickable
 import com.munchkin.app.ui.theme.MunchkinTheme
 
@@ -42,7 +43,7 @@ fun CombatScreen(
     onAddHelper: (PlayerId) -> Unit,
     onRemoveHelper: () -> Unit,
     onModifyModifier: (target: BonusTarget, delta: Int) -> Unit,
-    onRollCombatDice: (DiceRollPurpose) -> Unit,
+    onRollCombatDice: (DiceRollPurpose, Int?, Boolean) -> Unit,
     onEndCombat: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -56,7 +57,7 @@ fun CombatScreen(
     
     // Animation State
     var combatAnimation by remember { mutableStateOf<com.munchkin.app.ui.components.CombatAnimationType?>(null) }
-    // showRunDice removed - replaced by global roll logic
+    var showRunAwayDialog by remember { mutableStateOf(false) }
     
     // Dice Result Overlay State
     var showDiceResult by remember { mutableStateOf<DiceRollInfo?>(null) }
@@ -154,7 +155,7 @@ fun CombatScreen(
                     // Run Away Button (Main Player + Helper)
                     val isParticipant = combatState != null && (myPlayerId == combatState.mainPlayerId || myPlayerId == combatState.helperPlayerId)
                     if (combatState != null && combatState.monsters.isNotEmpty() && isParticipant) {
-                         IconButton(onClick = { onRollCombatDice(DiceRollPurpose.RUN_AWAY) }) {
+                         IconButton(onClick = { showRunAwayDialog = true }) {
                              Icon(
                                  Icons.Default.DirectionsRun, 
                                  contentDescription = "Huir"
@@ -493,6 +494,16 @@ fun CombatScreen(
                     type == com.munchkin.app.ui.components.CombatAnimationType.DEFEAT) {
                     onEndCombat()
                 }
+            }
+        )
+    }
+
+    if (showRunAwayDialog) {
+        RunAwayDialog(
+            onDismiss = { showRunAwayDialog = false },
+            onResult = { result, success ->
+                showRunAwayDialog = false
+                onRollCombatDice(DiceRollPurpose.RUN_AWAY, result, success)
             }
         )
     }

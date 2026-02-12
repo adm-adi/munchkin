@@ -214,7 +214,7 @@ class MainActivity : ComponentActivity() {
                                             onAddHelper = { viewModel.addHelper(it) },
                                             onRemoveHelper = { viewModel.removeHelper() },
                                             onModifyModifier = { target, delta -> viewModel.modifyCombatModifier(target, delta) },
-                                            onRollCombatDice = { purpose -> viewModel.rollForCombat(purpose) },
+                                            onRollCombatDice = { purpose, result, success -> viewModel.rollForCombat(purpose, result, success) },
                                             onEndCombat = { viewModel.endCombat() },
                                             onBack = { 
                                                 // Only main player can cancel combat via back
@@ -289,7 +289,7 @@ class MainActivity : ComponentActivity() {
                                         onAddHelper = { viewModel.addHelper(it) },
                                         onRemoveHelper = { viewModel.removeHelper() },
                                         onModifyModifier = { target, delta -> viewModel.modifyCombatModifier(target, delta) },
-                                        onRollCombatDice = { purpose -> viewModel.rollForCombat(purpose) },
+                                        onRollCombatDice = { purpose, result, success -> viewModel.rollForCombat(purpose, result, success) },
                                         onEndCombat = { viewModel.endCombat() },
                                         onBack = { viewModel.goBack() }
                                     )

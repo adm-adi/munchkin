@@ -77,7 +77,8 @@ data class PlayerRoll(
     override val timestamp: Long,
     override val targetPlayerId: PlayerId?,
     val result: Int,
-    val purpose: DiceRollPurpose = DiceRollPurpose.RANDOM
+    val purpose: DiceRollPurpose = DiceRollPurpose.RANDOM,
+    val success: Boolean = false
 ) : GameEvent()
 
 @Serializable

@@ -1115,9 +1115,14 @@ class GameViewModel : ViewModel() {
         }
     }
     
-    fun rollForCombat(purpose: DiceRollPurpose = DiceRollPurpose.RUN_AWAY) {
-        // Roll 1-6
-        val result = (1..6).random()
+    fun rollForCombat(
+        purpose: DiceRollPurpose = DiceRollPurpose.RUN_AWAY,
+        manualResult: Int? = null,
+        success: Boolean = false
+    ) {
+        // Roll 1-6 if manualResult is null (auto-roll)
+        val result = manualResult ?: (1..6).random()
+        
         sendPlayerEvent { playerId ->
             PlayerRoll(
                 eventId = UUID.randomUUID().toString(),
@@ -1125,7 +1130,8 @@ class GameViewModel : ViewModel() {
                 timestamp = System.currentTimeMillis(),
                 targetPlayerId = playerId, // Self
                 result = result,
-                purpose = purpose
+                purpose = purpose,
+                success = success
             )
         }
     }

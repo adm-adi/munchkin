@@ -620,7 +620,8 @@ class GameEngine {
                  playerId = event.actorId,
                  playerName = stateWithPlayer.players[event.actorId]?.name ?: "Unknown",
                  result = event.result,
-                 purpose = event.purpose
+                 purpose = event.purpose,
+                 success = event.success
              )
              
              val updatedCombat = stateWithPlayer.combat.copy(lastDiceRoll = rollInfo)
