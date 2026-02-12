@@ -198,6 +198,7 @@ fun LobbyScreen(
                             player = player,
                             isMe = player.playerId == myPlayerId,
                             isHost = player.playerId == gameState.hostId,
+                            showDisconnectedBadge = false,
                             modifier = Modifier.weight(1f),
                             actions = {
                                 if (player.lastRoll != null) {

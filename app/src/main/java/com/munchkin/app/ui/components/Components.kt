@@ -200,6 +200,7 @@ fun PlayerCard(
     isMe: Boolean,
     isHost: Boolean,
     isTurn: Boolean = false,
+    showDisconnectedBadge: Boolean = true,
     onToggleGender: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -239,7 +240,7 @@ fun PlayerCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(if (!player.isConnected) Modifier.graphicsLayer { alpha = 0.6f } else Modifier)
+                    .then(if (!player.isConnected && showDisconnectedBadge) Modifier.graphicsLayer { alpha = 0.6f } else Modifier)
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -392,7 +393,7 @@ fun PlayerCard(
             }
         }
             
-            if (!player.isConnected && !isMe) {
+            if (!player.isConnected && !isMe && showDisconnectedBadge) {
                 Box(
                     modifier = Modifier
                         .matchParentSize()
