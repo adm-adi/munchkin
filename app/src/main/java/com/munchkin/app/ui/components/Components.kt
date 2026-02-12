@@ -396,27 +396,7 @@ fun PlayerCard(
                 }
             }
             
-            if (!player.isConnected && !isMe && showDisconnectedBadge) {
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .padding(end = 16.dp),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Text(
-                            text = "DESCONECTADO",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-            }
+
         }
     }
 }
