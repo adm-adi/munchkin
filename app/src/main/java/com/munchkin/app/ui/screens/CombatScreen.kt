@@ -207,7 +207,8 @@ fun CombatScreen(
                         item {
                             CombatResultBanner(
                                 isWin = r.outcome == CombatOutcome.WIN,
-                                difference = r.diff
+                                difference = r.diff,
+                                marginToWin = r.marginToWin
                             )
                         }
                     }
@@ -291,41 +292,20 @@ fun CombatScreen(
                         // Quick modifier buttons (Only Main Player + Helper)
                         val isParticipant = myPlayerId == combatState.mainPlayerId || myPlayerId == combatState.helperPlayerId
                         
-                        // NOTE: User requested "users that are not involved... shouldn't have access to any action".
-                        // Assuming this means Main Player and Helper CAN modify.
-                        // Or strictly: "only those that helps can push the escape button and dice".
-                        // Does that mean Helper CANNOT push modifier buttons?
-                        // Usually helpers contribute cards. "Action" implies UI interaction.
-                        // I will restrictive: ONE-SHOTS (+/-) are ACTIONS anyone can ostensibly do in real game, 
-                        // but user said "make it disappear".
-                        // So I will restrict to Main + Helper for now based on "involved".
-                        
                         if (isParticipant) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            
+                            Text(
+                                text = "Modificadores (Bonus/Malus): ${if (combatState.heroModifier >= 0) "+" else ""}${combatState.heroModifier}", 
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            
                             Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Bonus/Malus:", 
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(onClick = { onModifyModifier(BonusTarget.HEROES, -1) }) {
-                                        Text("➖", style = MaterialTheme.typography.titleLarge)
-                                    }
-                                    Text(
-                                        text = if (combatState.heroModifier >= 0) "+${combatState.heroModifier}" else "${combatState.heroModifier}",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        modifier = Modifier.padding(horizontal = 8.dp)
-                                    )
-                                    IconButton(onClick = { onModifyModifier(BonusTarget.HEROES, 1) }) {
-                                        Text("➕", style = MaterialTheme.typography.titleLarge)
-                                    }
-                                }
-                            }
+                            
+                            QuickModifierButtons(
+                                onModify = { amount -> onModifyModifier(BonusTarget.HEROES, amount) }
+                            )
                         }
                     }
                 }
@@ -392,35 +372,22 @@ fun CombatScreen(
                         }
                         
                         // Quick modifier buttons for monsters (Only Main Player + Helper)
-                        // Consistent with HEROES buttons restriction
                         val isParticipant = myPlayerId == combatState.mainPlayerId || myPlayerId == combatState.helperPlayerId
                         
                         if (isParticipant && combatState.monsters.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            
+                            Text(
+                                text = "Modificadores (Bonus/Malus): ${if (combatState.monsterModifier >= 0) "+" else ""}${combatState.monsterModifier}", 
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            
                             Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Bonus/Malus:", 
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(onClick = { onModifyModifier(BonusTarget.MONSTER, -1) }) {
-                                        Text("➖", style = MaterialTheme.typography.titleLarge)
-                                    }
-                                    Text(
-                                        text = if (combatState.monsterModifier >= 0) "+${combatState.monsterModifier}" else "${combatState.monsterModifier}",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        modifier = Modifier.padding(horizontal = 8.dp)
-                                    )
-                                    IconButton(onClick = { onModifyModifier(BonusTarget.MONSTER, 1) }) {
-                                        Text("➕", style = MaterialTheme.typography.titleLarge)
-                                    }
-                                }
-                            }
+                            
+                            QuickModifierButtons(
+                                onModify = { amount -> onModifyModifier(BonusTarget.MONSTER, amount) }
+                            )
                         }
                     }
                 }

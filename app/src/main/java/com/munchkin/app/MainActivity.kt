@@ -257,8 +257,10 @@ class MainActivity : ComponentActivity() {
                                         player = selectedPlayer,
                                         onIncrementLevel = { viewModel.incrementLevel() },
                                         onDecrementLevel = { viewModel.decrementLevel() },
-                                        onIncrementGear = { viewModel.incrementGear() },
-                                        onDecrementGear = { viewModel.decrementGear() },
+                                        onModifyGear = { amount -> 
+                                            if (amount > 0) viewModel.incrementGear(amount) 
+                                            else viewModel.decrementGear(-amount) // Pass positive magnitude
+                                        },
                                         onSetClass = { viewModel.setCharacterClass(it) },
                                         onSetRace = { viewModel.setCharacterRace(it) },
                                         onBack = { viewModel.goBack() },

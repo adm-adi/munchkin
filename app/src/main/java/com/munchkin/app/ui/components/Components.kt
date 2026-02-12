@@ -454,6 +454,7 @@ fun TraitChip(
 fun CombatResultBanner(
     isWin: Boolean,
     difference: Int,
+    marginToWin: Int = difference, // Default to diff if not provided (for backward compat)
     modifier: Modifier = Modifier
 ) {
     val backgroundColor by animateColorAsState(
@@ -502,13 +503,80 @@ fun CombatResultBanner(
             Text(
                 text = if (isWin) 
                     "Ganas por $difference" 
-                else if (difference == 0)
-                    "Empate: ganan los monstruos"
                 else 
-                    "Pierdes por $difference",
+                    "Te faltan $marginToWin para ganar",
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White.copy(alpha = 0.9f)
             )
         }
+    }
+}
+
+@Composable
+fun QuickModifierButtons(
+    onModify: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val values = listOf(1, 2, 3, 5, 10)
+    
+    Column(modifier = modifier.fillMaxWidth()) {
+        // Negative Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            values.asReversed().forEach { amount ->
+                CompactButton(
+                    text = "-$amount",
+                    onClick = { onModify(-amount) },
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        // Positive Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            values.forEach { amount ->
+                CompactButton(
+                    text = "+$amount",
+                    onClick = { onModify(amount) },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactButton(
+    text: String,
+    onClick: () -> Unit,
+    containerColor: Color,
+    contentColor: Color
+) {
+    FilledTonalButton(
+        onClick = onClick,
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = containerColor,
+            contentColor = contentColor
+        ),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+        modifier = Modifier
+            .widthIn(min = 40.dp)
+            .height(36.dp),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold
+        )
     }
 }

@@ -94,7 +94,8 @@ object CombatCalculator {
             totalLevels = levels,
             totalTreasures = treasures,
             warriorTieBreak = heroesPower == monstersPower && isWarriorInvolved,
-            helperLevelsGained = helperLevels
+            helperLevelsGained = helperLevels,
+            isWarriorInvolved = isWarriorInvolved
         )
     }
     

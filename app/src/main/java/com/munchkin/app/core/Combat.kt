@@ -105,9 +105,24 @@ data class CombatResult(
     val totalTreasures: Int = 0,
     val totalLevels: Int = 0,
     val warriorTieBreak: Boolean = false,
-    val helperLevelsGained: Int = 0
+    val helperLevelsGained: Int = 0,
+    val isWarriorInvolved: Boolean = false
 ) {
     val diff: Int get() = kotlin.math.abs(heroesPower - monstersPower)
+    
+    /**
+     * Power needed to turn a Loss into a Win.
+     * 0 if already winning.
+     */
+    val marginToWin: Int get() {
+        if (outcome == CombatOutcome.WIN) return 0
+        
+        // If loss:
+        // Warrior wins ties -> needs to reach monster power (diff)
+        // Others lose ties -> needs to exceed monster power (diff + 1)
+        val gap = monstersPower - heroesPower
+        return if (isWarriorInvolved) gap else gap + 1
+    }
 }
 
 @Serializable

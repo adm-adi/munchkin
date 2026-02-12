@@ -742,13 +742,14 @@ class GameViewModel : ViewModel() {
     /**
      * Increment gear bonus.
      */
-    fun incrementGear() {
+    fun incrementGear(amount: Int = 1) {
         sendPlayerEvent { playerId ->
             IncGear(
                 eventId = UUID.randomUUID().toString(),
                 actorId = playerId,
                 timestamp = System.currentTimeMillis(),
-                targetPlayerId = playerId
+                targetPlayerId = playerId,
+                amount = amount
             )
         }
     }
@@ -756,13 +757,14 @@ class GameViewModel : ViewModel() {
     /**
      * Decrement gear bonus.
      */
-    fun decrementGear() {
+    fun decrementGear(amount: Int = 1) {
         sendPlayerEvent { playerId ->
             DecGear(
                 eventId = UUID.randomUUID().toString(),
                 actorId = playerId,
                 timestamp = System.currentTimeMillis(),
-                targetPlayerId = playerId
+                targetPlayerId = playerId,
+                amount = amount
             )
         }
     }

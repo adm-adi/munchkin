@@ -29,8 +29,7 @@ fun PlayerDetailScreen(
     player: PlayerState,
     onIncrementLevel: () -> Unit,
     onDecrementLevel: () -> Unit,
-    onIncrementGear: () -> Unit,
-    onDecrementGear: () -> Unit,
+    onModifyGear: (Int) -> Unit,
     onSetClass: (CharacterClass) -> Unit = {},
     onSetRace: (CharacterRace) -> Unit = {},
     onBack: () -> Unit,
@@ -77,11 +76,16 @@ fun PlayerDetailScreen(
             CounterButton(
                 value = player.gearBonus,
                 label = stringResource(R.string.gear),
-                onIncrement = onIncrementGear,
-                onDecrement = onDecrementGear,
+                onIncrement = { onModifyGear(1) },
+                onDecrement = { onModifyGear(-1) },
                 showSign = true,
                 enabled = !isReadOnly
             )
+            
+            if (!isReadOnly) {
+                Spacer(modifier = Modifier.height(16.dp))
+                QuickModifierButtons(onModify = onModifyGear)
+            }
             
             Spacer(modifier = Modifier.height(32.dp))
             
