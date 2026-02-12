@@ -49,8 +49,8 @@ class MainActivity : ComponentActivity() {
             val uiState by viewModel.uiState.collectAsState()
             
             MunchkinTheme {
-                // Auto-reconnect lifecycle observer
                 val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+                val scope = rememberCoroutineScope()
                 DisposableEffect(lifecycleOwner) {
                     val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
                         if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
@@ -218,7 +218,7 @@ class MainActivity : ComponentActivity() {
                                         onRollCombatDice = { purpose, result, success -> 
                                             viewModel.rollForCombat(purpose, result, success)
                                             if (purpose == DiceRollPurpose.RUN_AWAY && result != null) {
-                                                androidx.lifecycle.lifecycleScope.launch {
+                                                scope.launch {
                                                     viewModel.endCombat()
                                                     kotlinx.coroutines.delay(500)
                                                     viewModel.endTurn()
@@ -302,8 +302,11 @@ class MainActivity : ComponentActivity() {
                                         onRollCombatDice = { purpose, result, success -> 
                                             viewModel.rollForCombat(purpose, result, success)
                                             if (purpose == DiceRollPurpose.RUN_AWAY && result != null) {
-                                                viewModel.endCombat()
-                                                viewModel.endTurn()
+                                                scope.launch {
+                                                    viewModel.endCombat()
+                                                    kotlinx.coroutines.delay(500)
+                                                    viewModel.endTurn()
+                                                }
                                             }
                                         },
                                         onEndCombat = { viewModel.endCombat() },
