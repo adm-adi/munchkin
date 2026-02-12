@@ -20,6 +20,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.munchkin.app.R
+import com.munchkin.app.BuildConfig
 import com.munchkin.app.util.LocaleManager
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,7 +70,7 @@ fun SettingsScreen(
                 SettingsItem(
                     icon = Icons.Default.Info,
                     title = stringResource(R.string.version),
-                    subtitle = "v2.17.13 (66)"
+                    subtitle = "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
                 )
                 
                 SettingsItem(

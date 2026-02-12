@@ -33,9 +33,9 @@ android {
                 localProperties.load(localPropsFile.inputStream())
             }
             storeFile = file("../munchkin.keystore")
-            storePassword = localProperties.getProperty("KEYSTORE_STORE_PASSWORD") ?: ""
-            keyAlias = localProperties.getProperty("KEYSTORE_KEY_ALIAS") ?: ""
-            keyPassword = localProperties.getProperty("KEYSTORE_KEY_PASSWORD") ?: ""
+            storePassword = localProperties.getProperty("KEYSTORE_STORE_PASSWORD") ?: System.getenv("KEYSTORE_STORE_PASSWORD") ?: ""
+            keyAlias = localProperties.getProperty("KEYSTORE_KEY_ALIAS") ?: System.getenv("KEYSTORE_KEY_ALIAS") ?: ""
+            keyPassword = localProperties.getProperty("KEYSTORE_KEY_PASSWORD") ?: System.getenv("KEYSTORE_KEY_PASSWORD") ?: ""
         }
     }
 
