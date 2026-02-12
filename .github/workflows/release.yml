@@ -33,11 +33,6 @@ jobs:
             # Decode with -d and ignore garbage (-di) if possible, or just remove newlines first
             echo "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 --decode > munchkin.keystore
             echo "Keystore decoded successfully"
-            
-            echo "🔍 DEBUG INFO:"
-            md5sum munchkin.keystore
-            echo "Expected MD5: 741c5082be7284c3596fbb00787737f1"
-            echo "Password Length: ${#KEYSTORE_STORE_PASSWORD}"
           else
             echo "::warning::Secret KEYSTORE_BASE64 not found. Build may fail if signing config requires it."
           fi
