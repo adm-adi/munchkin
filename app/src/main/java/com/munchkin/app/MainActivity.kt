@@ -214,7 +214,13 @@ class MainActivity : ComponentActivity() {
                                             onAddHelper = { viewModel.addHelper(it) },
                                             onRemoveHelper = { viewModel.removeHelper() },
                                             onModifyModifier = { target, delta -> viewModel.modifyCombatModifier(target, delta) },
-                                            onRollCombatDice = { purpose, result, success -> viewModel.rollForCombat(purpose, result, success) },
+                                            onRollCombatDice = { purpose, result, success -> 
+                                                viewModel.rollForCombat(purpose, result, success)
+                                                if (purpose == DiceRollPurpose.RUN_AWAY && result != null) {
+                                                    viewModel.endCombat()
+                                                    viewModel.endTurn()
+                                                }
+                                            },
                                             onEndCombat = { viewModel.endCombat() },
                                             onBack = { 
                                                 // Only main player can cancel combat via back
@@ -289,7 +295,13 @@ class MainActivity : ComponentActivity() {
                                         onAddHelper = { viewModel.addHelper(it) },
                                         onRemoveHelper = { viewModel.removeHelper() },
                                         onModifyModifier = { target, delta -> viewModel.modifyCombatModifier(target, delta) },
-                                        onRollCombatDice = { purpose, result, success -> viewModel.rollForCombat(purpose, result, success) },
+                                        onRollCombatDice = { purpose, result, success -> 
+                                            viewModel.rollForCombat(purpose, result, success)
+                                            if (purpose == DiceRollPurpose.RUN_AWAY && result != null) {
+                                                viewModel.endCombat()
+                                                viewModel.endTurn()
+                                            }
+                                        },
                                         onEndCombat = { viewModel.endCombat() },
                                         onBack = { viewModel.goBack() }
                                     )
