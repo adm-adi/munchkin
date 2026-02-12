@@ -218,24 +218,9 @@ fun PlayerAvatarNode(
                 contentDescription = player.name,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(8.dp)
-                    .then(if (!player.isConnected) Modifier.graphicsLayer { alpha = 0.5f } else Modifier),
+                    .padding(8.dp),
                 contentScale = ContentScale.Fit
             )
-            
-            if (!player.isConnected) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Default.Close, 
-                        contentDescription = "Desconectado",
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-            }
             
             // Combat Strength Badge (TopEnd)
             Box(
@@ -312,14 +297,7 @@ fun PlayerAvatarNode(
             fontWeight = FontWeight.Bold,
             maxLines = 1
         )
-        if (!player.isConnected) {
-            Text(
-                text = "Desconectado",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = MaterialTheme.colorScheme.error,
-                fontWeight = FontWeight.Bold
-            )
-        }
+
         Text(
             text = "Nivel ${player.level} • Fuerza ${player.level + player.gearBonus}",
             style = MaterialTheme.typography.bodySmall,
