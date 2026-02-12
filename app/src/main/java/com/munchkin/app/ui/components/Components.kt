@@ -395,7 +395,6 @@ fun PlayerCard(
                     }
                 }
             }
-        }
             
             if (!player.isConnected && !isMe && showDisconnectedBadge) {
                 Box(
