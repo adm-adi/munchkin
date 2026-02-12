@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.munchkin.app.network.ConnectionState
+import com.munchkin.app.core.DiceRollPurpose
 import com.munchkin.app.ui.components.DebugLogViewer
 import com.munchkin.app.ui.screens.*
 import com.munchkin.app.ui.theme.MunchkinTheme
