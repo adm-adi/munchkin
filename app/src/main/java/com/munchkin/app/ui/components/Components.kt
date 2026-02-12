@@ -347,52 +347,52 @@ fun PlayerCard(
                     }
                 }
                     
-                    // Stats column
-                if (showStats) {
+                    // Stats and Actions column
                 Column(horizontalAlignment = Alignment.End) {
-                    // Stats Row (Level & Power) with equal visibility
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Level
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = com.munchkin.app.ui.theme.NeonPrimary.copy(alpha = 0.15f)
-                            ) {
-                                Text(
-                                    text = "Nivel ${player.level}",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = com.munchkin.app.ui.theme.NeonPrimary,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
+                    // Stats Row (Level & Power) - only shown in game, not lobby
+                    if (showStats) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Level
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = com.munchkin.app.ui.theme.NeonPrimary.copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = "Nivel ${player.level}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = com.munchkin.app.ui.theme.NeonPrimary,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
                             }
-                        }
 
-                        // Power
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = com.munchkin.app.ui.theme.NeonGray500.copy(alpha = 0.15f)
-                            ) {
-                                Text(
-                                    text = "Fuerza ${player.combatPower}",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = com.munchkin.app.ui.theme.NeonGray100,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
+                            // Power
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = com.munchkin.app.ui.theme.NeonGray500.copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = "Fuerza ${player.combatPower}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = com.munchkin.app.ui.theme.NeonGray100,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
                             }
                         }
                     }
-                }
-                }
                 
-                // Custom Actions
-                Row {
-                    actions()
+                    // Custom Actions
+                    Row {
+                        actions()
+                    }
                 }
             }
         }
