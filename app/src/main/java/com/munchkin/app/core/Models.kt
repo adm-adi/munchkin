@@ -167,9 +167,32 @@ data class GameState(
     val isFull: Boolean get() = players.size >= 6
     
     /**
-     * Check if game can start (2+ players)
+     * Check if all players have rolled dice
      */
-    val canStart: Boolean get() = players.size >= 2
+    val allPlayersRolled: Boolean get() = players.values.all { it.lastRoll != null }
+    
+    /**
+     * Check if there is a tie for highest dice roll among players who need to re-roll
+     */
+    val hasRollTie: Boolean get() {
+        if (!allPlayersRolled) return false
+        val maxRoll = players.values.maxOfOrNull { it.lastRoll ?: 0 } ?: return false
+        return players.values.count { it.lastRoll == maxRoll } > 1
+    }
+    
+    /**
+     * Get player IDs that need to re-roll (tied for highest)
+     */
+    val tiedPlayerIds: Set<PlayerId> get() {
+        if (!allPlayersRolled) return emptySet()
+        val maxRoll = players.values.maxOfOrNull { it.lastRoll ?: 0 } ?: return emptySet()
+        return players.values.filter { it.lastRoll == maxRoll }.map { it.playerId }.toSet()
+    }
+    
+    /**
+     * Check if game can start (2+ players and all rolled with no ties)
+     */
+    val canStart: Boolean get() = players.size >= 2 && allPlayersRolled && !hasRollTie
     
     /**
      * Get active (non-archived) races

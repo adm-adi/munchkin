@@ -201,6 +201,7 @@ fun PlayerCard(
     isHost: Boolean,
     isTurn: Boolean = false,
     showDisconnectedBadge: Boolean = true,
+    showStats: Boolean = true,
     onToggleGender: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -347,6 +348,7 @@ fun PlayerCard(
                 }
                     
                     // Stats column
+                if (showStats) {
                 Column(horizontalAlignment = Alignment.End) {
                     // Stats Row (Level & Power) with equal visibility
                     Row(
@@ -385,6 +387,8 @@ fun PlayerCard(
                             }
                         }
                     }
+                }
+                }
                 
                 // Custom Actions
                 Row {

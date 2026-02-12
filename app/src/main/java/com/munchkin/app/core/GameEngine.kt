@@ -625,6 +625,19 @@ class GameEngine {
              
              val updatedCombat = stateWithPlayer.combat.copy(lastDiceRoll = rollInfo)
              stateWithPlayer.copy(combat = updatedCombat)
+        } else if (stateWithPlayer.phase == GamePhase.LOBBY && stateWithPlayer.allPlayersRolled) {
+            // In lobby: check for ties among highest rollers
+            val maxRoll = stateWithPlayer.players.values.maxOfOrNull { it.lastRoll ?: 0 } ?: 0
+            val tiedPlayers = stateWithPlayer.players.values.filter { it.lastRoll == maxRoll }
+            if (tiedPlayers.size > 1) {
+                // Reset tied players' rolls so they must re-roll
+                val resetPlayers = stateWithPlayer.players.mapValues { (_, p) ->
+                    if (p.lastRoll == maxRoll) p.copy(lastRoll = null) else p
+                }
+                stateWithPlayer.copy(players = resetPlayers)
+            } else {
+                stateWithPlayer
+            }
         } else {
             stateWithPlayer
         }

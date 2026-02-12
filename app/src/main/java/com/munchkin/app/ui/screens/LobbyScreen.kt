@@ -199,21 +199,39 @@ fun LobbyScreen(
                             isMe = player.playerId == myPlayerId,
                             isHost = player.playerId == gameState.hostId,
                             showDisconnectedBadge = false,
+                            showStats = false,
                             modifier = Modifier.weight(1f),
                             actions = {
                                 if (player.lastRoll != null) {
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = com.munchkin.app.ui.theme.NeonSecondary.copy(alpha = 0.2f)
-                                    ) {
-                                        Text(
-                                            text = "🎲 ${player.lastRoll}",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = com.munchkin.app.ui.theme.NeonSecondary,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                        )
+                                    // Show dice result, highlight if it's the highest
+                                    val isTied = gameState.hasRollTie && gameState.tiedPlayerIds.contains(player.playerId)
+                                    if (isTied) {
+                                        // Tied player needs to re-roll
+                                        Button(
+                                            onClick = onRollDice,
+                                            enabled = player.playerId == myPlayerId,
+                                            modifier = Modifier.height(40.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.error,
+                                                contentColor = Color.White
+                                            )
+                                        ) {
+                                            Text("🎲 ${player.lastRoll} ⟳", fontWeight = FontWeight.Bold)
+                                        }
+                                    } else {
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = com.munchkin.app.ui.theme.NeonSecondary.copy(alpha = 0.2f)
+                                        ) {
+                                            Text(
+                                                text = "🎲 ${player.lastRoll}",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = com.munchkin.app.ui.theme.NeonSecondary,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
                                     }
                                 } else if (player.playerId == myPlayerId) {
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -233,6 +251,29 @@ fun LobbyScreen(
                     }
             }
             
+            // Tie-breaking message
+            if (gameState.hasRollTie) {
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "⚔️ ¡Empate! Los jugadores empatados deben volver a lanzar.",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+            }
+            
             // Waiting message
             if (!gameState.canStart) {
                 item {
@@ -242,8 +283,13 @@ fun LobbyScreen(
                         ),
                         modifier = Modifier.fillMaxWidth()
                     ) {
+                        val waitingText = when {
+                            gameState.players.size < 2 -> stringResource(R.string.waiting_players)
+                            !gameState.allPlayersRolled -> "🎲 Esperando a que todos lancen los dados..."
+                            else -> stringResource(R.string.waiting_players)
+                        }
                         Text(
-                            text = stringResource(R.string.waiting_players),
+                            text = waitingText,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(16.dp),
