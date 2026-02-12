@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.munchkin.app.R
 import com.munchkin.app.core.*
 import com.munchkin.app.ui.components.CounterButton
+import com.munchkin.app.ui.components.QuickModifierButtons
 import com.munchkin.app.ui.components.TraitChip
 
 /**
