@@ -27,7 +27,7 @@ fun RunAwayDialog(
             colors = CardDefaults.cardColors(
                 containerColor = Color(0xFF1E1E1E) // Dark background
             ),
-            modifier = Modifier.padding(16.dp).fillMaxWidth()
+            modifier = Modifier.padding(16.dp).width(320.dp)
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,

@@ -215,13 +215,16 @@ class MainActivity : ComponentActivity() {
                                             onAddHelper = { viewModel.addHelper(it) },
                                             onRemoveHelper = { viewModel.removeHelper() },
                                             onModifyModifier = { target, delta -> viewModel.modifyCombatModifier(target, delta) },
-                                            onRollCombatDice = { purpose, result, success -> 
-                                                viewModel.rollForCombat(purpose, result, success)
-                                                if (purpose == DiceRollPurpose.RUN_AWAY && result != null) {
+                                        onRollCombatDice = { purpose, result, success -> 
+                                            viewModel.rollForCombat(purpose, result, success)
+                                            if (purpose == DiceRollPurpose.RUN_AWAY && result != null) {
+                                                androidx.lifecycle.lifecycleScope.launch {
                                                     viewModel.endCombat()
+                                                    kotlinx.coroutines.delay(500)
                                                     viewModel.endTurn()
                                                 }
-                                            },
+                                            }
+                                        },
                                             onEndCombat = { viewModel.endCombat() },
                                             onBack = { 
                                                 // Only main player can cancel combat via back
