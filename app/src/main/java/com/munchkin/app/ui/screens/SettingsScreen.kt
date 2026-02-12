@@ -69,7 +69,7 @@ fun SettingsScreen(
                 SettingsItem(
                     icon = Icons.Default.Info,
                     title = stringResource(R.string.version),
-                    subtitle = "v2.17.9 (62)"
+                    subtitle = "v2.17.13 (66)"
                 )
                 
                 SettingsItem(
@@ -131,13 +131,7 @@ fun SettingsScreen(
                 SettingsItem(
                     icon = Icons.Default.Code,
                     title = "Developer",
-                    subtitle = "adm-adi"
-                )
-                
-                SettingsItem(
-                    icon = Icons.Default.Cloud,
-                    title = "Server",
-                    subtitle = "Hetzner VPS (23.88.48.58)"
+                    subtitle = "Alejandro. El mejor del mundo y te callas."
                 )
             }
             
