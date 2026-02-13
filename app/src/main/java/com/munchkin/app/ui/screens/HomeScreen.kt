@@ -50,6 +50,8 @@ fun HomeScreen(
     onHistoryClick: () -> Unit,
     onProfileClick: () -> Unit,
     userProfile: com.munchkin.app.network.UserProfile?,
+    hostedGames: List<com.munchkin.app.network.HostedGame> = emptyList(),
+    onDeleteHostedGame: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // Show update dialog if update available
@@ -246,12 +248,38 @@ fun HomeScreen(
                     }
                 }
             }
+
+            // Hosted Games Section
+            AnimatedVisibility(
+                visible = hostedGames.isNotEmpty(),
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Spacer(modifier = Modifier.height(32.dp))
+                    
+                    Text(
+                        text = "Tus Partidas Activas",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = NeonGray200,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    
+                    hostedGames.forEach { game ->
+                        HostedGameCard(
+                            game = game,
+                            onDelete = { onDeleteHostedGame(game.gameId) }
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            }
             
             Spacer(modifier = Modifier.weight(1f))
             
             // Version
             Text(
-                text = "v1.0.0",
+                text = "v${com.munchkin.app.BuildConfig.VERSION_NAME}",
                 style = MaterialTheme.typography.bodySmall,
                 color = NeonGray500
             )
@@ -370,5 +398,67 @@ fun HomeScreen(
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
         )
+    }
+}
+
+@Composable
+private fun HostedGameCard(
+    game: com.munchkin.app.network.HostedGame,
+    onDelete: () -> Unit
+) {
+    var showConfirm by remember { mutableStateOf(false) }
+
+    if (showConfirm) {
+        AlertDialog(
+            onDismissRequest = { showConfirm = false },
+            title = { Text("¿Borrar partida?") },
+            text = { Text("Esto eliminará la partida para todos los jugadores. No se puede deshacer.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDelete()
+                        showConfirm = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Eliminar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirm = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    GlassCard(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = game.joinCode,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = NeonSecondary
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "${game.playerCount} jugadores • ${game.phase}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NeonGray400
+                )
+            }
+            
+            IconButton(onClick = { showConfirm = true }) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Borrar partida",
+                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+                )
+            }
+        }
     }
 }

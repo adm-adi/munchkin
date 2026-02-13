@@ -117,7 +117,7 @@ fun TableScreen(
                 .border(2.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), CircleShape)
         ) {
             Text(
-                text = "Munchkin\nDungeon",
+                text = "Munchkin",
                 modifier = Modifier.align(Alignment.Center),
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f),
                 fontWeight = FontWeight.Bold,

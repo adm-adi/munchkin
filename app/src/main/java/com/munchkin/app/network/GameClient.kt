@@ -737,6 +737,97 @@ class GameClient {
         }
     }
 
+    // ============== Hosted Games Methods ==============
+
+    suspend fun getHostedGames(
+        serverUrl: String,
+        token: String
+    ): Result<List<HostedGame>> = withContext(Dispatchers.IO) {
+        authenticatedRequest(serverUrl, token, GetHostedGamesRequest).map { response ->
+            if (response is HostedGamesResult) {
+                response.games
+            } else {
+                emptyList()
+            }
+        }
+    }
+
+    suspend fun deleteHostedGame(
+        serverUrl: String,
+        token: String,
+        gameId: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        authenticatedRequest(serverUrl, token, DeleteHostedGame(gameId)).map { }
+    }
+
+    /**
+     * Helper for authenticated one-off requests.
+     * Connects -> Logs in -> Sends Request -> Waits for Response -> Disconnects.
+     */
+    private suspend fun authenticatedRequest(
+        serverUrl: String,
+        token: String,
+        request: WsMessage
+    ): Result<WsMessage> = withContext(Dispatchers.IO) {
+        try {
+            val urlParts = parseWsUrl(serverUrl) ?: return@withContext Result.failure(Exception("URL inválida"))
+            val (host, port, _) = urlParts
+            
+            val client = HttpClient(CIO) { install(WebSockets) }
+            var result: Result<WsMessage>? = null
+            
+            client.webSocket(host = host, port = port, path = "/") {
+                // 1. Login
+                val loginMsg = LoginWithTokenMessage(token)
+                send(json.encodeToString<WsMessage>(loginMsg))
+                
+                // Wait for Auth Success
+                var authenticated = false
+                try {
+                    val frame = incoming.receive()
+                    if (frame is Frame.Text) {
+                        val response = json.decodeFromString<WsMessage>(frame.readText())
+                        if (response is AuthSuccessMessage) {
+                            authenticated = true
+                        } else if (response is ErrorMessage) {
+                            result = Result.failure(Exception("Auth failed: ${response.message}"))
+                        }
+                    }
+                } catch (e: Exception) {
+                    result = Result.failure(Exception("Auth handshake failed"))
+                }
+
+                if (authenticated) {
+                    // 2. Send Actual Request
+                    send(json.encodeToString<WsMessage>(request))
+                    
+                    // 3. Wait for Response
+                    try {
+                        val frame = incoming.receive()
+                        if (frame is Frame.Text) {
+                            val response = json.decodeFromString<WsMessage>(frame.readText())
+                            if (response is ErrorMessage) {
+                                result = Result.failure(Exception(response.message))
+                            } else {
+                                result = Result.success(response)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        result = Result.failure(Exception("Request failed: ${e.message}"))
+                    }
+                }
+                
+                close()
+            }
+            client.close()
+            
+            result ?: Result.failure(Exception("No response or auth failed"))
+            
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     private fun parseWsUrl(url: String): Triple<String, Int, String>? {
         val regex = Regex("""ws://([^:]+):(\d+)(/.*)?""")
         val match = regex.find(url) ?: return null

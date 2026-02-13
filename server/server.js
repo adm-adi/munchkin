@@ -222,13 +222,14 @@ async function loadGamesFromDatabase() {
 setTimeout(() => loadGamesFromDatabase(), 1000);
 
 class GameRoom {
-    constructor(hostId, joinCode, hostName, avatarId, gender) {
+    constructor(hostId, joinCode, hostName, avatarId, gender, hostUserId = null) {
         this.id = uuidv4();
         this.joinCode = joinCode;
         this.hostId = hostId;
         this.hostName = hostName;
         this.hostAvatarId = avatarId;
         this.hostGender = gender;
+        this.hostUserId = hostUserId; // Authenticated User ID (if any)
         this.players = new Map(); // playerId -> { ws, name, avatarId, gender, level, gear }
         this.seq = 0;
         this.epoch = 0;
@@ -439,6 +440,14 @@ function handleMessage(ws, message) {
             handleSwapPlayers(ws, message);
             break;
 
+        case 'GET_HOSTED_GAMES':
+            handleGetHostedGames(ws);
+            break;
+
+        case 'DELETE_HOSTED_GAME':
+            handleDeleteHostedGame(ws, message);
+            break;
+
         case 'DELETE_GAME':
             handleDeleteGame(ws, message);
             break;
@@ -455,7 +464,7 @@ function handleCreateGame(ws, message) {
 
     logger.info(`🎲 Creating game for ${playerMeta.name} with playerId: ${playerId}`);
 
-    const game = new GameRoom(playerId, joinCode, playerMeta.name, playerMeta.avatarId, playerMeta.gender);
+    const game = new GameRoom(playerId, joinCode, playerMeta.name, playerMeta.avatarId, playerMeta.gender, ws.userId);
     game.players.set(playerId, {
         ws,
         name: playerMeta.name,
@@ -1613,11 +1622,81 @@ function handleSwapPlayers(ws, message) {
     // Rebuild map with new order
     game.players = new Map(entries);
 
-    console.log(`🔄 Swapped players ${player1} and ${player2}`);
+    logger.info(`🔄 Swapped players ${player1} and ${player2}`);
 
     // Broadcast update
     game.broadcast({
         type: "STATE_UPDATE",
         gameState: game.buildGameState()
     });
+}
+
+function handleGetHostedGames(ws) {
+    if (!ws.userId) {
+        // Not logged in, can't track games
+        ws.send(JSON.stringify({
+            type: "HOSTED_GAMES_RESULT",
+            games: []
+        }));
+        return;
+    }
+
+    const hostedGames = [];
+    for (const game of games.values()) {
+        if (game.hostUserId === ws.userId) {
+            hostedGames.push({
+                gameId: game.id,
+                joinCode: game.joinCode,
+                playerCount: game.players.size,
+                phase: game.phase,
+                createdAt: game.createdAt
+            });
+        }
+    }
+
+    ws.send(JSON.stringify({
+        type: "HOSTED_GAMES_RESULT",
+        games: hostedGames
+    }));
+}
+
+function handleDeleteHostedGame(ws, message) {
+    const { gameId } = message;
+
+    // Auth check
+    if (!ws.userId) {
+        sendError(ws, 'UNAUTHORIZED', 'Debes iniciar sesión');
+        return;
+    }
+
+    const game = games.get(gameId);
+    if (!game) {
+        sendError(ws, 'GAME_NOT_FOUND', 'Partida no encontrada');
+        return;
+    }
+
+    // Authorization check
+    if (game.hostUserId !== ws.userId) {
+        logger.warn(`⚠️ Unauthorized delete attempt by ${ws.userId} on game ${gameId}`);
+        sendError(ws, 'PERMISSION_DENIED', 'No eres el anfitrión de esta partida');
+        return;
+    }
+
+    logger.info(`🗑️ Host ${ws.userId} deleting game ${game.joinCode} from menu`);
+
+    // Notify players
+    game.broadcast({
+        type: "GAME_DELETED",
+        reason: "La partida ha sido borrada por el anfitrión"
+    });
+
+    // Delete
+    games.delete(gameId);
+    db.deleteActiveGame(gameId).catch(err => logger.error('Failed to delete game from DB:', err));
+
+    // Confirm to host so UI updates
+    ws.send(JSON.stringify({
+        type: "HOSTED_GAME_DELETED",
+        gameId: gameId
+    }));
 }

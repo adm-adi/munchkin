@@ -134,6 +134,9 @@ class GameViewModel : ViewModel() {
                         authData.token?.let { sessionManager?.saveAuthToken(it) }
                         
                         android.util.Log.i("GameViewModel", "✅ Auto-login success for ${authData.user.username}")
+                        
+                        // Fetch hosted games
+                        fetchHostedGames()
                     }
                 } else {
                     android.util.Log.w("GameViewModel", "⚠️ Auto-login failed, clearing session")
@@ -699,6 +702,7 @@ class GameViewModel : ViewModel() {
                         ) 
                     }
                     _events.emit(GameUiEvent.ShowSuccess("Bienvenido, ${authData?.user?.username}!"))
+                    fetchHostedGames()
                 } else {
                     _uiState.update { 
                         it.copy(isLoading = false, error = result.exceptionOrNull()?.message)
@@ -731,6 +735,7 @@ class GameViewModel : ViewModel() {
                         ) 
                     }
                     _events.emit(GameUiEvent.ShowSuccess("Hola de nuevo, ${authData?.user?.username}!"))
+                    fetchHostedGames()
                 } else {
                     _uiState.update { 
                         it.copy(isLoading = false, error = result.exceptionOrNull()?.message)
@@ -789,6 +794,60 @@ class GameViewModel : ViewModel() {
         }
     }
     
+    private val _hostedGames = MutableStateFlow<List<HostedGame>>(emptyList())
+    val hostedGames: StateFlow<List<HostedGame>> = _hostedGames.asStateFlow()
+
+    fun fetchHostedGames() {
+        val user = _uiState.value.userProfile ?: return
+        val token = sessionManager?.getAuthToken() ?: return
+        
+        viewModelScope.launch {
+            try {
+                // Use temp client or reuse existing?
+                // GameClient helper methods are static-like but require instance? No, they are instance methods.
+                // We can just create a new GameClient for these one-off requests.
+                val client = GameClient()
+                val result = client.getHostedGames(SERVER_URL, token)
+                
+                if (result.isSuccess) {
+                    val games = result.getOrNull() ?: emptyList()
+                    _hostedGames.value = games
+                    
+                    // If we have any games, we can log it
+                    if (games.isNotEmpty()) {
+                         android.util.Log.d("GameViewModel", "Fetched ${games.size} hosted games")
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("GameViewModel", "Failed to fetch hosted games", e)
+            }
+        }
+    }
+
+    fun deleteHostedGame(gameId: String) {
+        val token = sessionManager?.getAuthToken() ?: return
+        
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            try {
+                val client = GameClient()
+                val result = client.deleteHostedGame(SERVER_URL, token, gameId)
+                
+                if (result.isSuccess) {
+                    // Remove from list locally
+                    _hostedGames.update { list -> list.filter { it.gameId != gameId } }
+                    _events.emit(GameUiEvent.ShowSuccess("Partida eliminada"))
+                } else {
+                    _uiState.update { it.copy(error = result.exceptionOrNull()?.message) }
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = e.message) }
+            } finally {
+                _uiState.update { it.copy(isLoading = false) }
+            }
+        }
+    }
+
     /**
      * Decrement gear bonus.
      */

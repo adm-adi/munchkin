@@ -115,16 +115,20 @@ class MainActivity : ComponentActivity() {
                                 val savedGame by viewModel.savedGame.collectAsState()
                                 val updateInfo by viewModel.updateInfo.collectAsState()
                                 val isDownloading by viewModel.isDownloading.collectAsState()
+                                val hostedGames by viewModel.hostedGames.collectAsState()
+                                
                                 HomeScreen(
                                     savedGame = savedGame,
                                     updateInfo = updateInfo,
                                     isDownloading = isDownloading,
                                     isLoading = uiState.isLoading,
                                     error = uiState.error,
+                                    hostedGames = hostedGames,
                                     onCreateGame = { viewModel.navigateTo(Screen.CREATE_GAME) },
                                     onJoinGame = { viewModel.navigateTo(Screen.JOIN_GAME) },
                                     onResumeGame = { viewModel.resumeSavedGame() },
                                     onDeleteSavedGame = { viewModel.deleteSavedGame() },
+                                    onDeleteHostedGame = { viewModel.deleteHostedGame(it) },
                                     onClearError = { viewModel.clearError() },
                                     onDownloadUpdate = { viewModel.downloadUpdate() },
                                     onDismissUpdate = { viewModel.dismissUpdate() },

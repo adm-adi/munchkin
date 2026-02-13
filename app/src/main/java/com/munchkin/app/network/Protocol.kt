@@ -362,3 +362,36 @@ enum class ConnectionState {
     RECONNECTING,
     HANDOVER
 }
+
+// ============== Hosted Games Management ==============
+
+@Serializable
+data class HostedGame(
+    val gameId: String,
+    val joinCode: String,
+    val playerCount: Int,
+    val phase: String,
+    val createdAt: Long
+)
+
+@Serializable
+@SerialName("GET_HOSTED_GAMES")
+object GetHostedGamesRequest : WsMessage()
+
+@Serializable
+@SerialName("HOSTED_GAMES_RESULT")
+data class HostedGamesResult(
+    val games: List<HostedGame>
+) : WsMessage()
+
+@Serializable
+@SerialName("DELETE_HOSTED_GAME")
+data class DeleteHostedGame(
+    val gameId: String
+) : WsMessage()
+
+@Serializable
+@SerialName("HOSTED_GAME_DELETED")
+data class HostedGameDeleted(
+    val gameId: String
+) : WsMessage()
