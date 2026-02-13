@@ -15,6 +15,37 @@ const db = require('./db');
 
 const PORT = 8765;
 
+// JWT configuration
+const crypto = require('crypto');
+const JWT_SECRET = process.env.JWT_SECRET || "munchkin_secret_key_change_in_prod";
+
+// Simple JWT implementation (since we want to avoid complex dependencies if possible, but using internal crypto is better)
+// Actually, let's use a simple signing function for now without extra deps if user didn't install jsonwebtoken
+// But plan said `npm install jsonwebtoken`.
+// Let's stick to standard internal crypto for signature if we can, or just use a simple base64 approach 
+// signed with HMAC.
+function signToken(payload) {
+    const header = { alg: 'HS256', typ: 'JWT' };
+    const h = Buffer.from(JSON.stringify(header)).toString('base64url');
+    const p = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signature = crypto.createHmac('sha256', JWT_SECRET).update(`${h}.${p}`).digest('base64url');
+    return `${h}.${p}.${signature}`;
+}
+
+function verifyToken(token) {
+    try {
+        const [h, p, s] = token.split('.');
+        if (!h || !p || !s) return null;
+
+        const signature = crypto.createHmac('sha256', JWT_SECRET).update(`${h}.${p}`).digest('base64url');
+        if (signature !== s) return null;
+
+        return JSON.parse(Buffer.from(p, 'base64url').toString());
+    } catch (e) {
+        return null;
+    }
+}
+
 // SSL Configuration
 let server;
 let isSsl = false;
@@ -343,6 +374,10 @@ function handleMessage(ws, message) {
 
         case 'LOGIN':
             handleLogin(ws, message);
+            break;
+
+        case 'LOGIN_WITH_TOKEN':
+            handleLoginWithToken(ws, message);
             break;
 
         case 'LOGIN_WITH_TOKEN':
