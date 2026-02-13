@@ -1022,6 +1022,152 @@ function handleGetLeaderboard(ws) {
         .catch(err => console.error("Leaderboard error:", err));
 }
 
+// ============== Auth Handlers ==============
+
+function handleRegister(ws, message) {
+    let { username, email, password, avatarId } = message;
+
+    if (!isValidInput(username, 20) || !isValidInput(password, 100)) {
+        sendError(ws, 'INVALID_DATA', 'Invalid or too long username/password');
+        return;
+    }
+
+    // Auto-generate email if not provided (User just wants username)
+    if (!email) {
+        const sanitizedParams = username.toLowerCase().replace(/[^a-z0-9]/g, '');
+        email = `${sanitizedParams}@munchkin.local`;
+    } else if (!isValidInput(email, 100)) {
+        sendError(ws, 'INVALID_DATA', 'Email too long');
+        return;
+    }
+
+    db.createUser(username, email, password, avatarId || 0)
+        .then(user => {
+            console.log(`✅ User registered: ${user.username} (${user.id})`);
+
+            // Generate Token
+            const token = signToken({ id: user.id, username: user.username, email: user.email });
+
+            // SECURITY: Bind userId to WebSocket session
+            ws.userId = user.id;
+
+            ws.send(JSON.stringify({
+                type: 'AUTH_SUCCESS',
+                user: {
+                    id: user.id,
+                    username: user.username,
+                    email: user.email,
+                    avatarId: user.avatarId
+                },
+                token: token
+            }));
+        })
+        .catch(err => {
+            console.error("Register failed:", err.message);
+            if (err.message === "EMAIL_EXISTS") {
+                sendError(ws, 'EMAIL_EXISTS', 'El email ya está registrado');
+            } else {
+                sendError(ws, 'REGISTER_FAILED', 'Error al registrar usuario');
+            }
+        });
+}
+
+function handleLogin(ws, message) {
+    const clientIp = ws.clientIp || 'unknown';
+
+    // Rate limiting check
+    if (isRateLimited(clientIp)) {
+        sendError(ws, 'RATE_LIMITED', 'Demasiados intentos. Espera 15 minutos.');
+        return;
+    }
+
+    const { email, password } = message;
+
+    if (!isValidInput(email, 100) || !isValidInput(password, 100)) {
+        sendError(ws, 'INVALID_DATA', 'Invalid input format');
+        return;
+    }
+
+    db.verifyUser(email, password)
+        .then(user => {
+            if (user) {
+                recordAuthAttempt(clientIp, true); // Clear rate limit on success
+                console.log(`✅ User logged in: ${user.username}`);
+
+                // Generate Token
+                const token = signToken({ id: user.id, username: user.username, email: user.email });
+
+                // SECURITY: Bind userId to WebSocket session
+                ws.userId = user.id;
+
+                ws.send(JSON.stringify({
+                    type: 'AUTH_SUCCESS',
+                    user: {
+                        id: user.id,
+                        username: user.username,
+                        email: user.email,
+                        avatarId: user.avatarId
+                    },
+                    token: token
+                }));
+            } else {
+                recordAuthAttempt(clientIp, false); // Record failed attempt
+                console.log(`❌ Login failed for ${email}`);
+                sendError(ws, 'AUTH_FAILED', 'Email o contraseña incorrectos');
+            }
+        })
+        .catch(err => {
+            console.error("Login error:", err);
+            sendError(ws, 'LOGIN_ERROR', 'Error interno al iniciar sesión');
+        });
+}
+
+function handleLoginWithToken(ws, message) {
+    const { token } = message;
+
+    if (!token) {
+        sendError(ws, 'AUTH_FAILED', 'Missing token');
+        return;
+    }
+
+    const payload = verifyToken(token);
+
+    if (!payload) {
+        console.log("❌ Invalid or expired token presented");
+        sendError(ws, 'AUTH_FAILED', 'Session expired');
+        return;
+    }
+
+    // Token is valid, get user details to ensure they still exist
+    db.getUserById(payload.id)
+        .then(user => {
+            if (user) {
+                console.log(`✅ User logged in via TOKEN: ${user.username}`);
+
+                // SECURITY: Bind userId to WebSocket session
+                ws.userId = user.id;
+
+                ws.send(JSON.stringify({
+                    type: 'AUTH_SUCCESS',
+                    token: token,
+                    user: {
+                        id: user.id,
+                        username: user.username,
+                        email: user.email,
+                        avatarId: user.avatarId
+                    }
+                }));
+            } else {
+                sendError(ws, 'AUTH_FAILED', 'User not found');
+            }
+        })
+        .catch(err => {
+            console.error("Token login error:", err);
+            sendError(ws, 'LOGIN_ERROR', 'Internal error');
+        });
+}
+
+
 function handleUpdateProfile(ws, message) {
     const { userId, username, password } = message;
 
