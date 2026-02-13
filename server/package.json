@@ -13,5 +13,8 @@
     "bcryptjs": "^2.4.3",
     "helmet": "^7.1.0",
     "winston": "^3.11.0"
+  },
+  "overrides": {
+    "tar": "^6.2.1"
   }
 }
