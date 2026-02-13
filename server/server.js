@@ -162,7 +162,10 @@ function processRequest(req, res) {
 }
 
 // WebSocket Server attached to HTTP/HTTPS server
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({
+    server,
+    maxPayload: 50 * 1024 // 50KB limit per message (prevents DoS)
+});
 
 server.listen(PORT, '0.0.0.0', () => {
     const protocol = isSsl ? 'HTTPS/WSS' : 'HTTP/WS';
