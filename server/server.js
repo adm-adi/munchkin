@@ -12,6 +12,29 @@ const fs = require('fs');
 const url = require('url');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
+const helmet = require('helmet');
+const winston = require('winston');
+
+// Configure Winston Logger
+const logger = winston.createLogger({
+    level: 'info',
+    format: winston.format.combine(
+        winston.format.timestamp(),
+        winston.format.json()
+    ),
+    transports: [
+        new winston.transports.File({ filename: 'error.log', level: 'error' }),
+        new winston.transports.File({ filename: 'combined.log' }),
+        new winston.transports.Console({
+            format: winston.format.simple()
+        })
+    ],
+});
+
+// Override console.log to use winston (optional, but ensures we catch everything)
+// console.log = (...args) => logger.info(args.join(' '));
+// console.error = (...args) => logger.error(args.join(' '));
+
 
 const PORT = 8765;
 
@@ -100,6 +123,14 @@ function recordAuthAttempt(ip, success) {
 
 // HTTP/HTTPS Request Handler
 function handleRequest(req, res) {
+    // Apply Helmet Security Headers
+    helmet()(req, res, () => {
+        // Continue with normal handling
+        processRequest(req, res);
+    });
+}
+
+function processRequest(req, res) {
     // CORS headers - restricted to mobile app and local development
     const allowedOrigins = ['capacitor://localhost', 'http://localhost', 'https://localhost'];
     const origin = req.headers.origin;

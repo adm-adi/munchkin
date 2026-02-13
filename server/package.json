@@ -7,9 +7,11 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "ws": "^8.14.2",
+    "ws": "^8.17.1",
     "uuid": "^9.0.0",
     "sqlite3": "^5.1.7",
-    "bcryptjs": "^2.4.3"
+    "bcryptjs": "^2.4.3",
+    "helmet": "^7.1.0",
+    "winston": "^3.11.0"
   }
 }
