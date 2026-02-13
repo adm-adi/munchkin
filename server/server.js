@@ -7,11 +7,35 @@
 
 const WebSocket = require('ws');
 const http = require('http');
+const https = require('https');
+const fs = require('fs');
 const url = require('url');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
 
 const PORT = 8765;
+
+// SSL Configuration
+let server;
+let isSsl = false;
+
+try {
+    if (fs.existsSync('key.pem') && fs.existsSync('cert.pem')) {
+        const options = {
+            key: fs.readFileSync('key.pem'),
+            cert: fs.readFileSync('cert.pem')
+        };
+        server = https.createServer(options, handleRequest);
+        isSsl = true;
+        console.log('🔒 SSL Certificates found. Starting in HTTPS/WSS mode.');
+    } else {
+        server = http.createServer(handleRequest);
+        console.log('⚠️ No SSL Certificates found (key.pem/cert.pem). Starting in HTTP/WS mode.');
+    }
+} catch (e) {
+    console.error('Failed to load SSL certs, falling back to HTTP:', e);
+    server = http.createServer(handleRequest);
+}
 
 // Rate limiting for authentication endpoints
 const authRateLimits = new Map(); // IP -> { attempts: number, lastAttempt: timestamp }
@@ -43,10 +67,10 @@ function recordAuthAttempt(ip, success) {
     authRateLimits.set(ip, record);
 }
 
-// HTTP Server handling API + WebSockets
-const server = http.createServer((req, res) => {
+// HTTP/HTTPS Request Handler
+function handleRequest(req, res) {
     // CORS headers - restricted to mobile app and local development
-    const allowedOrigins = ['capacitor://localhost', 'http://localhost'];
+    const allowedOrigins = ['capacitor://localhost', 'http://localhost', 'https://localhost'];
     const origin = req.headers.origin;
     if (origin && allowedOrigins.some(allowed => origin.startsWith(allowed))) {
         res.setHeader('Access-Control-Allow-Origin', origin);
@@ -88,13 +112,14 @@ const server = http.createServer((req, res) => {
     // Default: 404
     res.writeHead(404);
     res.end();
-});
+}
 
-// WebSocket Server attached to HTTP server
+// WebSocket Server attached to HTTP/HTTPS server
 const wss = new WebSocket.Server({ server });
 
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Server listening on port ${PORT} (HTTP + WS)`);
+    const protocol = isSsl ? 'HTTPS/WSS' : 'HTTP/WS';
+    console.log(`✅ Server listening on port ${PORT} (${protocol})`);
 });
 
 // Store active games: gameId -> GameRoom
@@ -320,6 +345,10 @@ function handleMessage(ws, message) {
             handleLogin(ws, message);
             break;
 
+        case 'LOGIN_WITH_TOKEN':
+            handleLoginWithToken(ws, message);
+            break;
+
         case 'CATALOG_SEARCH':
             handleCatalogSearch(ws, message);
             break;
@@ -428,6 +457,20 @@ function handleListGames(ws) {
 }
 
 function handleHello(ws, message) {
+    const clientIp = ws.clientIp || 'unknown';
+
+    // Rate limiting for joining games
+    if (isJoinRateLimited(clientIp)) {
+        console.warn(`⚠️ Rate check: Join limit exceeded for ${clientIp}`);
+        // We don't send an error to avoid confirming existence, just ignore or delay
+        // But for UX, let's send a generic error
+        sendError(ws, 'RATE_LIMITED', 'Too many join attempts. Please wait.');
+        return;
+    }
+
+    // Record attempt
+    recordJoinAttempt(clientIp);
+
     const { joinCode, playerMeta } = message;
     const game = findGameByCode(joinCode);
 
@@ -741,13 +784,42 @@ function closeGame(game, winnerId) {
         .catch(err => console.error(`❌ Failed to record game ${game.id}`, err));
 }
 
+// Rate limiting for join game
+const joinRateLimits = new Map(); // IP -> { attempts: number, lastAttempt: timestamp }
+const JOIN_RATE_LIMIT_MAX_ATTEMPTS = 10;
+const JOIN_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+
+function isJoinRateLimited(ip) {
+    const record = joinRateLimits.get(ip);
+    if (!record) return false;
+
+    // Reset if window expired
+    if (Date.now() - record.lastAttempt > JOIN_RATE_LIMIT_WINDOW_MS) {
+        joinRateLimits.delete(ip);
+        return false;
+    }
+
+    return record.attempts >= JOIN_RATE_LIMIT_MAX_ATTEMPTS;
+}
+
+function recordJoinAttempt(ip) {
+    const record = joinRateLimits.get(ip) || { attempts: 0, lastAttempt: 0 };
+    record.attempts++;
+    record.lastAttempt = Date.now();
+    joinRateLimits.set(ip, record);
+}
+
+function isValidInput(text, maxLength) {
+    return text && typeof text === 'string' && text.length > 0 && text.length <= maxLength;
+}
+
 // ============== Auth Handlers ==============
 
 function handleRegister(ws, message) {
     let { username, email, password, avatarId } = message;
 
-    if (!username || !password) {
-        sendError(ws, 'INVALID_DATA', 'Missing required fields');
+    if (!isValidInput(username, 20) || !isValidInput(password, 100)) {
+        sendError(ws, 'INVALID_DATA', 'Invalid or too long username/password');
         return;
     }
 
@@ -755,11 +827,18 @@ function handleRegister(ws, message) {
     if (!email) {
         const sanitizedParams = username.toLowerCase().replace(/[^a-z0-9]/g, '');
         email = `${sanitizedParams}@munchkin.local`;
+    } else if (!isValidInput(email, 100)) {
+        sendError(ws, 'INVALID_DATA', 'Email too long');
+        return;
     }
 
     db.createUser(username, email, password, avatarId || 0)
         .then(user => {
             console.log(`✅ User registered: ${user.username} (${user.id})`);
+
+            // SECURITY: Bind userId to WebSocket session
+            ws.userId = user.id;
+
             ws.send(JSON.stringify({
                 type: 'AUTH_SUCCESS',
                 user: {
@@ -791,8 +870,8 @@ function handleLogin(ws, message) {
 
     const { email, password } = message;
 
-    if (!email || !password) {
-        sendError(ws, 'INVALID_DATA', 'Missing email or password');
+    if (!isValidInput(email, 100) || !isValidInput(password, 100)) {
+        sendError(ws, 'INVALID_DATA', 'Invalid input format');
         return;
     }
 
@@ -801,6 +880,10 @@ function handleLogin(ws, message) {
             if (user) {
                 recordAuthAttempt(clientIp, true); // Clear rate limit on success
                 console.log(`✅ User logged in: ${user.username}`);
+
+                // SECURITY: Bind userId to WebSocket session
+                ws.userId = user.id;
+
                 ws.send(JSON.stringify({
                     type: 'AUTH_SUCCESS',
                     user: {
@@ -819,6 +902,54 @@ function handleLogin(ws, message) {
         .catch(err => {
             console.error("Login error:", err);
             sendError(ws, 'LOGIN_ERROR', 'Error interno al iniciar sesión');
+        });
+}
+
+function handleLoginWithToken(ws, message) {
+    const { token } = message;
+
+    if (!token) {
+        sendError(ws, 'AUTH_FAILED', 'Missing token');
+        return;
+    }
+
+    const payload = verifyToken(token);
+
+    if (!payload) {
+        console.log("❌ Invalid or expired token presented");
+        sendError(ws, 'AUTH_FAILED', 'Session expired');
+        return;
+    }
+
+    // Token is valid, get user details to ensure they still exist
+    db.getUserById(payload.id)
+        .then(user => {
+            if (user) {
+                console.log(`✅ User logged in via TOKEN: ${user.username}`);
+
+                // SECURITY: Bind userId to WebSocket session
+                ws.userId = user.id;
+
+                // If token is near expiration, we could issue a new one here
+                // For now, just confirm success
+
+                ws.send(JSON.stringify({
+                    type: 'AUTH_SUCCESS',
+                    token: token, // Echo back or send new one
+                    user: {
+                        id: user.id,
+                        username: user.username,
+                        email: user.email,
+                        avatarId: user.avatarId
+                    }
+                }));
+            } else {
+                sendError(ws, 'AUTH_FAILED', 'User not found');
+            }
+        })
+        .catch(err => {
+            console.error("Token login error:", err);
+            sendError(ws, 'LOGIN_ERROR', 'Internal error');
         });
 }
 
@@ -859,10 +990,22 @@ function handleGetLeaderboard(ws) {
 function handleUpdateProfile(ws, message) {
     const { userId, username, password } = message;
 
-    // Security check: In production we should verify session, here we rely on userId match
-    // Ideally we should store userId in ws upon login and verify it.
+    // Security check: Verify session matches requested update
+    if (!ws.userId || ws.userId !== userId) {
+        console.warn(`⚠️ SECURITY: Unauthorized profile update attempt. Session: ${ws.userId}, Target: ${userId}`);
+        sendError(ws, 'FORBIDDEN', 'No tienes permiso para editar este perfil');
+        return;
+    }
 
-    if (!userId) return;
+    if (username && !isValidInput(username, 20)) {
+        sendError(ws, 'INVALID_DATA', 'Username too long');
+        return;
+    }
+
+    if (password && !isValidInput(password, 100)) {
+        sendError(ws, 'INVALID_DATA', 'Password too long');
+        return;
+    }
 
     db.updateUser(userId, username, password)
         .then(user => {

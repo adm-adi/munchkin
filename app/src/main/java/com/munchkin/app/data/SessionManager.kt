@@ -15,6 +15,7 @@ class SessionManager(context: Context) {
 
     companion object {
         private const val KEY_USER_PROFILE = "user_profile"
+        private const val KEY_AUTH_TOKEN = "auth_token"
         private const val KEY_PLAYER_ID_PREFIX = "player_id_"
     }
 
@@ -26,6 +27,22 @@ class SessionManager(context: Context) {
         prefs.edit { 
             putString(KEY_USER_PROFILE, jsonString) 
         }
+    }
+
+    /**
+     * Save the auth token.
+     */
+    fun saveAuthToken(token: String) {
+        prefs.edit {
+            putString(KEY_AUTH_TOKEN, token)
+        }
+    }
+
+    /**
+     * Get the auth token.
+     */
+    fun getAuthToken(): String? {
+        return prefs.getString(KEY_AUTH_TOKEN, null)
     }
 
     /**
@@ -46,7 +63,8 @@ class SessionManager(context: Context) {
      */
     fun clearSession() {
         prefs.edit { 
-            remove(KEY_USER_PROFILE) 
+            remove(KEY_USER_PROFILE)
+            remove(KEY_AUTH_TOKEN)
         }
     }
     

@@ -127,7 +127,14 @@ data class LoginMessage(
 @Serializable
 @SerialName("AUTH_SUCCESS")
 data class AuthSuccessMessage(
-    val user: UserProfile
+    val user: UserProfile,
+    val token: String? = null
+) : WsMessage()
+
+@Serializable
+@SerialName("LOGIN_WITH_TOKEN")
+data class LoginWithTokenMessage(
+    val token: String
 ) : WsMessage()
 
 @Serializable

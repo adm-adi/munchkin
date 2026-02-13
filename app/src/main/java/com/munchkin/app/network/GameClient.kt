@@ -511,7 +511,7 @@ class GameClient {
         username: String,
         email: String,
         password: String
-    ): Result<UserProfile> {
+    ): Result<AuthSuccessMessage> {
         // Auto-generate dummy email if empty (Backward compatibility with older servers)
         val finalEmail = if (email.isBlank()) {
             val sanitized = username.lowercase().replace(Regex("[^a-z0-9]"), "")
@@ -527,15 +527,23 @@ class GameClient {
         serverUrl: String,
         email: String,
         password: String
-    ): Result<UserProfile> {
+    ): Result<AuthSuccessMessage> {
         val msg = LoginMessage(email, password)
+        return performAuth(serverUrl, msg)
+    }
+
+    suspend fun loginWithToken(
+        serverUrl: String,
+        token: String
+    ): Result<AuthSuccessMessage> {
+        val msg = LoginWithTokenMessage(token)
         return performAuth(serverUrl, msg)
     }
 
     private suspend fun performAuth(
         serverUrl: String,
         message: WsMessage
-    ): Result<UserProfile> = withContext(Dispatchers.IO) {
+    ): Result<AuthSuccessMessage> = withContext(Dispatchers.IO) {
         try {
             val urlParts = parseWsUrl(serverUrl) ?: return@withContext Result.failure(Exception("URL inválida"))
             val (host, port, _) = urlParts
@@ -545,7 +553,7 @@ class GameClient {
             // Temporary client for auth
             val authClient = HttpClient(CIO) { install(WebSockets) }
             
-            var result: Result<UserProfile>? = null
+            var result: Result<AuthSuccessMessage>? = null
             
             authClient.webSocket(host = host, port = port, path = "/") {
                 // Send auth message - Encoded as WsMessage to preserve "type" field
@@ -562,7 +570,7 @@ class GameClient {
                         
                         val response = json.decodeFromString<WsMessage>(text)
                         if (response is AuthSuccessMessage) {
-                            result = Result.success(response.user)
+                            result = Result.success(response)
                         } else if (response is ErrorMessage) {
                             result = Result.failure(Exception(response.message))
                         }

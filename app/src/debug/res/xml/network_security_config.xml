@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 
+      Debug configuration: 
+      Allow cleartext traffic (HTTP/WS) to enable local development 
+      against endpoints without SSL (localhost, local IP).
+    -->
+    <base-config cleartextTrafficPermitted="true" />
+    
+    <debug-overrides>
+        <trust-anchors>
+            <!-- Trust user-added CAs (useful for Charles/Fiddler debugging) -->
+            <certificates src="user" />
+            <certificates src="system" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>
