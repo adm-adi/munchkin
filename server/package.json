@@ -1,6 +1,6 @@
 {
   "name": "munchkin-server",
-  "version": "2.18.0",
+  "version": "2.18.2",
   "description": "WebSocket server for Munchkin Tracker multiplayer",
   "main": "server.js",
   "scripts": {

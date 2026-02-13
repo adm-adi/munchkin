@@ -113,6 +113,14 @@ app/src/main/java/com/munchkin/app/
 - [ ] Escáner QR funcional
 - [ ] Actualizador in-app desde GitHub
 
+## Despliegue del Servidor
+
+Para actualizar el servidor en producción:
+
+```bash
+cd /opt/munchkin-server && git pull && systemctl restart munchkin
+```
+
 ## Licencia
 
 Copyright © 2024. Proyecto personal para uso con amigos.
