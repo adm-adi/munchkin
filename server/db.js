@@ -1,15 +1,16 @@
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
+const logger = require('./logger');
 
 const DB_SOURCE = "munchkin.db";
 
 const db = new sqlite3.Database(DB_SOURCE, (err) => {
     if (err) {
-        console.error("❌ Error opening database", err.message);
+        logger.error("❌ Error opening database", err.message);
         throw err;
     } else {
-        console.log("📂 Connected to SQLite database.");
+        logger.info("📂 Connected to SQLite database.");
         initTables();
     }
 });
@@ -100,11 +101,11 @@ function initTables() {
         // Seed Monsters if empty
         db.get("SELECT count(*) as count FROM monsters", [], (err, row) => {
             if (err) {
-                console.error("❌ Error checking monsters count", err);
+                logger.error("❌ Error checking monsters count", err);
                 return;
             }
             if (row && row.count === 0) {
-                console.log("🌱 Seeding monsters database...");
+                logger.info("🌱 Seeding monsters database...");
                 const fs = require('fs');
                 const path = require('path');
                 const seedPath = path.join(__dirname, 'monsters_seed.sql');
@@ -113,16 +114,16 @@ function initTables() {
                     const seedSql = fs.readFileSync(seedPath, 'utf8');
                     db.exec(seedSql, (err) => {
                         if (err) {
-                            console.error("❌ Error running seed", err);
+                            logger.error("❌ Error running seed", err);
                         } else {
-                            console.log("✅ Monsters seeded successfully!");
+                            logger.info("✅ Monsters seeded successfully!");
                         }
                     });
                 } catch (e) {
-                    console.error("❌ Error reading seed file", e);
+                    logger.error("❌ Error reading seed file", e);
                 }
             } else {
-                console.log(`ℹ️ Monsters table has ${row ? row.count : 0} entries.`);
+                logger.info(`ℹ️ Monsters table has ${row ? row.count : 0} entries.`);
             }
         });
     });
@@ -294,7 +295,7 @@ function recordGame(gameId, winnerId, startTime, endTime, participants) {
             // gameId from server might be UUID, ensure it matches
             db.run(gameSql, [gameId, "HISTORY", "unknown", startTime, endTime, winnerId], function (err) {
                 if (err) {
-                    console.error("Error inserting game:", err);
+                    logger.error("Error inserting game:", err);
                     db.run("ROLLBACK");
                     return reject(err);
                 }
@@ -411,7 +412,7 @@ function saveActiveGame(game) {
             game.seq || 0
         ], function (err) {
             if (err) {
-                console.error('❌ Error saving game:', err);
+                logger.error('❌ Error saving game:', err);
                 reject(err);
             } else {
                 resolve(true);
@@ -432,7 +433,7 @@ function loadActiveGames() {
 
         db.all(sql, [maxAge], (err, rows) => {
             if (err) {
-                console.error('❌ Error loading games:', err);
+                logger.error('❌ Error loading games:', err);
                 reject(err);
                 return;
             }
@@ -451,7 +452,7 @@ function loadActiveGames() {
                 seq: row.seq
             }));
 
-            console.log(`📂 Loaded ${games.length} active games from database`);
+            logger.info(`📂 Loaded ${games.length} active games from database`);
             resolve(games);
         });
     });
@@ -465,10 +466,10 @@ function deleteActiveGame(gameId) {
     return new Promise((resolve, reject) => {
         db.run(`DELETE FROM active_games WHERE id = ?`, [gameId], function (err) {
             if (err) {
-                console.error('❌ Error deleting game:', err);
+                logger.error('❌ Error deleting game:', err);
                 reject(err);
             } else {
-                console.log(`🗑️ Deleted game ${gameId} from database`);
+                logger.info(`🗑️ Deleted game ${gameId} from database`);
                 resolve(true);
             }
         });
@@ -484,11 +485,11 @@ function cleanupOldGames() {
         const maxAge = Date.now() - (24 * 60 * 60 * 1000); // 24 hours
         db.run(`DELETE FROM active_games WHERE last_activity_at < ?`, [maxAge], function (err) {
             if (err) {
-                console.error('❌ Error cleaning up games:', err);
+                logger.error('❌ Error cleaning up games:', err);
                 reject(err);
             } else {
                 if (this.changes > 0) {
-                    console.log(`🧹 Cleaned up ${this.changes} old games`);
+                    logger.info(`🧹 Cleaned up ${this.changes} old games`);
                 }
                 resolve(this.changes);
             }

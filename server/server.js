@@ -12,24 +12,9 @@ const fs = require('fs');
 const url = require('url');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
-const helmet = require('helmet');
-const winston = require('winston');
 
-// Configure Winston Logger
-const logger = winston.createLogger({
-    level: 'info',
-    format: winston.format.combine(
-        winston.format.timestamp(),
-        winston.format.json()
-    ),
-    transports: [
-        new winston.transports.File({ filename: 'error.log', level: 'error' }),
-        new winston.transports.File({ filename: 'combined.log' }),
-        new winston.transports.Console({
-            format: winston.format.simple()
-        })
-    ],
-});
+const helmet = require('helmet');
+const logger = require('./logger');
 
 // Override console.log to use winston (optional, but ensures we catch everything)
 // console.log = (...args) => logger.info(args.join(' '));
@@ -81,13 +66,13 @@ try {
         };
         server = https.createServer(options, handleRequest);
         isSsl = true;
-        console.log('🔒 SSL Certificates found. Starting in HTTPS/WSS mode.');
+        logger.info('🔒 SSL Certificates found. Starting in HTTPS/WSS mode.');
     } else {
         server = http.createServer(handleRequest);
-        console.log('⚠️ No SSL Certificates found (key.pem/cert.pem). Starting in HTTP/WS mode.');
+        logger.info('⚠️ No SSL Certificates found (key.pem/cert.pem). Starting in HTTP/WS mode.');
     }
 } catch (e) {
-    console.error('Failed to load SSL certs, falling back to HTTP:', e);
+    logger.error('Failed to load SSL certs, falling back to HTTP:', e);
     server = http.createServer(handleRequest);
 }
 
@@ -152,7 +137,7 @@ function processRequest(req, res) {
     // API: Search Monsters
     if (req.method === 'GET' && parsedUrl.pathname === '/api/monsters') {
         const query = parsedUrl.query.q || '';
-        console.log(`🔍 Search Monsters: "${query}"`);
+        logger.info(`🔍 Search Monsters: "${query}"`);
 
         // SQL Injection protection handled by param binding, but relying on simple LIKE here
         // Note: db.all is async
@@ -181,7 +166,7 @@ const wss = new WebSocket.Server({ server });
 
 server.listen(PORT, '0.0.0.0', () => {
     const protocol = isSsl ? 'HTTPS/WSS' : 'HTTP/WS';
-    console.log(`✅ Server listening on port ${PORT} (${protocol})`);
+    logger.info(`✅ Server listening on port ${PORT} (${protocol})`);
 });
 
 // Store active games: gameId -> GameRoom
@@ -223,10 +208,10 @@ async function loadGamesFromDatabase() {
             }
 
             games.set(game.id, game);
-            console.log(`🔄 Restored game ${game.joinCode} with ${game.players.size} players`);
+            logger.info(`🔄 Restored game ${game.joinCode} with ${game.players.size} players`);
         }
     } catch (err) {
-        console.error('❌ Failed to load games from database:', err);
+        logger.error('❌ Failed to load games from database:', err);
     }
 }
 
@@ -260,11 +245,11 @@ class GameRoom {
                     player.ws.send(data);
                     sentCount++;
                 } else {
-                    console.log(`⚠️ Player ${player.name} (${playerId}) ws not open, state: ${player.ws.readyState}`);
+                    logger.info(`⚠️ Player ${player.name} (${playerId}) ws not open, state: ${player.ws.readyState}`);
                 }
             }
         }
-        console.log(`📢 Broadcast ${message.type} to ${sentCount} players`);
+        logger.info(`📢 Broadcast ${message.type} to ${sentCount} players`);
     }
 
     // Build GameState in the format expected by kotlinx.serialization
@@ -297,7 +282,7 @@ class GameRoom {
 
         // Add debug log for combat state serialization
         if (this.combat) {
-            console.log(`📦 buildingGameState: Sending Combat State with ${this.combat.tempBonuses.length} bonuses and mods H:${this.combat.heroModifier}/M:${this.combat.monsterModifier}`);
+            logger.info(`📦 buildingGameState: Sending Combat State with ${this.combat.tempBonuses.length} bonuses and mods H:${this.combat.heroModifier}/M:${this.combat.monsterModifier}`);
         }
 
         return {
@@ -345,19 +330,19 @@ function findGameByCode(joinCode) {
 
 // WSS already initialized above using http server
 
-// console.log(`🎮 Munchkin Server running on ws://0.0.0.0:${PORT}`);
+// logger.info(`🎮 Munchkin Server running on ws://0.0.0.0:${PORT}`);
 
 wss.on('connection', (ws, req) => {
     const clientIp = req.socket.remoteAddress;
     ws.clientIp = clientIp; // Store for rate limiting
-    console.log(`📱 Client connected from ${clientIp}`);
+    logger.info(`📱 Client connected from ${clientIp}`);
 
     ws.on('message', (data) => {
         try {
             const message = JSON.parse(data.toString());
             handleMessage(ws, message);
         } catch (e) {
-            console.error('Error parsing message:', e);
+            logger.error('Error parsing message:', e);
             sendError(ws, 'PARSE_ERROR', 'Invalid message format');
         }
     });
@@ -367,12 +352,12 @@ wss.on('connection', (ws, req) => {
     });
 
     ws.on('error', (err) => {
-        console.error('WebSocket error:', err);
+        logger.error('WebSocket error:', err);
     });
 });
 
 function handleMessage(ws, message) {
-    console.log('📨 Received:', message.type);
+    logger.info('📨 Received:', message.type);
 
     switch (message.type) {
         case 'HELLO':
@@ -456,7 +441,7 @@ function handleMessage(ws, message) {
             break;
 
         default:
-            console.log('Unknown message type:', message.type);
+            logger.info('Unknown message type:', message.type);
     }
 }
 
@@ -465,7 +450,7 @@ function handleCreateGame(ws, message) {
     const joinCode = generateJoinCode();
     const playerId = playerMeta.playerId || uuidv4();
 
-    console.log(`🎲 Creating game for ${playerMeta.name} with playerId: ${playerId}`);
+    logger.info(`🎲 Creating game for ${playerMeta.name} with playerId: ${playerId}`);
 
     const game = new GameRoom(playerId, joinCode, playerMeta.name, playerMeta.avatarId, playerMeta.gender);
     game.players.set(playerId, {
@@ -482,7 +467,7 @@ function handleCreateGame(ws, message) {
     games.set(game.id, game);
     clientGames.set(ws, { gameId: game.id, playerId });
 
-    console.log(`✅ Game created: ${joinCode} by ${playerMeta.name}`);
+    logger.info(`✅ Game created: ${joinCode} by ${playerMeta.name}`);
 
     // Send welcome with game state - use "WELCOME" type to match @SerialName
     const response = {
@@ -491,11 +476,11 @@ function handleCreateGame(ws, message) {
         yourPlayerId: playerId
     };
 
-    console.log('📤 Sending WELCOME:', JSON.stringify(response, null, 2));
+    logger.info('📤 Sending WELCOME:', JSON.stringify(response, null, 2));
     ws.send(JSON.stringify(response));
 
     // Persist game to database
-    db.saveActiveGame(game).catch(err => console.error('Failed to save game:', err));
+    db.saveActiveGame(game).catch(err => logger.error('Failed to save game:', err));
 }
 
 function handleListGames(ws) {
@@ -514,7 +499,7 @@ function handleListGames(ws) {
         }
     }
 
-    console.log(`📋 Listing ${availableGames.length} available games`);
+    logger.info(`📋 Listing ${availableGames.length} available games`);
 
     ws.send(JSON.stringify({
         type: "GAMES_LIST",
@@ -527,7 +512,7 @@ function handleHello(ws, message) {
 
     // Rate limiting for joining games
     if (isJoinRateLimited(clientIp)) {
-        console.warn(`⚠️ Rate check: Join limit exceeded for ${clientIp}`);
+        logger.warn(`⚠️ Rate check: Join limit exceeded for ${clientIp}`);
         // We don't send an error to avoid confirming existence, just ignore or delay
         // But for UX, let's send a generic error
         sendError(ws, 'RATE_LIMITED', 'Too many join attempts. Please wait.');
@@ -541,13 +526,13 @@ function handleHello(ws, message) {
     const game = findGameByCode(joinCode);
 
     if (!game) {
-        console.log(`❌ Invalid join code: ${joinCode}`);
+        logger.info(`❌ Invalid join code: ${joinCode}`);
         sendError(ws, 'INVALID_JOIN_CODE', 'Código de partida inválido');
         return;
     }
 
     const playerId = playerMeta.playerId?.value || playerMeta.playerId || uuidv4();
-    console.log(`👤 Player ${playerMeta.name} joining ${joinCode} with id: ${playerId}`);
+    logger.info(`👤 Player ${playerMeta.name} joining ${joinCode} with id: ${playerId}`);
 
     // Check if reconnecting
     if (game.players.has(playerId)) {
@@ -561,7 +546,7 @@ function handleHello(ws, message) {
         if (game.cleanupTimer) {
             clearTimeout(game.cleanupTimer);
             game.cleanupTimer = null;
-            console.log(`⏰ Cleanup timer cancelled for ${joinCode}`);
+            logger.info(`⏰ Cleanup timer cancelled for ${joinCode}`);
         }
 
         // Send WELCOME with playerId so client can properly navigate
@@ -578,7 +563,7 @@ function handleHello(ws, message) {
             isConnected: true
         }, playerId);
 
-        console.log(`🔄 Player ${playerMeta.name} reconnected to ${joinCode}`);
+        logger.info(`🔄 Player ${playerMeta.name} reconnected to ${joinCode}`);
         return;
     }
 
@@ -601,7 +586,7 @@ function handleHello(ws, message) {
     clientGames.set(ws, { gameId: game.id, playerId });
     game.seq++;
 
-    console.log(`✅ Player ${playerMeta.name} joined ${joinCode}`);
+    logger.info(`✅ Player ${playerMeta.name} joined ${joinCode}`);
 
     // Send welcome to new player
     ws.send(JSON.stringify({
@@ -625,7 +610,7 @@ function handleHello(ws, message) {
     });
 
     // Persist updated game
-    db.saveActiveGame(game).catch(err => console.error('Failed to save game:', err));
+    db.saveActiveGame(game).catch(err => logger.error('Failed to save game:', err));
 }
 
 function handleEvent(ws, message) {
@@ -637,7 +622,7 @@ function handleEvent(ws, message) {
 
     const { event } = message;
     const playerId = clientData.playerId;
-    console.log(`🎯 Event: ${event.type} from ${playerId}`);
+    logger.info(`🎯 Event: ${event.type} from ${playerId}`);
 
     // Apply event to game state
     applyEvent(game, event, playerId);
@@ -662,7 +647,7 @@ function handleEvent(ws, message) {
         'COMBAT_MODIFY_MODIFIER', 'COMBAT_SET_MODIFIER', 'COMBAT_ADD_BONUS', 'COMBAT_REMOVE_BONUS'
     ];
     if (saveableEvents.includes(event.type)) {
-        db.saveActiveGame(game).catch(err => console.error('Failed to save game:', err));
+        db.saveActiveGame(game).catch(err => logger.error('Failed to save game:', err));
     }
 }
 
@@ -777,20 +762,20 @@ function applyEvent(game, event, playerId) {
             break;
         case 'GAME_END':
             // Explicit end (e.g. host left)
-            console.log(`🏁 Game ${game.joinCode} explicit end. Winner: ${event.winnerId}`);
+            logger.info(`🏁 Game ${game.joinCode} explicit end. Winner: ${event.winnerId}`);
             closeGame(game, event.winnerId);
             break;
         case 'END_TURN':
             const nextPlayerId = getNextTurnPlayerId(game);
             game.turnPlayerId = nextPlayerId;
             game.combat = null; // Clear combat state
-            console.log(`cw Turn passed to ${game.players.get(nextPlayerId)?.name}`);
+            logger.info(`cw Turn passed to ${game.players.get(nextPlayerId)?.name}`);
             break;
     }
 
     // Check Win Condition
     if (player.level >= 10 && !game.winnerId) {
-        console.log(`🏆 Player ${player.name} reached Level 10!`);
+        logger.info(`🏆 Player ${player.name} reached Level 10!`);
         closeGame(game, player.id);
     }
 }
@@ -846,8 +831,8 @@ function closeGame(game, winnerId) {
     }
 
     db.recordGame(game.id, winnerUserId || "aborted", game.createdAt, Date.now(), participants)
-        .then(() => console.log(`💾 Game ${game.id} recorded in history`))
-        .catch(err => console.error(`❌ Failed to record game ${game.id}`, err));
+        .then(() => logger.info(`💾 Game ${game.id} recorded in history`))
+        .catch(err => logger.error(`❌ Failed to record game ${game.id}`, err));
 }
 
 // Rate limiting for join game
@@ -900,7 +885,7 @@ function handleRegister(ws, message) {
 
     db.createUser(username, email, password, avatarId || 0)
         .then(user => {
-            console.log(`✅ User registered: ${user.username} (${user.id})`);
+            logger.info(`✅ User registered: ${user.username} (${user.id})`);
 
             // SECURITY: Bind userId to WebSocket session
             ws.userId = user.id;
@@ -916,7 +901,7 @@ function handleRegister(ws, message) {
             }));
         })
         .catch(err => {
-            console.error("Register failed:", err.message);
+            logger.error("Register failed:", err.message);
             if (err.message === "EMAIL_EXISTS") {
                 sendError(ws, 'EMAIL_EXISTS', 'El email ya está registrado');
             } else {
@@ -945,7 +930,7 @@ function handleLogin(ws, message) {
         .then(user => {
             if (user) {
                 recordAuthAttempt(clientIp, true); // Clear rate limit on success
-                console.log(`✅ User logged in: ${user.username}`);
+                logger.info(`✅ User logged in: ${user.username}`);
 
                 // SECURITY: Bind userId to WebSocket session
                 ws.userId = user.id;
@@ -961,12 +946,12 @@ function handleLogin(ws, message) {
                 }));
             } else {
                 recordAuthAttempt(clientIp, false); // Record failed attempt
-                console.log(`❌ Login failed for ${email}`);
+                logger.info(`❌ Login failed for ${email}`);
                 sendError(ws, 'AUTH_FAILED', 'Email o contraseña incorrectos');
             }
         })
         .catch(err => {
-            console.error("Login error:", err);
+            logger.error("Login error:", err);
             sendError(ws, 'LOGIN_ERROR', 'Error interno al iniciar sesión');
         });
 }
@@ -982,7 +967,7 @@ function handleLoginWithToken(ws, message) {
     const payload = verifyToken(token);
 
     if (!payload) {
-        console.log("❌ Invalid or expired token presented");
+        logger.info("❌ Invalid or expired token presented");
         sendError(ws, 'AUTH_FAILED', 'Session expired');
         return;
     }
@@ -991,7 +976,7 @@ function handleLoginWithToken(ws, message) {
     db.getUserById(payload.id)
         .then(user => {
             if (user) {
-                console.log(`✅ User logged in via TOKEN: ${user.username}`);
+                logger.info(`✅ User logged in via TOKEN: ${user.username}`);
 
                 // SECURITY: Bind userId to WebSocket session
                 ws.userId = user.id;
@@ -1014,7 +999,7 @@ function handleLoginWithToken(ws, message) {
             }
         })
         .catch(err => {
-            console.error("Token login error:", err);
+            logger.error("Token login error:", err);
             sendError(ws, 'LOGIN_ERROR', 'Internal error');
         });
 }
@@ -1036,7 +1021,7 @@ function handleGetHistory(ws, message) {
             }));
         })
         .catch(err => {
-            console.error("History error:", err);
+            logger.error("History error:", err);
             // Optionally send error, but usually UI just shows empty
         });
 
@@ -1050,7 +1035,7 @@ function handleGetLeaderboard(ws) {
                 leaderboard: leaderboard
             }));
         })
-        .catch(err => console.error("Leaderboard error:", err));
+        .catch(err => logger.error("Leaderboard error:", err));
 }
 
 // ============== Auth Handlers ==============
@@ -1074,7 +1059,7 @@ function handleRegister(ws, message) {
 
     db.createUser(username, email, password, avatarId || 0)
         .then(user => {
-            console.log(`✅ User registered: ${user.username} (${user.id})`);
+            logger.info(`✅ User registered: ${user.username} (${user.id})`);
 
             // Generate Token
             const token = signToken({ id: user.id, username: user.username, email: user.email });
@@ -1094,7 +1079,7 @@ function handleRegister(ws, message) {
             }));
         })
         .catch(err => {
-            console.error("Register failed:", err.message);
+            logger.error("Register failed:", err.message);
             if (err.message === "EMAIL_EXISTS") {
                 sendError(ws, 'EMAIL_EXISTS', 'El email ya está registrado');
             } else {
@@ -1123,7 +1108,7 @@ function handleLogin(ws, message) {
         .then(user => {
             if (user) {
                 recordAuthAttempt(clientIp, true); // Clear rate limit on success
-                console.log(`✅ User logged in: ${user.username}`);
+                logger.info(`✅ User logged in: ${user.username}`);
 
                 // Generate Token
                 const token = signToken({ id: user.id, username: user.username, email: user.email });
@@ -1143,12 +1128,12 @@ function handleLogin(ws, message) {
                 }));
             } else {
                 recordAuthAttempt(clientIp, false); // Record failed attempt
-                console.log(`❌ Login failed for ${email}`);
+                logger.info(`❌ Login failed for ${email}`);
                 sendError(ws, 'AUTH_FAILED', 'Email o contraseña incorrectos');
             }
         })
         .catch(err => {
-            console.error("Login error:", err);
+            logger.error("Login error:", err);
             sendError(ws, 'LOGIN_ERROR', 'Error interno al iniciar sesión');
         });
 }
@@ -1164,7 +1149,7 @@ function handleLoginWithToken(ws, message) {
     const payload = verifyToken(token);
 
     if (!payload) {
-        console.log("❌ Invalid or expired token presented");
+        logger.info("❌ Invalid or expired token presented");
         sendError(ws, 'AUTH_FAILED', 'Session expired');
         return;
     }
@@ -1173,7 +1158,7 @@ function handleLoginWithToken(ws, message) {
     db.getUserById(payload.id)
         .then(user => {
             if (user) {
-                console.log(`✅ User logged in via TOKEN: ${user.username}`);
+                logger.info(`✅ User logged in via TOKEN: ${user.username}`);
 
                 // SECURITY: Bind userId to WebSocket session
                 ws.userId = user.id;
@@ -1193,7 +1178,7 @@ function handleLoginWithToken(ws, message) {
             }
         })
         .catch(err => {
-            console.error("Token login error:", err);
+            logger.error("Token login error:", err);
             sendError(ws, 'LOGIN_ERROR', 'Internal error');
         });
 }
@@ -1204,7 +1189,7 @@ function handleUpdateProfile(ws, message) {
 
     // Security check: Verify session matches requested update
     if (!ws.userId || ws.userId !== userId) {
-        console.warn(`⚠️ SECURITY: Unauthorized profile update attempt. Session: ${ws.userId}, Target: ${userId}`);
+        logger.warn(`⚠️ SECURITY: Unauthorized profile update attempt. Session: ${ws.userId}, Target: ${userId}`);
         sendError(ws, 'FORBIDDEN', 'No tienes permiso para editar este perfil');
         return;
     }
@@ -1221,7 +1206,7 @@ function handleUpdateProfile(ws, message) {
 
     db.updateUser(userId, username, password)
         .then(user => {
-            console.log(`✅ Profile updated for user: ${user.username}`);
+            logger.info(`✅ Profile updated for user: ${user.username}`);
             ws.send(JSON.stringify({
                 type: "PROFILE_UPDATED",
                 user: {
@@ -1233,7 +1218,7 @@ function handleUpdateProfile(ws, message) {
             }));
         })
         .catch(err => {
-            console.error("Update profile error:", err);
+            logger.error("Update profile error:", err);
             sendError(ws, 'UPDATE_FAILED', 'Error al actualizar perfil');
         });
 }
@@ -1250,7 +1235,7 @@ function handleEndTurn(ws) {
     // Let's strictly allow only the turn player (or host for override, but let's stick to turn player first)
     // Actually, usually turn player ends turn.
     if (game.turnPlayerId !== clientData.playerId) {
-        console.log(`⚠️ Player ${clientData.playerId} tried to end turn but it is ${game.turnPlayerId}'s turn`);
+        logger.info(`⚠️ Player ${clientData.playerId} tried to end turn but it is ${game.turnPlayerId}'s turn`);
         return;
     }
 
@@ -1260,7 +1245,7 @@ function handleEndTurn(ws) {
     let nextIndex = (currentIndex + 1) % playerIds.length;
     game.turnPlayerId = playerIds[nextIndex];
 
-    console.log(`🔄 Turn changed: ${clientData.playerId} -> ${game.turnPlayerId}`);
+    logger.info(`🔄 Turn changed: ${clientData.playerId} -> ${game.turnPlayerId}`);
     game.broadcast(game.buildGameState());
 }
 
@@ -1284,7 +1269,7 @@ function handleGameOver(ws, message) {
     game.winnerId = winnerId;
     game.seq++;
 
-    console.log(`🏁 Game Over: ${game.joinCode}, Winner: ${winnerId}`);
+    logger.info(`🏁 Game Over: ${game.joinCode}, Winner: ${winnerId}`);
 
     // Broadcast update so clients see FINISHED phase
     game.broadcast({
@@ -1305,9 +1290,9 @@ function handleGameOver(ws, message) {
 
     db.recordGame(gameId, winnerId, game.createdAt, Date.now(), participants)
         .then(() => {
-            console.log("💾 Game recorded successfully");
+            logger.info("💾 Game recorded successfully");
         })
-        .catch(err => console.error("Error recording game:", err));
+        .catch(err => logger.error("Error recording game:", err));
 
     // Cleanup game immediately or let it linger?
     // Usually keep it briefly for "Game Over" screen sync.
@@ -1344,7 +1329,7 @@ function handleEndTurn(ws) {
     game.seq++;
 
     const nextPlayer = game.players.get(game.turnPlayerId);
-    console.log(`🔄 Turn advanced to: ${nextPlayer?.name || game.turnPlayerId}`);
+    logger.info(`🔄 Turn advanced to: ${nextPlayer?.name || game.turnPlayerId}`);
 
     // Broadcast updated state
     game.broadcast({
@@ -1384,7 +1369,7 @@ function handleCombatDiceRoll(ws, message) {
     // Store in game for buildGameState to include
     game.lastCombatDiceRoll = diceRollInfo;
 
-    console.log(`🎲 ${player.name} rolled ${result} for ${purpose} - ${success ? 'SUCCESS' : 'FAIL'}`);
+    logger.info(`🎲 ${player.name} rolled ${result} for ${purpose} - ${success ? 'SUCCESS' : 'FAIL'}`);
 
     // Broadcast the dice roll event to all players
     game.broadcast({
@@ -1409,14 +1394,14 @@ function handleCatalogSearch(ws, message) {
 
     db.searchMonsters(query)
         .then(results => {
-            console.log(`🔍 Search '${query}' returned ${results.length} monsters`);
+            logger.info(`🔍 Search '${query}' returned ${results.length} monsters`);
             ws.send(JSON.stringify({
                 type: "CATALOG_SEARCH_RESULT",
                 results: results
             }));
         })
         .catch(err => {
-            console.error("Search error:", err);
+            logger.error("Search error:", err);
             sendError(ws, "SEARCH_ERROR", "Error al buscar monstruos");
         });
 }
@@ -1431,14 +1416,14 @@ function handleCatalogAdd(ws, message) {
 
     db.addMonster(monster, userId)
         .then(id => {
-            console.log(`🆕 Added monster: ${monster.name} (${id})`);
+            logger.info(`🆕 Added monster: ${monster.name} (${id})`);
             ws.send(JSON.stringify({
                 type: "CATALOG_ADD_SUCCESS",
                 monster: { ...monster, id }
             }));
         })
         .catch(err => {
-            console.error("Add monster error:", err);
+            logger.error("Add monster error:", err);
             sendError(ws, "ADD_MONSTER_ERROR", "Error al guardar monstruo");
         });
 }
@@ -1449,7 +1434,7 @@ function handleDisconnect(ws) {
 
     const game = games.get(clientData.gameId);
     if (game) {
-        console.log(`👋 Player ${clientData.playerId} disconnected from ${game.joinCode}`);
+        logger.info(`👋 Player ${clientData.playerId} disconnected from ${game.joinCode}`);
 
         // Mark player as disconnected but KEEP in game for reconnection
         const player = game.players.get(clientData.playerId);
@@ -1476,7 +1461,7 @@ function handleDisconnect(ws) {
         // Only delete game if ALL players are disconnected
         if (connectedCount === 0) {
             // Give players 5 minutes to reconnect before deleting the game
-            console.log(`⏳ All players disconnected from ${game.joinCode}, starting 5-minute cleanup timer`);
+            logger.info(`⏳ All players disconnected from ${game.joinCode}, starting 5-minute cleanup timer`);
             game.cleanupTimer = setTimeout(() => {
                 // Check again if still empty
                 let stillEmpty = true;
@@ -1488,8 +1473,8 @@ function handleDisconnect(ws) {
                 }
                 if (stillEmpty && games.has(clientData.gameId)) {
                     games.delete(clientData.gameId);
-                    db.deleteActiveGame(clientData.gameId).catch(err => console.error('Failed to delete game from DB:', err));
-                    console.log(`🗑️ Game ${game.joinCode} deleted (all players disconnected for 5 min)`);
+                    db.deleteActiveGame(clientData.gameId).catch(err => logger.error('Failed to delete game from DB:', err));
+                    logger.info(`🗑️ Game ${game.joinCode} deleted (all players disconnected for 5 min)`);
                 }
             }, 5 * 60 * 1000); // 5 minutes
         } else {
@@ -1500,7 +1485,7 @@ function handleDisconnect(ws) {
                     if (p.isConnected !== false && p.ws) {
                         game.hostId = pid;
                         game.hostName = p.name;
-                        console.log(`👑 Host migrated to ${game.hostName} (${pid})`);
+                        logger.info(`👑 Host migrated to ${game.hostName} (${pid})`);
 
                         // Broadcast new state with new host
                         game.broadcast({
@@ -1520,7 +1505,7 @@ function handleDisconnect(ws) {
                     game.turnPlayerId = nextPlayerId;
                     game.combat = null; // Clear combat
 
-                    console.log(`⏩ Auto-advancing turn from disconnected player to ${game.players.get(nextPlayerId)?.name}`);
+                    logger.info(`⏩ Auto-advancing turn from disconnected player to ${game.players.get(nextPlayerId)?.name}`);
 
                     // Broadcast new state
                     game.broadcast({
@@ -1532,7 +1517,7 @@ function handleDisconnect(ws) {
             }
 
             // Persist changes
-            db.saveActiveGame(game).catch(err => console.error('Failed to save game:', err));
+            db.saveActiveGame(game).catch(err => logger.error('Failed to save game:', err));
         }
     }
 
@@ -1551,7 +1536,7 @@ function handleDeleteGame(ws, message) {
         return;
     }
 
-    console.log(`🛑 Game ${game.joinCode} deleted by host ${clientInfo.playerId}`);
+    logger.info(`🛑 Game ${game.joinCode} deleted by host ${clientInfo.playerId}`);
 
     // Notify all players
     game.broadcast({
@@ -1563,7 +1548,7 @@ function handleDeleteGame(ws, message) {
     // Better to let client handle GAME_DELETED event and disconnect.
 
     games.delete(game.id);
-    db.deleteActiveGame(game.id).catch(err => console.error('Failed to delete game from DB:', err));
+    db.deleteActiveGame(game.id).catch(err => logger.error('Failed to delete game from DB:', err));
 }
 
 function sendError(ws, code, message) {
@@ -1582,16 +1567,16 @@ setInterval(() => {
     for (const [gameId, game] of games) {
         if (now - game.createdAt > maxAge) {
             games.delete(gameId);
-            db.deleteActiveGame(gameId).catch(err => console.error('Failed to delete game from DB:', err));
-            console.log(`🧹 Cleaned up old game ${game.joinCode}`);
+            db.deleteActiveGame(gameId).catch(err => logger.error('Failed to delete game from DB:', err));
+            logger.info(`🧹 Cleaned up old game ${game.joinCode}`);
         }
     }
 
     // Cleanup database orphans
-    db.cleanupOldGames().catch(err => console.error('Failed to cleanup DB:', err));
+    db.cleanupOldGames().catch(err => logger.error('Failed to cleanup DB:', err));
 }, 60 * 60 * 1000);
 
-console.log('✅ Server ready to accept connections');
+logger.info('✅ Server ready to accept connections');
 
 function handleSwapPlayers(ws, message) {
     const { player1, player2 } = message;
