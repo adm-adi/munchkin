@@ -1357,9 +1357,14 @@ class GameViewModel : ViewModel() {
     override fun onCleared() {
         super.onCleared()
         nsdHelper?.cleanup()
-        viewModelScope.launch {
-            gameServer?.stop()
-            gameClient?.disconnect()
+        // Use runBlocking to ensure cleanup completes before scope is cancelled
+        val client = gameClient
+        val server = gameServer
+        if (client != null || server != null) {
+            kotlinx.coroutines.runBlocking {
+                client?.disconnect()
+                server?.stop()
+            }
         }
     }
     

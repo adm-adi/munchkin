@@ -165,6 +165,13 @@ function processRequest(req, res) {
         return;
     }
 
+    // Health check endpoint
+    if (req.method === 'GET' && parsedUrl.pathname === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', games: games.size, uptime: process.uptime() }));
+        return;
+    }
+
     // Default: 404
     res.writeHead(404);
     res.end();
@@ -468,6 +475,25 @@ function handleMessage(ws, message) {
     }
 }
 
+function createPlayerState(ws, meta) {
+    return {
+        ws,
+        name: meta.name,
+        avatarId: meta.avatarId || 0,
+        gender: meta.gender || "MALE",
+        userId: meta.userId || null,
+        level: 1,
+        gear: 0,
+        treasures: 0,
+        characterClass: "NONE",
+        characterRace: "HUMAN",
+        hasHalfBreed: false,
+        hasSuperMunchkin: false,
+        isConnected: true,
+        joinedAt: Date.now()
+    };
+}
+
 function handleCreateGame(ws, message) {
     const { playerMeta } = message;
     const joinCode = generateJoinCode();
@@ -476,16 +502,7 @@ function handleCreateGame(ws, message) {
     logger.info(`🎲 Creating game for ${playerMeta.name} with playerId: ${playerId}`);
 
     const game = new GameRoom(playerId, joinCode, playerMeta.name, playerMeta.avatarId, playerMeta.gender, ws.userId);
-    game.players.set(playerId, {
-        ws,
-        name: playerMeta.name,
-        avatarId: playerMeta.avatarId || 0,
-        gender: playerMeta.gender || "M",
-        userId: playerMeta.userId || null, // Store meaningful userId
-        level: 1,
-        gear: 0,
-        joinedAt: Date.now()
-    });
+    game.players.set(playerId, createPlayerState(ws, playerMeta));
 
     games.set(game.id, game);
     clientGames.set(ws, { gameId: game.id, playerId });
@@ -603,20 +620,7 @@ function handleHello(ws, message) {
     }
 
     // New player joining
-    game.players.set(playerId, {
-        ws,
-        name: playerMeta.name,
-        avatarId: playerMeta.avatarId || 0,
-        gender: playerMeta.gender || "MALE",
-        userId: playerMeta.userId || null,
-        level: 1,
-        gear: 0,
-        level: 1,
-        gear: 0,
-        characterClass: "NONE",
-        characterRace: "HUMAN",
-        joinedAt: Date.now()
-    });
+    game.players.set(playerId, createPlayerState(ws, playerMeta));
 
     clientGames.set(ws, { gameId: game.id, playerId });
     game.seq++;
@@ -787,6 +791,10 @@ function applyEvent(game, event, playerId) {
             if (game.combat) game.combat.tempBonuses = game.combat.tempBonuses.filter(b => b.id !== event.bonusId);
             break;
         case 'COMBAT_END': {
+            if (!game.combat || event.actorId !== game.combat.mainPlayerId) {
+                sendError(ws, 'UNAUTHORIZED', 'Solo el jugador principal puede terminar el combate');
+                return;
+            }
             const helperPlayerId = game.combat?.helperPlayerId ?? null;
             game.combat = null;
             if (event.outcome === 'WIN') {
@@ -883,6 +891,30 @@ function closeGame(game, winnerId) {
     db.recordGame(game.id, winnerUserId || "aborted", game.createdAt, Date.now(), participants)
         .then(() => logger.info(`💾 Game ${game.id} recorded in history`))
         .catch(err => logger.error(`❌ Failed to record game ${game.id}`, err));
+}
+
+// Rate limiting for catalog add (per userId)
+const catalogAddRateLimits = new Map(); // userId -> { count: number, windowStart: timestamp }
+const CATALOG_ADD_MAX_PER_MINUTE = 10;
+const CATALOG_ADD_WINDOW_MS = 60 * 1000;
+
+function isCatalogAddRateLimited(userId) {
+    const record = catalogAddRateLimits.get(userId);
+    if (!record) return false;
+    if (Date.now() - record.windowStart > CATALOG_ADD_WINDOW_MS) {
+        catalogAddRateLimits.delete(userId);
+        return false;
+    }
+    return record.count >= CATALOG_ADD_MAX_PER_MINUTE;
+}
+
+function recordCatalogAdd(userId) {
+    const record = catalogAddRateLimits.get(userId);
+    if (!record || Date.now() - record.windowStart > CATALOG_ADD_WINDOW_MS) {
+        catalogAddRateLimits.set(userId, { count: 1, windowStart: Date.now() });
+    } else {
+        record.count++;
+    }
 }
 
 // Rate limiting for join game
@@ -1298,6 +1330,13 @@ function handleCatalogAdd(ws, message) {
         return;
     }
 
+    const rateLimitKey = userId || ws.clientIp || 'anonymous';
+    if (isCatalogAddRateLimited(rateLimitKey)) {
+        sendError(ws, "RATE_LIMITED", "Demasiados monstruos añadidos. Espera un momento.");
+        return;
+    }
+    recordCatalogAdd(rateLimitKey);
+
     db.addMonster(monster, userId)
         .then(id => {
             logger.info(`🆕 Added monster: ${monster.name} (${id})`);
@@ -1436,6 +1475,7 @@ function handleDeleteGame(ws, message) {
 }
 
 function sendError(ws, code, message) {
+    if (ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({
         type: "ERROR",
         code,
@@ -1459,6 +1499,34 @@ setInterval(() => {
     // Cleanup database orphans
     db.cleanupOldGames().catch(err => logger.error('Failed to cleanup DB:', err));
 }, 60 * 60 * 1000);
+
+// Graceful shutdown: persist all active games before exiting
+async function gracefulShutdown(signal) {
+    logger.info(`🛑 Received ${signal}. Saving active games and shutting down...`);
+    try {
+        const savePromises = [];
+        for (const game of games.values()) {
+            savePromises.push(db.saveActiveGame(game).catch(err => logger.error(`Failed to save game ${game.joinCode}:`, err)));
+        }
+        await Promise.all(savePromises);
+        logger.info(`✅ Saved ${savePromises.length} active games. Exiting.`);
+    } catch (err) {
+        logger.error('Error during shutdown:', err);
+    }
+    process.exit(0);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+process.on('uncaughtException', (err) => {
+    logger.error('💥 Uncaught Exception:', err);
+    gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason) => {
+    logger.error('💥 Unhandled Rejection:', reason);
+});
 
 logger.info('✅ Server ready to accept connections');
 

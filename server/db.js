@@ -98,6 +98,11 @@ function initTables() {
             }
         });
 
+        // Performance indexes
+        db.run(`CREATE INDEX IF NOT EXISTS idx_participants_user ON participants(user_id)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_games_winner ON games(winner_id)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_monsters_name ON monsters(name)`);
+
         // Seed Monsters if empty
         db.get("SELECT count(*) as count FROM monsters", [], (err, row) => {
             if (err) {
@@ -447,19 +452,35 @@ function loadActiveGames() {
                 return;
             }
 
-            const games = rows.map(row => ({
-                id: row.id,
-                joinCode: row.join_code,
-                hostId: row.host_id,
-                hostName: row.host_name,
-                phase: row.phase,
-                turnPlayerId: row.turn_player_id,
-                players: JSON.parse(row.players_json || '{}'),
-                combat: row.combat_json ? JSON.parse(row.combat_json) : null,
-                createdAt: row.created_at,
-                lastActivityAt: row.last_activity_at,
-                seq: row.seq
-            }));
+            const games = rows.reduce((acc, row) => {
+                let players, combat;
+                try {
+                    players = JSON.parse(row.players_json || '{}');
+                } catch (e) {
+                    logger.error(`❌ Corrupted players_json for game ${row.id}, skipping:`, e);
+                    return acc;
+                }
+                try {
+                    combat = row.combat_json ? JSON.parse(row.combat_json) : null;
+                } catch (e) {
+                    logger.warn(`⚠️ Corrupted combat_json for game ${row.id}, resetting combat:`, e);
+                    combat = null;
+                }
+                acc.push({
+                    id: row.id,
+                    joinCode: row.join_code,
+                    hostId: row.host_id,
+                    hostName: row.host_name,
+                    phase: row.phase,
+                    turnPlayerId: row.turn_player_id,
+                    players,
+                    combat,
+                    createdAt: row.created_at,
+                    lastActivityAt: row.last_activity_at,
+                    seq: row.seq
+                });
+                return acc;
+            }, []);
 
             logger.info(`📂 Loaded ${games.length} active games from database`);
             resolve(games);

@@ -1,5 +1,6 @@
 package com.munchkin.app.data
 
+import android.util.Log
 import androidx.room.*
 import com.munchkin.app.core.GameState
 import kotlinx.coroutines.flow.Flow
@@ -59,6 +60,7 @@ class GameStateConverter {
         return try {
             json.decodeFromString<GameState>(jsonString)
         } catch (e: Exception) {
+            Log.e("GameStateConverter", "Failed to deserialize GameState", e)
             null
         }
     }
