@@ -25,17 +25,20 @@ const PORT = 8765;
 
 // JWT configuration
 const crypto = require('crypto');
-const JWT_SECRET = process.env.JWT_SECRET || "munchkin_secret_key_change_in_prod";
 
-// Simple JWT implementation (since we want to avoid complex dependencies if possible, but using internal crypto is better)
-// Actually, let's use a simple signing function for now without extra deps if user didn't install jsonwebtoken
-// But plan said `npm install jsonwebtoken`.
-// Let's stick to standard internal crypto for signature if we can, or just use a simple base64 approach 
-// signed with HMAC.
+if (!process.env.JWT_SECRET) {
+    logger.error('❌ FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
+    process.exit(1);
+}
+const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_EXPIRY_SECONDS = 48 * 60 * 60; // 48 hours
+
 function signToken(payload) {
     const header = { alg: 'HS256', typ: 'JWT' };
+    const now = Math.floor(Date.now() / 1000);
+    const fullPayload = { ...payload, iat: now, exp: now + JWT_EXPIRY_SECONDS };
     const h = Buffer.from(JSON.stringify(header)).toString('base64url');
-    const p = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const p = Buffer.from(JSON.stringify(fullPayload)).toString('base64url');
     const signature = crypto.createHmac('sha256', JWT_SECRET).update(`${h}.${p}`).digest('base64url');
     return `${h}.${p}.${signature}`;
 }
@@ -48,7 +51,15 @@ function verifyToken(token) {
         const signature = crypto.createHmac('sha256', JWT_SECRET).update(`${h}.${p}`).digest('base64url');
         if (signature !== s) return null;
 
-        return JSON.parse(Buffer.from(p, 'base64url').toString());
+        const payload = JSON.parse(Buffer.from(p, 'base64url').toString());
+
+        // Check expiration
+        if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp) {
+            logger.info('⏰ Token expired');
+            return null;
+        }
+
+        return payload;
     } catch (e) {
         return null;
     }
@@ -119,7 +130,7 @@ function processRequest(req, res) {
     // CORS headers - restricted to mobile app and local development
     const allowedOrigins = ['capacitor://localhost', 'http://localhost', 'https://localhost'];
     const origin = req.headers.origin;
-    if (origin && allowedOrigins.some(allowed => origin.startsWith(allowed))) {
+    if (origin && allowedOrigins.includes(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
     }
     res.setHeader('Access-Control-Request-Method', '*');
@@ -136,11 +147,9 @@ function processRequest(req, res) {
 
     // API: Search Monsters
     if (req.method === 'GET' && parsedUrl.pathname === '/api/monsters') {
-        const query = parsedUrl.query.q || '';
+        const query = (parsedUrl.query.q || '').slice(0, 50); // hard cap at 50 chars
         logger.info(`🔍 Search Monsters: "${query}"`);
 
-        // SQL Injection protection handled by param binding, but relying on simple LIKE here
-        // Note: db.all is async
         const sql = `SELECT * FROM monsters WHERE name LIKE ? ORDER BY level ASC LIMIT 50`;
         const params = [`%${query}%`];
 
@@ -312,11 +321,11 @@ class GameRoom {
     }
 }
 
-// Generate 6-char join code
+// Generate 8-char join code (~40 bits entropy)
 function generateJoinCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let code = '';
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 8; i++) {
         code += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return code;
@@ -341,13 +350,19 @@ wss.on('connection', (ws, req) => {
     ws.clientIp = clientIp; // Store for rate limiting
     logger.info(`📱 Client connected from ${clientIp}`);
 
-    ws.on('message', (data) => {
+    ws.on('message', (messageStr) => {
+        let message;
         try {
-            const message = JSON.parse(data.toString());
+            message = JSON.parse(messageStr);
+        } catch (e) {
+            logger.error(`❌ Invalid JSON received: ${e.message}`);
+            return; // Ignore malformed messages
+        }
+        try {
             handleMessage(ws, message);
         } catch (e) {
-            logger.error('Error parsing message:', e);
-            sendError(ws, 'PARSE_ERROR', 'Invalid message format');
+            logger.error('Error handling message:', e); // Changed from 'Error parsing message'
+            sendError(ws, 'SERVER_ERROR', 'An internal server error occurred while processing your message.'); // Changed error type and message
         }
     });
 
@@ -394,10 +409,6 @@ function handleMessage(ws, message) {
 
         case 'LOGIN':
             handleLogin(ws, message);
-            break;
-
-        case 'LOGIN_WITH_TOKEN':
-            handleLoginWithToken(ws, message);
             break;
 
         case 'LOGIN_WITH_TOKEN':
@@ -543,7 +554,19 @@ function handleHello(ws, message) {
         return;
     }
 
-    const playerId = playerMeta.playerId?.value || playerMeta.playerId || uuidv4();
+    let playerId = playerMeta.playerId?.value || playerMeta.playerId || uuidv4();
+
+    // Check if this user is already in the game under a different playerId (e.g. reinstall, different device)
+    if (ws.userId) {
+        for (const [existingPid, player] of game.players.entries()) {
+            if (player.userId === ws.userId) {
+                logger.info(`🔄 Authenticated User ${ws.userId} (${player.name}) recognized as existing player ${existingPid}`);
+                playerId = existingPid; // Resume as the existing player
+                break;
+            }
+        }
+    }
+
     logger.info(`👤 Player ${playerMeta.name} joining ${joinCode} with id: ${playerId}`);
 
     // Check if reconnecting
@@ -635,6 +658,13 @@ function handleEvent(ws, message) {
     const { event } = message;
     const playerId = clientData.playerId;
     logger.info(`🎯 Event: ${event.type} from ${playerId}`);
+
+    // Security: reject events where the claimed actor doesn't match the authenticated session
+    if (event.actorId && event.actorId !== playerId) {
+        logger.warn(`⚠️ SECURITY: Actor mismatch. Session: ${playerId}, Event.actorId: ${event.actorId}`);
+        sendError(ws, 'FORBIDDEN', 'Action not authorized');
+        return;
+    }
 
     // Apply event to game state
     applyEvent(game, event, playerId);
@@ -876,146 +906,6 @@ function isValidInput(text, maxLength) {
     return text && typeof text === 'string' && text.length > 0 && text.length <= maxLength;
 }
 
-// ============== Auth Handlers ==============
-
-function handleRegister(ws, message) {
-    let { username, email, password, avatarId } = message;
-
-    if (!isValidInput(username, 20) || !isValidInput(password, 100)) {
-        sendError(ws, 'INVALID_DATA', 'Invalid or too long username/password');
-        return;
-    }
-
-    // Auto-generate email if not provided (User just wants username)
-    if (!email) {
-        const sanitizedParams = username.toLowerCase().replace(/[^a-z0-9]/g, '');
-        email = `${sanitizedParams}@munchkin.local`;
-    } else if (!isValidInput(email, 100)) {
-        sendError(ws, 'INVALID_DATA', 'Email too long');
-        return;
-    }
-
-    db.createUser(username, email, password, avatarId || 0)
-        .then(user => {
-            logger.info(`✅ User registered: ${user.username} (${user.id})`);
-
-            // SECURITY: Bind userId to WebSocket session
-            ws.userId = user.id;
-
-            ws.send(JSON.stringify({
-                type: 'AUTH_SUCCESS',
-                user: {
-                    id: user.id,
-                    username: user.username,
-                    email: user.email,
-                    avatarId: user.avatarId
-                }
-            }));
-        })
-        .catch(err => {
-            logger.error("Register failed:", err.message);
-            if (err.message === "EMAIL_EXISTS") {
-                sendError(ws, 'EMAIL_EXISTS', 'El email ya está registrado');
-            } else {
-                sendError(ws, 'REGISTER_FAILED', 'Error al registrar usuario');
-            }
-        });
-}
-
-function handleLogin(ws, message) {
-    const clientIp = ws.clientIp || 'unknown';
-
-    // Rate limiting check
-    if (isRateLimited(clientIp)) {
-        sendError(ws, 'RATE_LIMITED', 'Demasiados intentos. Espera 15 minutos.');
-        return;
-    }
-
-    const { email, password } = message;
-
-    if (!isValidInput(email, 100) || !isValidInput(password, 100)) {
-        sendError(ws, 'INVALID_DATA', 'Invalid input format');
-        return;
-    }
-
-    db.verifyUser(email, password)
-        .then(user => {
-            if (user) {
-                recordAuthAttempt(clientIp, true); // Clear rate limit on success
-                logger.info(`✅ User logged in: ${user.username}`);
-
-                // SECURITY: Bind userId to WebSocket session
-                ws.userId = user.id;
-
-                ws.send(JSON.stringify({
-                    type: 'AUTH_SUCCESS',
-                    user: {
-                        id: user.id,
-                        username: user.username,
-                        email: user.email,
-                        avatarId: user.avatarId
-                    }
-                }));
-            } else {
-                recordAuthAttempt(clientIp, false); // Record failed attempt
-                logger.info(`❌ Login failed for ${email}`);
-                sendError(ws, 'AUTH_FAILED', 'Email o contraseña incorrectos');
-            }
-        })
-        .catch(err => {
-            logger.error("Login error:", err);
-            sendError(ws, 'LOGIN_ERROR', 'Error interno al iniciar sesión');
-        });
-}
-
-function handleLoginWithToken(ws, message) {
-    const { token } = message;
-
-    if (!token) {
-        sendError(ws, 'AUTH_FAILED', 'Missing token');
-        return;
-    }
-
-    const payload = verifyToken(token);
-
-    if (!payload) {
-        logger.info("❌ Invalid or expired token presented");
-        sendError(ws, 'AUTH_FAILED', 'Session expired');
-        return;
-    }
-
-    // Token is valid, get user details to ensure they still exist
-    db.getUserById(payload.id)
-        .then(user => {
-            if (user) {
-                logger.info(`✅ User logged in via TOKEN: ${user.username}`);
-
-                // SECURITY: Bind userId to WebSocket session
-                ws.userId = user.id;
-
-                // If token is near expiration, we could issue a new one here
-                // For now, just confirm success
-
-                ws.send(JSON.stringify({
-                    type: 'AUTH_SUCCESS',
-                    token: token, // Echo back or send new one
-                    user: {
-                        id: user.id,
-                        username: user.username,
-                        email: user.email,
-                        avatarId: user.avatarId
-                    }
-                }));
-            } else {
-                sendError(ws, 'AUTH_FAILED', 'User not found');
-            }
-        })
-        .catch(err => {
-            logger.error("Token login error:", err);
-            sendError(ws, 'LOGIN_ERROR', 'Internal error');
-        });
-}
-
 function handleGetHistory(ws, message) {
     const { userId } = message;
     if (!userId) return;
@@ -1049,8 +939,6 @@ function handleGetLeaderboard(ws) {
         })
         .catch(err => logger.error("Leaderboard error:", err));
 }
-
-// ============== Auth Handlers ==============
 
 function handleRegister(ws, message) {
     let { username, email, password, avatarId } = message;
@@ -1236,31 +1124,6 @@ function handleUpdateProfile(ws, message) {
 }
 
 
-function handleEndTurn(ws) {
-    const clientData = clientGames.get(ws);
-    if (!clientData) return;
-
-    const game = games.get(clientData.gameId);
-    if (!game) return;
-
-    // Only current turn player can end turn? Or host?
-    // Let's strictly allow only the turn player (or host for override, but let's stick to turn player first)
-    // Actually, usually turn player ends turn.
-    if (game.turnPlayerId !== clientData.playerId) {
-        logger.info(`⚠️ Player ${clientData.playerId} tried to end turn but it is ${game.turnPlayerId}'s turn`);
-        return;
-    }
-
-    // Pass turn to next player
-    const playerIds = Array.from(game.players.keys());
-    const currentIndex = playerIds.indexOf(game.turnPlayerId);
-    let nextIndex = (currentIndex + 1) % playerIds.length;
-    game.turnPlayerId = playerIds[nextIndex];
-
-    logger.info(`🔄 Turn changed: ${clientData.playerId} -> ${game.turnPlayerId}`);
-    game.broadcast(game.buildGameState());
-}
-
 function handleGameOver(ws, message) {
     const { gameId, winnerId } = message;
 
@@ -1395,12 +1258,13 @@ function handleCombatDiceRoll(ws, message) {
 function handleCatalogSearch(ws, message) {
     const { query } = message;
 
-    // Allow empty query to return recent random monsters? For not, require 2 chars.
     if (!query || query.length < 2) {
-        ws.send(JSON.stringify({
-            type: "CATALOG_SEARCH_RESULT",
-            results: []
-        }));
+        ws.send(JSON.stringify({ type: "CATALOG_SEARCH_RESULT", results: [] }));
+        return;
+    }
+
+    if (query.length > 50) {
+        sendError(ws, 'INVALID_DATA', 'Query too long');
         return;
     }
 

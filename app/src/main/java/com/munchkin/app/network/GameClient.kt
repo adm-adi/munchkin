@@ -829,13 +829,17 @@ class GameClient {
     }
 
     private fun parseWsUrl(url: String): Triple<String, Int, String>? {
-        val regex = Regex("""ws://([^:]+):(\d+)(/.*)?""")
+        val regex = Regex("""wss?://([^:]+):(\d+)(/.*)?""")
         val match = regex.find(url) ?: return null
-        
+
+        if (url.startsWith("ws://")) {
+            DLog.w(TAG, "⚠️ Connecting over unencrypted ws://. Use wss:// for production servers.")
+        }
+
         val host = match.groupValues[1]
         val port = match.groupValues[2].toIntOrNull() ?: return null
         val path = match.groupValues.getOrNull(3)?.ifEmpty { "/game" } ?: "/game"
-        
+
         return Triple(host, port, path)
     }
 }

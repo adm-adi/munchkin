@@ -323,7 +323,7 @@ fun JoinGameScreen(
                         onClick = {
                             if (validateFields()) {
                                 // Join using server URL with code
-                                val wsUrl = "ws://23.88.48.58:8765"
+                                val wsUrl = "wss://munchking-sirpepo.duckdns.org:8765"
                                 onJoinGame(wsUrl, joinCode, name, selectedAvatarId, selectedGender)
                             }
                         },

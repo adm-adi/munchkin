@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import websockets
 import ssl
 import sys
@@ -12,8 +13,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-SERVER_URL = "ws://23.88.48.58:8765"
-# SERVER_URL = "ws://localhost:8765"
+SERVER_URL = os.environ.get("MUNCHKIN_SERVER_URL", "ws://localhost:8765")
 
 async def test_connect():
     """Test basic connection"""

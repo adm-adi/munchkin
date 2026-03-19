@@ -32,7 +32,7 @@ class GameViewModel : ViewModel() {
     
     companion object {
         // Hetzner VPS server
-        private const val SERVER_URL = "ws://23.88.48.58:8765"
+        private const val SERVER_URL = "wss://munchking-sirpepo.duckdns.org:8765"
     }
     
     // ============== State ==============
@@ -446,7 +446,7 @@ class GameViewModel : ViewModel() {
                         connectionInfo = ConnectionInfo(
                             wsUrl = SERVER_URL,
                             joinCode = gameState.joinCode,
-                            localIp = "23.88.48.58",
+                            localIp = "munchking-sirpepo.duckdns.org",
                             port = 8765
                         )
                     )

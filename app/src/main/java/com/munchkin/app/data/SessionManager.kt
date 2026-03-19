@@ -2,15 +2,28 @@ package com.munchkin.app.data
 
 import android.content.Context
 import androidx.core.content.edit
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.munchkin.app.network.UserProfile
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 
 /**
- * Manages user session persistence using SharedPreferences.
+ * Manages user session persistence using EncryptedSharedPreferences.
+ * Tokens and profile data are stored encrypted on-device (AES256-GCM).
  */
 class SessionManager(context: Context) {
-    private val prefs = context.getSharedPreferences("munchkin_session", Context.MODE_PRIVATE)
+    private val masterKey = MasterKey.Builder(context)
+        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+        .build()
+
+    private val prefs = EncryptedSharedPreferences.create(
+        context,
+        "munchkin_session",
+        masterKey,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
     private val json = Json { ignoreUnknownKeys = true }
 
     companion object {

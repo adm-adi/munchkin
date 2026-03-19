@@ -46,8 +46,7 @@ class CatalogViewModel : ViewModel() {
         isLoading = true
         error = null
         // Using simple HttpURLConnection directly for simplicity given just one endpoint
-        // Host: 23.88.48.58:8765
-        val urlStr = "http://23.88.48.58:8765/api/monsters?q=${query.trim()}"
+        val urlStr = "https://munchking-sirpepo.duckdns.org:8765/api/monsters?q=${query.trim()}"
         
         // Coroutine
         val scope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO)

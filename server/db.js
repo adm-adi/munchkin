@@ -133,7 +133,7 @@ function initTables() {
 
 function createUser(username, email, password, avatarId = 0) {
     return new Promise((resolve, reject) => {
-        const hashedPassword = bcrypt.hashSync(password, 8);
+        const hashedPassword = bcrypt.hashSync(password, 12);
         const id = uuidv4();
         const now = Date.now();
 
@@ -228,6 +228,15 @@ function verifyUser(identifier, password) {
                 }
             })
             .catch(reject);
+    });
+}
+
+function getUserById(userId) {
+    return new Promise((resolve, reject) => {
+        db.get('SELECT * FROM users WHERE id = ?', [userId], (err, row) => {
+            if (err) reject(err);
+            else resolve(row || null);
+        });
     });
 }
 
@@ -500,6 +509,7 @@ function cleanupOldGames() {
 module.exports = {
     db,
     createUser,
+    getUserById,
     findUserByEmail: findUserByEmailOrUsername,
     findUserByEmailOrUsername,
     verifyUser,
