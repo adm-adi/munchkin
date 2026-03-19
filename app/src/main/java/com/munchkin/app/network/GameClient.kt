@@ -92,7 +92,7 @@ class GameClient {
             // Launch the WebSocket session in background - it will stay open
             scope?.launch {
                 try {
-                    client!!.connectWs(serverUrl, host, port, path ?: "/") {
+                    client!!.webSocket(urlString = "${"wss".takeIf { serverUrl.startsWith("wss://") } ?: "ws"}://$host:$port${path ?: "/"}") {
                         session = this
                         DLog.i(TAG, "Connected, sending CreateGame...")
                         
@@ -200,7 +200,7 @@ class GameClient {
                 try {
                     DLog.i(TAG, "Opening WebSocket...")
                     Log.i(TAG, "Opening WebSocket connection...")
-                    client!!.connectWs(wsUrl, host, port, path) {
+                    client!!.webSocket(urlString = "${"wss".takeIf { wsUrl.startsWith("wss://") } ?: "ws"}://$host:$port$path") {
                         session = this
                         DLog.i(TAG, "WS connected, sending hello")
                         Log.i(TAG, "WebSocket connected, sending hello...")
@@ -555,7 +555,7 @@ class GameClient {
             
             var result: Result<AuthSuccessMessage>? = null
             
-            authClient.connectWs(serverUrl, host, port, "/") {
+            authClient.webSocket(urlString = "${"wss".takeIf { serverUrl.startsWith("wss://") } ?: "ws"}://$host:$port/") {
                 // Send auth message - Encoded as WsMessage to preserve "type" field
                 val finalJson = json.encodeToString<WsMessage>(message)
                 DLog.i(TAG, "Sending auth: $finalJson")
@@ -647,7 +647,7 @@ class GameClient {
             val client = HttpClient(CIO) { install(WebSockets) }
             var result: Result<WsMessage>? = null
             
-            client.connectWs(serverUrl, host, port, "/") {
+            client.webSocket(urlString = "${"wss".takeIf { serverUrl.startsWith("wss://") } ?: "ws"}://$host:$port/") {
                 val jsonStr = json.encodeToString<WsMessage>(message)
                 send(jsonStr)
                 
@@ -776,7 +776,7 @@ class GameClient {
             val client = HttpClient(CIO) { install(WebSockets) }
             var result: Result<WsMessage>? = null
             
-            client.connectWs(serverUrl, host, port, "/") {
+            client.webSocket(urlString = "${"wss".takeIf { serverUrl.startsWith("wss://") } ?: "ws"}://$host:$port/") {
                 // 1. Login
                 val loginMsg = LoginWithTokenMessage(token)
                 send(json.encodeToString<WsMessage>(loginMsg))
@@ -825,20 +825,6 @@ class GameClient {
             
         } catch (e: Exception) {
             Result.failure(e)
-        }
-    }
-
-    private suspend fun HttpClient.connectWs(
-        url: String,
-        host: String,
-        port: Int,
-        path: String,
-        block: suspend DefaultClientWebSocketSession.() -> Unit
-    ) {
-        if (url.startsWith("wss://")) {
-            wss(host = host, port = port, path = path, block = block)
-        } else {
-            webSocket(host = host, port = port, path = path, block = block)
         }
     }
 
