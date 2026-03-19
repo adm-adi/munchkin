@@ -45,6 +45,7 @@ fun CombatScreen(
     onModifyModifier: (target: BonusTarget, delta: Int) -> Unit,
     onRollCombatDice: (DiceRollPurpose, Int?, Boolean) -> Unit,
     onEndCombat: () -> Unit,
+    onResolveRunAway: (success: Boolean) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -489,10 +490,12 @@ fun CombatScreen(
             type = type,
             onAnimationFinished = {
                 combatAnimation = null
-                // If it was victory/defeat, effectively end combat
-                if (type == com.munchkin.app.ui.components.CombatAnimationType.VICTORY || 
-                    type == com.munchkin.app.ui.components.CombatAnimationType.DEFEAT) {
-                    onEndCombat()
+                when (type) {
+                    com.munchkin.app.ui.components.CombatAnimationType.VICTORY,
+                    com.munchkin.app.ui.components.CombatAnimationType.DEFEAT -> onEndCombat()
+                    com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_SUCCESS -> onResolveRunAway(true)
+                    com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_FAIL -> onResolveRunAway(false)
+                    else -> Unit
                 }
             }
         )
@@ -570,7 +573,11 @@ fun MonsterSearchDialog(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = level,
-                        onValueChange = { level = it.filter { c -> c.isDigit() } },
+                        onValueChange = { v ->
+                        val digits = v.filter { c -> c.isDigit() }.take(2)
+                        val n = digits.toIntOrNull()
+                        level = if (n != null) n.coerceIn(1, 10).toString() else digits
+                    },
                         label = { Text(stringResource(R.string.level)) },
                         modifier = Modifier.weight(1f),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
@@ -583,7 +590,7 @@ fun MonsterSearchDialog(
                 onClick = {
                     if (query.isNotBlank()) {
                          // Default logic: Create new if not clicked in list
-                         onCreateNew(query, level.toIntOrNull() ?: 1, 0, false)
+                         onCreateNew(query, (level.toIntOrNull() ?: 1).coerceIn(1, 10), 0, false)
                     }
                 },
                 enabled = query.isNotBlank()

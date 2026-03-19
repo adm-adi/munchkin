@@ -128,5 +128,6 @@ data class CombatResult(
 @Serializable
 enum class CombatOutcome {
     WIN,    // Heroes win (heroesPower > monstersPower)
-    LOSE    // Monsters win (monstersPower >= heroesPower, ties go to monsters)
+    LOSE,   // Monsters win (monstersPower >= heroesPower, ties go to monsters)
+    ESCAPE  // Heroes escaped — no rewards, no level penalty
 }

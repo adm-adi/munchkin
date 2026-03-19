@@ -445,8 +445,10 @@ class GameEngine {
     }
     
     private fun applyCombatAddHelper(event: CombatAddHelper, state: GameState): GameState {
-        val combat = state.combat?.copy(helperPlayerId = event.helperId) ?: return state
-        return state.copy(combat = combat)
+        val combat = state.combat ?: return state
+        if (event.helperId == combat.mainPlayerId) return state   // Can't help yourself
+        if (!state.players.containsKey(event.helperId)) return state // Player must exist
+        return state.copy(combat = combat.copy(helperPlayerId = event.helperId))
     }
     
     private fun applyCombatRemoveHelper(state: GameState): GameState {

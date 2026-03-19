@@ -220,23 +220,17 @@ class MainActivity : ComponentActivity() {
                                             onAddHelper = { viewModel.addHelper(it) },
                                             onRemoveHelper = { viewModel.removeHelper() },
                                             onModifyModifier = { target, delta -> viewModel.modifyCombatModifier(target, delta) },
-                                        onRollCombatDice = { purpose, result, success -> 
+                                        onRollCombatDice = { purpose, result, success ->
                                             viewModel.rollForCombat(purpose, result, success)
-                                            if (purpose == DiceRollPurpose.RUN_AWAY && result != null) {
-                                                scope.launch {
-                                                    viewModel.endCombat()
-                                                    kotlinx.coroutines.delay(500)
-                                                    viewModel.endTurn()
-                                                }
-                                            }
                                         },
-                                            onEndCombat = { viewModel.endCombat() },
-                                            onBack = { 
-                                                // Only main player can cancel combat via back
-                                                if (myPlayerId == gameState.combat?.mainPlayerId) {
-                                                    viewModel.endCombat()
-                                                }
+                                        onEndCombat = { viewModel.endCombat() },
+                                        onResolveRunAway = { success -> viewModel.resolveRunAway(success) },
+                                        onBack = {
+                                            // Only main player can cancel combat via back
+                                            if (myPlayerId == gameState.combat?.mainPlayerId) {
+                                                viewModel.endCombat()
                                             }
+                                        }
                                         )
                                     } else {
                                         BoardScreen(
@@ -304,17 +298,11 @@ class MainActivity : ComponentActivity() {
                                         onAddHelper = { viewModel.addHelper(it) },
                                         onRemoveHelper = { viewModel.removeHelper() },
                                         onModifyModifier = { target, delta -> viewModel.modifyCombatModifier(target, delta) },
-                                        onRollCombatDice = { purpose, result, success -> 
+                                        onRollCombatDice = { purpose, result, success ->
                                             viewModel.rollForCombat(purpose, result, success)
-                                            if (purpose == DiceRollPurpose.RUN_AWAY && result != null) {
-                                                scope.launch {
-                                                    viewModel.endCombat()
-                                                    kotlinx.coroutines.delay(500)
-                                                    viewModel.endTurn()
-                                                }
-                                            }
                                         },
                                         onEndCombat = { viewModel.endCombat() },
+                                        onResolveRunAway = { success -> viewModel.resolveRunAway(success) },
                                         onBack = { viewModel.goBack() }
                                     )
                                 }

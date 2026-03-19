@@ -1061,8 +1061,8 @@ class GameViewModel : ViewModel() {
             BonusTarget.HEROES -> currentCombat.heroModifier
             BonusTarget.MONSTER -> currentCombat.monsterModifier
         }
-        val newValue = currentValue + delta
-        
+        val newValue = (currentValue + delta).coerceIn(-20, 20)
+
         sendPlayerEvent { playerId ->
             CombatSetModifier(
                 eventId = UUID.randomUUID().toString(),
@@ -1188,7 +1188,8 @@ class GameViewModel : ViewModel() {
                 timestamp = System.currentTimeMillis(),
                 outcome = result.outcome,
                 levelsGained = result.totalLevels,
-                treasuresGained = result.totalTreasures
+                treasuresGained = result.totalTreasures,
+                helperLevelsGained = result.helperLevelsGained
             )
         }
     }
@@ -1209,6 +1210,40 @@ class GameViewModel : ViewModel() {
         }
     }
     
+    /**
+     * Resolve a run-away attempt after the dice has been rolled.
+     * Success → end combat with ESCAPE (no rewards, no penalty).
+     * Failure → main player loses 1 level; combat continues.
+     */
+    fun resolveRunAway(success: Boolean) {
+        val currentGameState = _uiState.value.gameState ?: return
+        val currentCombat = currentGameState.combat ?: return
+
+        if (success) {
+            sendPlayerEvent { playerId ->
+                CombatEnd(
+                    eventId = UUID.randomUUID().toString(),
+                    actorId = playerId,
+                    timestamp = System.currentTimeMillis(),
+                    outcome = CombatOutcome.ESCAPE,
+                    levelsGained = 0,
+                    treasuresGained = 0
+                )
+            }
+        } else {
+            // Apply 1-level penalty to the main combat player
+            sendPlayerEvent { playerId ->
+                DecLevel(
+                    eventId = UUID.randomUUID().toString(),
+                    actorId = playerId,
+                    timestamp = System.currentTimeMillis(),
+                    targetPlayerId = currentCombat.mainPlayerId,
+                    amount = 1
+                )
+            }
+        }
+    }
+
     fun rollForCombat(
         purpose: DiceRollPurpose = DiceRollPurpose.RUN_AWAY,
         manualResult: Int? = null,

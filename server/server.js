@@ -786,13 +786,21 @@ function applyEvent(game, event, playerId) {
         case 'COMBAT_REMOVE_BONUS':
             if (game.combat) game.combat.tempBonuses = game.combat.tempBonuses.filter(b => b.id !== event.bonusId);
             break;
-        case 'COMBAT_END':
+        case 'COMBAT_END': {
+            const helperPlayerId = game.combat?.helperPlayerId ?? null;
             game.combat = null;
             if (event.outcome === 'WIN') {
                 player.level = Math.min(10, player.level + (event.levelsGained || 0));
                 player.treasures = (player.treasures || 0) + (event.treasuresGained || 0);
+                if ((event.helperLevelsGained || 0) > 0 && helperPlayerId) {
+                    const helperPlayer = game.players.get(helperPlayerId);
+                    if (helperPlayer) {
+                        helperPlayer.level = Math.min(10, helperPlayer.level + event.helperLevelsGained);
+                    }
+                }
             }
             break;
+        }
         case 'GAME_START':
             game.phase = "IN_GAME";
             break;
