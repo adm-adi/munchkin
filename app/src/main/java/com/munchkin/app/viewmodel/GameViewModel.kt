@@ -419,7 +419,7 @@ class GameViewModel : ViewModel() {
                     return@launch
                 }
                 
-                val gameState = result.getOrNull()!!
+                val gameState = result.getOrNull() ?: return@launch
                 myPlayerId = playerId
                 
                 DLog.i("GameVM", "✅ Game created!")
@@ -1528,7 +1528,7 @@ class GameViewModel : ViewModel() {
             // Ignore
         }
         
-        return "192.168.1.1"  // Fallback
+        return ""  // Fallback: no IP available
     }
     // ============== Game Log ==============
 

@@ -307,7 +307,7 @@ fun JoinGameScreen(
                 ) {
                     OutlinedTextField(
                         value = joinCode,
-                        onValueChange = { joinCode = it.uppercase().filter { c -> c.isLetterOrDigit() }.take(6) },
+                        onValueChange = { joinCode = it.uppercase().filter { c -> c.isLetterOrDigit() }.take(8) },
                         label = { Text(stringResource(R.string.join_code)) },
                         modifier = Modifier.weight(1f),
                         singleLine = true,

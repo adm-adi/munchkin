@@ -45,7 +45,11 @@ class UpdateChecker(private val context: Context) {
             Log.d(TAG, "Checking for updates... Current installed: $currentVersion")
             
             // Fetch latest release from GitHub
-            val response = URL(GITHUB_API_URL).readText()
+            val response = (URL(GITHUB_API_URL).openConnection() as java.net.HttpURLConnection).let { conn ->
+                conn.connectTimeout = 5000
+                conn.readTimeout = 5000
+                conn.inputStream.bufferedReader().use { it.readText() }
+            }
             val release = json.decodeFromString<GitHubRelease>(response)
             val latestVersion = release.tagName.removePrefix("v")
             

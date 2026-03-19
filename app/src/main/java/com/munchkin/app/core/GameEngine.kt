@@ -286,7 +286,6 @@ class GameEngine {
             is DecGear -> updatePlayer(state, event.targetPlayerId) { it.copy(gearBonus = it.gearBonus - event.amount) }
             
             is SetHalfBreed -> updatePlayer(state, event.targetPlayerId) { it.copy(hasHalfBreed = event.enabled) }
-            is SetHalfBreed -> updatePlayer(state, event.targetPlayerId) { it.copy(hasHalfBreed = event.enabled) }
             is SetSuperMunchkin -> updatePlayer(state, event.targetPlayerId) { it.copy(hasSuperMunchkin = event.enabled) }
             
             is SetClass -> applySetClass(event, state)
@@ -325,7 +324,6 @@ class GameEngine {
             is CombatUpdateMonster -> applyCombatUpdateMonster(event, state)
             is CombatAddBonus -> applyCombatAddBonus(event, state)
             is CombatRemoveBonus -> applyCombatRemoveBonus(event, state)
-            is CombatEnd -> applyCombatEnd(event, state)
             is CombatEnd -> applyCombatEnd(event, state)
             is CombatModifyModifier -> applyCombatModifyModifier(event, state)
             is CombatSetModifier -> applyCombatSetModifier(event, state)

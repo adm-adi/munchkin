@@ -83,7 +83,8 @@ class GameClient {
             
             val (host, port, path) = urlParts
             DLog.i(TAG, "Connecting to $host:$port$path")
-            
+
+            scope?.cancel()
             scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
             
             // Use Deferred to signal result while keeping connection open
@@ -188,8 +189,9 @@ class GameClient {
             val (host, port, path) = urlParts
             DLog.i(TAG, "Parsed -> $host:$port$path")
             Log.i(TAG, "Parsed URL -> host=$host, port=$port, path=$path")
-            
+
             // Connect
+            scope?.cancel()
             scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
             
             // Use Deferred to signal result while keeping connection open
@@ -700,7 +702,7 @@ class GameClient {
     suspend fun sendSwapPlayers(player1: PlayerId, player2: PlayerId): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val msg = SwapPlayers(player1, player2)
-            session?.send(Json.encodeToString(WsMessage.serializer(), msg))
+            session?.send(json.encodeToString<WsMessage>(msg))
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)

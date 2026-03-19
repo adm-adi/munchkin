@@ -370,6 +370,7 @@ fun HomeScreen(
                             text = { Text(stringResource(R.string.view_profile), color = Color.White) },
                             onClick = {
                                 showMenu = false
+                                onProfileClick()
                             },
                              leadingIcon = {
                                 Icon(Icons.Default.Person, null, tint = NeonPrimary)

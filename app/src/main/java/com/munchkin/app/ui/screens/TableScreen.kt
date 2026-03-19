@@ -64,7 +64,7 @@ fun TableScreen(
         
         // Sort players to stabilize order (e.g. by join order or ID)
         // Ideally rotation should put "Me" at the bottom
-        val sortedPlayers = players.sortedBy { it.name } // Simple sort for now
+        val sortedPlayers = remember(players) { players.sortedBy { it.name } }
         
         val anglePerPlayer = 360f / players.size.coerceAtLeast(1)
         

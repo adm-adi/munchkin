@@ -211,7 +211,7 @@ fun BoardScreen(
                         if (timerDuration > 0 && currentTurnPlayer != null) {
                             LaunchedEffect(gameState.turnPlayerId, timerDuration) {
                                 remainingSeconds = timerDuration
-                                while (remainingSeconds > 0) {
+                                while (isActive && remainingSeconds > 0) {
                                     kotlinx.coroutines.delay(1000)
                                     remainingSeconds--
                                     // Warning sound at 10 seconds
