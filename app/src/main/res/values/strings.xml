@@ -190,6 +190,40 @@
     <string name="no_players_available">No hay más jugadores disponibles.</string>
     <string name="level_power_format">Nivel %1$d | Fuerza %2$d</string>
     
+    <!-- Combat UI (additional) -->
+    <string name="combat_is_undead">No Muerto</string>
+    <string name="combat_cancel">Cancelar Combate</string>
+    <string name="combat_run_away">Huir</string>
+    <string name="combat_no_monsters">Sin monstruos</string>
+    <string name="combat_bad_stuff_label">Mal Rollo</string>
+    <string name="combat_victory_end">¡VICTORIA! (Terminar)</string>
+    <string name="combat_accept_defeat">ASUMIR DERROTA</string>
+    <string name="combat_rolled">tiró un</string>
+    <string name="combat_escaped">¡Escapó!</string>
+    <string name="combat_failed_escape">¡Falló!</string>
+    <string name="combat_remove_helper">Quitar ayudante</string>
+    <string name="combat_start_prompt">Inicia un combate</string>
+    <string name="combat_helper_suffix">ayudante</string>
+    <string name="combat_cleric_vs_undead">Clérigo vs No-Muerto</string>
+    <string name="combat_card_modifiers">Modificadores carta</string>
+
+    <!-- Class display names -->
+    <string name="class_none">Sin clase</string>
+    <string name="class_warrior">Guerrero</string>
+    <string name="class_wizard">Mago</string>
+    <string name="class_thief">Ladrón</string>
+    <string name="class_cleric">Clérigo</string>
+    <string name="class_ranger">Explorador</string>
+    <string name="class_bard">Bardo</string>
+
+    <!-- Race display names -->
+    <string name="race_human">Humano</string>
+    <string name="race_elf">Elfo</string>
+    <string name="race_dwarf">Enano</string>
+    <string name="race_halfling">Mediano</string>
+    <string name="race_gnome">Gnomo</string>
+    <string name="race_orc">Orco</string>
+
     <!-- History -->
     <string name="winner_label">Ganador:</string>
     

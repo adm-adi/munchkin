@@ -79,12 +79,13 @@ fun CombatScreen(
                 kotlinx.coroutines.delay(3000)
                 showDiceResult = null
                 
-                // If I am main player and it was run away, trigger result
-                // Actually result logic handles this? No, GameEngine updates state but UI animation/logic needs trigger
-                if (roll.purpose == DiceRollPurpose.RUN_AWAY && roll.success && myPlayerId == combatState.mainPlayerId) {
-                     combatAnimation = com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_SUCCESS
-                } else if (roll.purpose == DiceRollPurpose.RUN_AWAY && !roll.success && myPlayerId == combatState.mainPlayerId) {
-                     combatAnimation = com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_FAIL
+                // Show run-away animation to both main player and helper
+                val isParticipant = myPlayerId == combatState.mainPlayerId || myPlayerId == combatState.helperPlayerId
+                if (roll.purpose == DiceRollPurpose.RUN_AWAY && isParticipant) {
+                    combatAnimation = if (roll.success)
+                        com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_SUCCESS
+                    else
+                        com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_FAIL
                 }
             }
         }
@@ -147,8 +148,8 @@ fun CombatScreen(
                             onBack()
                         }) {
                             Icon(
-                                Icons.Default.Close, 
-                                contentDescription = "Cancelar Combate",
+                                Icons.Default.Close,
+                                contentDescription = stringResource(R.string.combat_cancel),
                                 tint = MaterialTheme.colorScheme.error
                             )
                         }
@@ -158,8 +159,8 @@ fun CombatScreen(
                     if (combatState != null && combatState.monsters.isNotEmpty() && isParticipant) {
                          IconButton(onClick = { showRunAwayDialog = true }) {
                              Icon(
-                                 Icons.Default.DirectionsRun, 
-                                 contentDescription = "Huir"
+                                 Icons.Default.DirectionsRun,
+                                 contentDescription = stringResource(R.string.combat_run_away)
                              )
                          }
                     }
@@ -182,7 +183,7 @@ fun CombatScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "Inicia un combate",
+                        text = stringResource(R.string.combat_start_prompt),
                         style = MaterialTheme.typography.headlineSmall
                     )
                     Spacer(modifier = Modifier.height(24.dp))
@@ -257,24 +258,24 @@ fun CombatScreen(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "${helper?.name ?: "?"} (Ayudante)",
+                                        text = "${helper?.name ?: "?"} (${stringResource(R.string.helper)})",
                                         style = MaterialTheme.typography.titleMedium
                                     )
                                     if (helper != null) {
                                         Text(
-                                            text = "Nivel ${helper.level} • ${helper.characterRace.displayName()} • ${helper.characterClass.displayName()}",
+                                            text = "${stringResource(R.string.level)} ${helper.level} • ${helper.characterRace.displayName()} • ${helper.characterClass.displayName()}",
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         Text(
-                                            text = "⚔️ Fuerza: ${helper.combatPower}",
+                                            text = "⚔️ ${stringResource(R.string.power)}: ${helper.combatPower}",
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
                                 }
                                 IconButton(onClick = onRemoveHelper) {
-                                    Icon(Icons.Default.Close, contentDescription = "Quitar ayudante", tint = MaterialTheme.colorScheme.error)
+                                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.combat_remove_helper), tint = MaterialTheme.colorScheme.error)
                                 }
                             }
                         }
@@ -322,7 +323,7 @@ fun CombatScreen(
                     ) {
                         if (combatState.monsters.isEmpty()) {
                             Text(
-                                text = "Sin monstruos",
+                                text = stringResource(R.string.combat_no_monsters),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -353,7 +354,7 @@ fun CombatScreen(
                                 // Show mal rollo if available
                                 if (monster.badStuff.isNotEmpty()) {
                                     Text(
-                                        text = "⚠️ Mal Rollo: ${monster.badStuff}",
+                                        text = "⚠️ ${stringResource(R.string.combat_bad_stuff_label)}: ${monster.badStuff}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.error
                                     )
@@ -420,7 +421,7 @@ fun CombatScreen(
                                     disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
                                 )
                             ) {
-                                Text(if (r.outcome == CombatOutcome.WIN) "¡VICTORIA! (Terminar)" else "ASUMIR DERROTA")
+                                Text(if (r.outcome == CombatOutcome.WIN) stringResource(R.string.combat_victory_end) else stringResource(R.string.combat_accept_defeat))
                             }
                         }
                     }
@@ -463,7 +464,7 @@ fun CombatScreen(
             },
             title = { 
                 Text(
-                    text = "${roll.playerName} rodó un ${roll.result}",
+                    text = "${roll.playerName} ${stringResource(R.string.combat_rolled)} ${roll.result}",
                     style = MaterialTheme.typography.headlineSmall,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 ) 
@@ -472,7 +473,7 @@ fun CombatScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                     if (roll.purpose == DiceRollPurpose.RUN_AWAY) {
                          Text(
-                             text = if (roll.success) "¡Escapó!" else "¡Falló!",
+                             text = if (roll.success) stringResource(R.string.combat_escaped) else stringResource(R.string.combat_failed_escape),
                              style = MaterialTheme.typography.titleLarge,
                              color = if (roll.success) androidx.compose.ui.graphics.Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
                              fontWeight = FontWeight.Bold
@@ -522,7 +523,9 @@ fun MonsterSearchDialog(
 ) {
     var query by remember { mutableStateOf("") }
     var level by remember { mutableStateOf("1") }
-    
+    var modifier by remember { mutableStateOf("0") }
+    var isUndead by remember { mutableStateOf(false) }
+
     // Debounce search
     LaunchedEffect(query) {
         if (query.length >= 2) {
@@ -574,14 +577,34 @@ fun MonsterSearchDialog(
                     OutlinedTextField(
                         value = level,
                         onValueChange = { v ->
-                        val digits = v.filter { c -> c.isDigit() }.take(2)
-                        val n = digits.toIntOrNull()
-                        level = if (n != null) n.coerceIn(1, 10).toString() else digits
-                    },
+                            val digits = v.filter { c -> c.isDigit() }.take(2)
+                            val n = digits.toIntOrNull()
+                            level = if (n != null) n.coerceIn(1, 20).toString() else digits
+                        },
                         label = { Text(stringResource(R.string.level)) },
                         modifier = Modifier.weight(1f),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
+                    OutlinedTextField(
+                        value = modifier,
+                        onValueChange = { v ->
+                            val sanitized = if (v.startsWith("-")) "-" + v.drop(1).filter { c -> c.isDigit() }.take(2)
+                                           else v.filter { c -> c.isDigit() }.take(2)
+                            val n = sanitized.toIntOrNull()
+                            modifier = if (n != null) n.coerceIn(-10, 10).toString() else sanitized
+                        },
+                        label = { Text(stringResource(R.string.modifier)) },
+                        modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.combat_is_undead), style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = isUndead, onCheckedChange = { isUndead = it })
                 }
             }
         },
@@ -589,8 +612,12 @@ fun MonsterSearchDialog(
             Button(
                 onClick = {
                     if (query.isNotBlank()) {
-                         // Default logic: Create new if not clicked in list
-                         onCreateNew(query, (level.toIntOrNull() ?: 1).coerceIn(1, 10), 0, false)
+                        onCreateNew(
+                            query,
+                            (level.toIntOrNull() ?: 1).coerceIn(1, 20),
+                            (modifier.toIntOrNull() ?: 0).coerceIn(-10, 10),
+                            isUndead
+                        )
                     }
                 },
                 enabled = query.isNotBlank()
@@ -635,7 +662,7 @@ private fun CombatSideCard(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Fuerza: $power",
+                    text = "${stringResource(R.string.power)}: $power",
                     style = MaterialTheme.typography.headlineSmall,
                     color = color,
                     fontWeight = FontWeight.Bold
@@ -649,17 +676,19 @@ private fun CombatSideCard(
     }
 }
 
+@Composable
 private fun CharacterClass.displayName(): String = when(this) {
-    CharacterClass.NONE -> "Sin Clase"
-    CharacterClass.WARRIOR -> "Guerrero"
-    CharacterClass.WIZARD -> "Mago"
-    CharacterClass.THIEF -> "Ladrón"
-    CharacterClass.CLERIC -> "Clérigo"
+    CharacterClass.NONE -> stringResource(R.string.class_none)
+    CharacterClass.WARRIOR -> stringResource(R.string.class_warrior)
+    CharacterClass.WIZARD -> stringResource(R.string.class_wizard)
+    CharacterClass.THIEF -> stringResource(R.string.class_thief)
+    CharacterClass.CLERIC -> stringResource(R.string.class_cleric)
 }
 
+@Composable
 private fun CharacterRace.displayName(): String = when(this) {
-    CharacterRace.HUMAN -> "Humano"
-    CharacterRace.ELF -> "Elfo"
-    CharacterRace.DWARF -> "Enano"
-    CharacterRace.HALFLING -> "Mediano"
+    CharacterRace.HUMAN -> stringResource(R.string.race_human)
+    CharacterRace.ELF -> stringResource(R.string.race_elf)
+    CharacterRace.DWARF -> stringResource(R.string.race_dwarf)
+    CharacterRace.HALFLING -> stringResource(R.string.race_halfling)
 }

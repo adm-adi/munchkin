@@ -1029,6 +1029,7 @@ class GameViewModel : ViewModel() {
     }
 
     fun addHelper(helperId: PlayerId) {
+        if (helperId == myPlayerId) return
         sendPlayerEvent { playerId ->
             CombatAddHelper(
                 eventId = UUID.randomUUID().toString(),
@@ -1158,6 +1159,8 @@ class GameViewModel : ViewModel() {
      * Add a monster to combat.
      */
     fun addMonster(name: String, level: Int, modifier: Int, isUndead: Boolean) {
+        val clampedLevel = level.coerceIn(1, 20)
+        val clampedModifier = modifier.coerceIn(-10, 10)
         sendPlayerEvent { playerId ->
             CombatAddMonster(
                 eventId = UUID.randomUUID().toString(),
@@ -1166,8 +1169,8 @@ class GameViewModel : ViewModel() {
                 monster = MonsterInstance(
                     id = UUID.randomUUID().toString(),
                     name = name,
-                    baseLevel = level,
-                    flatModifier = modifier,
+                    baseLevel = clampedLevel,
+                    flatModifier = clampedModifier,
                     isUndead = isUndead
                 )
             )

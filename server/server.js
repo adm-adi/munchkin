@@ -739,6 +739,10 @@ function applyEvent(game, event, playerId) {
             player.lastRoll = event.result;
             break;
         case 'COMBAT_START':
+            if (game.combat) {
+                sendError(ws, 'COMBAT_ALREADY_ACTIVE', 'Ya hay un combate activo');
+                return;
+            }
             game.combat = {
                 mainPlayerId: event.mainPlayerId,
                 helperPlayerId: null,
@@ -756,57 +760,86 @@ function applyEvent(game, event, playerId) {
                 );
             }
             break;
-        case 'COMBAT_ADD_MONSTER':
-            if (game.combat) {
-                game.combat.monsters.push(event.monster);
-            }
+        case 'COMBAT_ADD_MONSTER': {
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
+            if (game.combat.monsters.length >= 6) { sendError(ws, 'COMBAT_MONSTER_LIMIT', 'Máximo 6 monstruos por combate'); return; }
+            const m = event.monster || {};
+            m.baseLevel = Math.max(1, Math.min(20, m.baseLevel || 1));
+            m.flatModifier = Math.max(-10, Math.min(10, m.flatModifier || 0));
+            game.combat.monsters.push(m);
             break;
+        }
         case 'COMBAT_REMOVE_MONSTER':
-            if (game.combat) {
-                game.combat.monsters = game.combat.monsters.filter(m => m.id !== event.monsterId);
-            }
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
+            game.combat.monsters = game.combat.monsters.filter(m => m.id !== event.monsterId);
             break;
-        case 'COMBAT_ADD_HELPER':
-            if (game.combat) game.combat.helperPlayerId = event.helperId;
+        case 'COMBAT_ADD_HELPER': {
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
+            if (event.helperId === game.combat.mainPlayerId) { sendError(ws, 'INVALID_HELPER', 'No puedes ayudarte a ti mismo'); return; }
+            if (!game.players.has(event.helperId)) { sendError(ws, 'PLAYER_NOT_FOUND', 'Jugador no encontrado'); return; }
+            game.combat.helperPlayerId = event.helperId;
             break;
+        }
         case 'COMBAT_REMOVE_HELPER':
-            if (game.combat) game.combat.helperPlayerId = null;
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
+            game.combat.helperPlayerId = null;
             break;
         case 'COMBAT_MODIFY_MODIFIER':
-            if (game.combat) {
-                if (event.target === 'HEROES') game.combat.heroModifier += event.delta;
-                else game.combat.monsterModifier += event.delta;
-            }
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
+            if (event.target === 'HEROES') game.combat.heroModifier = Math.max(-20, Math.min(20, game.combat.heroModifier + event.delta));
+            else game.combat.monsterModifier = Math.max(-20, Math.min(20, game.combat.monsterModifier + event.delta));
             break;
         case 'COMBAT_SET_MODIFIER':
-            if (game.combat) {
-                if (event.target === 'HEROES') game.combat.heroModifier = event.value;
-                else game.combat.monsterModifier = event.value;
-            }
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
+            if (event.target === 'HEROES') game.combat.heroModifier = Math.max(-20, Math.min(20, event.value));
+            else game.combat.monsterModifier = Math.max(-20, Math.min(20, event.value));
             break;
-        case 'COMBAT_ADD_BONUS':
-            if (game.combat) game.combat.tempBonuses.push(event.bonus);
+        case 'COMBAT_ADD_BONUS': {
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
+            if (game.combat.tempBonuses.length >= 20) { sendError(ws, 'COMBAT_BONUS_LIMIT', 'Máximo 20 bonificaciones por combate'); return; }
+            const bonus = event.bonus || {};
+            bonus.amount = Math.max(-50, Math.min(50, bonus.amount || 0));
+            game.combat.tempBonuses.push(bonus);
             break;
+        }
         case 'COMBAT_REMOVE_BONUS':
-            if (game.combat) game.combat.tempBonuses = game.combat.tempBonuses.filter(b => b.id !== event.bonusId);
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
+            game.combat.tempBonuses = game.combat.tempBonuses.filter(b => b.id !== event.bonusId);
             break;
         case 'COMBAT_END': {
             if (!game.combat || event.actorId !== game.combat.mainPlayerId) {
                 sendError(ws, 'UNAUTHORIZED', 'Solo el jugador principal puede terminar el combate');
                 return;
             }
-            const helperPlayerId = game.combat?.helperPlayerId ?? null;
-            game.combat = null;
-            if (event.outcome === 'WIN') {
-                player.level = Math.min(10, player.level + (event.levelsGained || 0));
-                player.treasures = (player.treasures || 0) + (event.treasuresGained || 0);
-                if ((event.helperLevelsGained || 0) > 0 && helperPlayerId) {
+            const helperPlayerId = game.combat.helperPlayerId ?? null;
+
+            // Server recalculates combat result — do not trust client-supplied values
+            const serverResult = calculateCombatResult(game);
+            let finalOutcome = event.outcome; // Trust ESCAPE (run-away flow)
+            let finalLevels = 0;
+            let finalTreasures = 0;
+            let finalHelperLevels = 0;
+
+            if (serverResult && event.outcome !== 'ESCAPE') {
+                if (serverResult.outcome !== event.outcome) {
+                    logger.warn(`⚠️ COMBAT_END mismatch: client=${event.outcome} server=${serverResult.outcome} heroes=${serverResult.heroesPower} monsters=${serverResult.monstersPower}`);
+                }
+                finalOutcome = serverResult.outcome;
+            }
+
+            if (finalOutcome === 'WIN') {
+                finalLevels = serverResult ? serverResult.totalLevels : (event.levelsGained || 0);
+                finalTreasures = serverResult ? serverResult.totalTreasures : (event.treasuresGained || 0);
+                finalHelperLevels = serverResult ? serverResult.helperLevelsGained : (event.helperLevelsGained || 0);
+                player.level = Math.min(10, player.level + finalLevels);
+                player.treasures = (player.treasures || 0) + finalTreasures;
+                if (finalHelperLevels > 0 && helperPlayerId) {
                     const helperPlayer = game.players.get(helperPlayerId);
-                    if (helperPlayer) {
-                        helperPlayer.level = Math.min(10, helperPlayer.level + event.helperLevelsGained);
-                    }
+                    if (helperPlayer) helperPlayer.level = Math.min(10, helperPlayer.level + finalHelperLevels);
                 }
             }
+
+            game.combat = null;
             break;
         }
         case 'GAME_START':
@@ -1254,6 +1287,61 @@ function handleEndTurn(ws) {
     });
 }
 
+/**
+ * Server-side combat result calculation.
+ * Mirrors CombatCalculator.kt logic to validate/override client-claimed outcomes.
+ */
+function calculateCombatResult(game) {
+    const combat = game.combat;
+    if (!combat) return null;
+
+    const mainPlayer = game.players.get(combat.mainPlayerId);
+    if (!mainPlayer) return null;
+    const helperPlayer = combat.helperPlayerId ? game.players.get(combat.helperPlayerId) : null;
+
+    // Hero power
+    let heroesPower = (mainPlayer.level || 1) + (mainPlayer.gear || 0);
+    if (helperPlayer) heroesPower += (helperPlayer.level || 1) + (helperPlayer.gear || 0);
+    heroesPower += (combat.heroModifier || 0);
+
+    // Temp bonuses for heroes
+    for (const bonus of (combat.tempBonuses || [])) {
+        if (bonus.appliesTo === 'HEROES') heroesPower += (bonus.amount || 0);
+    }
+
+    // Intrinsic: Cleric +3 vs any Undead monster
+    const hasUndead = (combat.monsters || []).some(m => m.isUndead);
+    if (hasUndead) {
+        if (mainPlayer.characterClass === 'CLERIC') heroesPower += 3;
+        if (helperPlayer && helperPlayer.characterClass === 'CLERIC') heroesPower += 3;
+    }
+
+    // Monster power + total rewards
+    let monstersPower = 0;
+    let totalLevels = 0;
+    let totalTreasures = 0;
+    for (const m of (combat.monsters || [])) {
+        monstersPower += (m.baseLevel || 0) + (m.flatModifier || 0);
+        totalLevels += (m.levels || 1);
+        totalTreasures += (m.treasures || 1);
+    }
+    monstersPower += (combat.monsterModifier || 0);
+
+    // Temp bonuses for monsters
+    for (const bonus of (combat.tempBonuses || [])) {
+        if (bonus.appliesTo === 'MONSTER') monstersPower += (bonus.amount || 0);
+    }
+
+    // Outcome: Warrior wins ties
+    const isWarrior = mainPlayer.characterClass === 'WARRIOR';
+    const outcome = (heroesPower > monstersPower || (heroesPower === monstersPower && isWarrior)) ? 'WIN' : 'LOSE';
+
+    // Elf helper bonus
+    const helperLevelsGained = (outcome === 'WIN' && helperPlayer && helperPlayer.characterRace === 'ELF') ? 1 : 0;
+
+    return { outcome, heroesPower, monstersPower, totalLevels, totalTreasures, helperLevelsGained };
+}
+
 function handleCombatDiceRoll(ws, message) {
     const clientInfo = clientGames.get(ws);
     if (!clientInfo) {
@@ -1272,10 +1360,14 @@ function handleCombatDiceRoll(ws, message) {
 
     // Store dice roll in combat state (if combat active)
     const { result, purpose, success } = message;
+
+    // Validate dice result is in range [1, 6]
+    const validResult = Math.max(1, Math.min(6, Math.round(Number(result) || 1)));
+
     const diceRollInfo = {
         playerId: clientInfo.playerId,
         playerName: player.name,
-        result: result,
+        result: validResult,
         purpose: purpose || "RANDOM",
         success: success || false,
         timestamp: Date.now()
