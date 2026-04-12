@@ -245,7 +245,7 @@ fun PlayerAvatarNode(
                             val paint = Paint().also { p ->
                                 p.asFrameworkPaint().apply {
                                     isAntiAlias = true
-                                    color = android.graphics.Color.TRANSPARENT
+                                    this.color = android.graphics.Color.TRANSPARENT
                                     setShadowLayer(
                                         14.dp.toPx(), 0f, 0f,
                                         NeonWarning.copy(alpha = glowAlpha).toArgb()
