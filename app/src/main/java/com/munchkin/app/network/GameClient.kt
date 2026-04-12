@@ -761,10 +761,11 @@ class GameClient {
         serverUrl: String,
         userId: String,
         username: String?,
-        password: String?
+        password: String?,
+        token: String
     ): Result<UserProfile> = withContext(Dispatchers.IO) {
         val req = UpdateProfileRequest(userId, username, password)
-        sendOneOffRequest(serverUrl, req).map { response -> 
+        authenticatedRequest(serverUrl, token, req).map { response ->
             if (response is ProfileUpdatedMessage) {
                 response.user
             } else {

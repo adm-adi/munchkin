@@ -46,10 +46,10 @@ fun AuthScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text(if (isRegister) "Crear cuenta" else "Iniciar sesión") },
+                title = { Text(if (isRegister) stringResource(R.string.create_account) else stringResource(R.string.login_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Volver")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -174,7 +174,7 @@ fun AuthScreen(
                                 Spacer(Modifier.width(8.dp))
                             }
                             Text(
-                                text = if (isRegister) "Registrarse" else "Entrar",
+                                text = if (isRegister) stringResource(R.string.register_button) else stringResource(R.string.login_button),
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -184,7 +184,7 @@ fun AuthScreen(
                             modifier = Modifier.align(Alignment.CenterHorizontally)
                         ) {
                             Text(
-                                text = if (isRegister) "¿Ya tienes cuenta? Entra" else "¿No tienes cuenta? Regístrate",
+                                text = if (isRegister) stringResource(R.string.already_have_account) else stringResource(R.string.no_account),
                                 color = Color.White.copy(alpha = 0.7f)
                             )
                         }

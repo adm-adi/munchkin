@@ -173,6 +173,11 @@ function createUser(username, email, password, avatarId = 0) {
 
 function updateUser(userId, newUsername, newPassword) {
     return new Promise((resolve, reject) => {
+        // Guard: nothing to update
+        if (!newUsername && !newPassword) {
+            return reject(new Error("NO_CHANGES"));
+        }
+
         let sql = "UPDATE users SET ";
         let params = [];
 
@@ -182,12 +187,13 @@ function updateUser(userId, newUsername, newPassword) {
         }
 
         if (newPassword) {
-            const hashedPassword = bcrypt.hashSync(newPassword, 8);
+            // Use same cost factor as createUser (12 rounds)
+            const hashedPassword = bcrypt.hashSync(newPassword, 12);
             sql += "password_hash = ?, ";
             params.push(hashedPassword);
         }
 
-        // Remove last comma
+        // Remove trailing ", "
         sql = sql.slice(0, -2);
 
         sql += " WHERE id = ?";

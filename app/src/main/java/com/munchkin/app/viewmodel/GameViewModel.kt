@@ -23,6 +23,7 @@ import io.ktor.client.plugins.websocket.*
 import io.ktor.websocket.*
 import java.util.UUID
 import com.munchkin.app.network.DiscoveredGame
+import com.munchkin.app.R
 
 /**
  * Main ViewModel managing game state and network operations.
@@ -1621,18 +1622,23 @@ class GameViewModel : ViewModel() {
     fun updateProfile(username: String?, pass: String?) {
         val currentUser = _uiState.value.userProfile ?: return
         val client = gameClient ?: return
+        val token = sessionManager?.getAuthToken() ?: run {
+            _uiState.update { it.copy(error = MunchkinApp.context.getString(R.string.error_session_expired)) }
+            return
+        }
         if (username.isNullOrBlank() && pass.isNullOrBlank()) return
-        
-        _uiState.update { it.copy(isLoading = true) }
-        
+
+        _uiState.update { it.copy(isLoading = true, error = null) }
+
         viewModelScope.launch {
-            val result = client.updateProfile(SERVER_URL, currentUser.id, username, pass)
+            val result = client.updateProfile(SERVER_URL, currentUser.id, username, pass, token)
             if (result.isSuccess) {
                 val updatedUser = result.getOrThrow()
-                _uiState.update { it.copy(userProfile = updatedUser, isLoading = false) }
-                _events.emit(GameUiEvent.ShowMessage("Perfil actualizado"))
+                _uiState.update { it.copy(userProfile = updatedUser, isLoading = false, error = null) }
+                sessionManager?.saveSession(updatedUser)
+                _events.emit(GameUiEvent.ShowMessage(MunchkinApp.context.getString(R.string.profile_updated)))
             } else {
-                val error = result.exceptionOrNull()?.message ?: "Error desconocido"
+                val error = result.exceptionOrNull()?.message ?: MunchkinApp.context.getString(R.string.error_unknown)
                 _uiState.update { it.copy(isLoading = false, error = error) }
             }
         }

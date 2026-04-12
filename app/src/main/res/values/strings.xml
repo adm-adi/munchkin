@@ -260,6 +260,27 @@
     <!-- Profile -->
     <string name="username_label">Usuario</string>
     <string name="new_password_optional">Nueva Contraseña (Opcional)</string>
+    <string name="profile_title">Perfil de Jugador</string>
+    <string name="game_history">Historial de Partidas</string>
+    <string name="stat_games">Partidas</string>
+    <string name="stat_wins">Victorias</string>
+    <string name="stat_win_rate">Win Rate</string>
+    <string name="no_games_yet">Aún no has jugado ninguna partida.</string>
+    <string name="victory">🏆 ¡Victoria!</string>
+    <string name="defeat">Derrota</string>
+    <string name="reload">Recargar</string>
+    <string name="edit_profile">Editar perfil</string>
+    <string name="profile_updated">¡Perfil actualizado!</string>
+    <string name="error_session_expired">Sesión expirada. Vuelve a iniciar sesión.</string>
+
+    <!-- Auth -->
+    <string name="create_account">Crear cuenta</string>
+    <string name="login_title">Iniciar sesión</string>
+    <string name="register_button">Registrarse</string>
+    <string name="login_button">Entrar</string>
+    <string name="already_have_account">¿Ya tienes cuenta? Entra</string>
+    <string name="no_account">¿No tienes cuenta? Regístrate</string>
+    <string name="password_min_length">Mínimo 6 caracteres</string>
     
     <!-- Tutorial -->
     <string name="skip">Saltar</string>

@@ -369,8 +369,10 @@ class MainActivity : ComponentActivity() {
                                         userProfile = user,
                                         gameHistory = uiState.gameHistory,
                                         isLoading = uiState.isLoading,
+                                        error = uiState.error,
                                         onBack = { viewModel.navigateTo(Screen.HOME) },
                                         onRefresh = { viewModel.loadHistory() },
+                                        onClearError = { viewModel.clearError() },
                                         onUpdateProfile = { name, pass -> viewModel.updateProfile(name, pass) }
                                     )
                                 }

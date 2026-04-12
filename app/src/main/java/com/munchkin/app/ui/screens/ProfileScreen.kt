@@ -18,8 +18,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.munchkin.app.R
 import com.munchkin.app.network.GameHistoryItem
 import com.munchkin.app.network.UserProfile
 import com.munchkin.app.ui.components.GlassCard
@@ -27,8 +31,6 @@ import com.munchkin.app.ui.components.GlassTopAppBar
 import com.munchkin.app.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
-import androidx.compose.ui.res.stringResource
-import com.munchkin.app.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,8 +38,10 @@ fun ProfileScreen(
     userProfile: UserProfile,
     gameHistory: List<GameHistoryItem>,
     isLoading: Boolean,
+    error: String?,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
+    onClearError: () -> Unit,
     onUpdateProfile: (String?, String?) -> Unit
 ) {
     // Initial load
@@ -56,7 +60,7 @@ fun ProfileScreen(
                 .statusBarsPadding()
         ) {
             GlassTopAppBar(
-                title = "Perfil de Jugador",
+                title = stringResource(R.string.profile_title),
                 navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
                 onNavigationClick = onBack,
                 actions = {
@@ -70,7 +74,7 @@ fun ProfileScreen(
                         } else {
                             Icon(
                                 Icons.Default.Refresh,
-                                contentDescription = "Recargar",
+                                contentDescription = stringResource(R.string.reload),
                                 tint = NeonGray400
                             )
                         }
@@ -87,7 +91,13 @@ fun ProfileScreen(
             ) {
                 // Header (User Info)
                 item {
-                    ProfileHeader(userProfile, onUpdateProfile)
+                    ProfileHeader(
+                        user = userProfile,
+                        isLoading = isLoading,
+                        error = error,
+                        onClearError = onClearError,
+                        onUpdateProfile = onUpdateProfile
+                    )
                 }
 
                 // Stats Summary
@@ -97,7 +107,7 @@ fun ProfileScreen(
 
                 item {
                     Text(
-                        text = "Historial de Partidas",
+                        text = stringResource(R.string.game_history),
                         style = MaterialTheme.typography.titleMedium,
                         color = NeonGray300,
                         modifier = Modifier.padding(vertical = 8.dp)
@@ -108,13 +118,13 @@ fun ProfileScreen(
                     item {
                         GlassCard(modifier = Modifier.fillMaxWidth()) {
                             Text(
-                                text = "Aún no has jugado ninguna partida.",
+                                text = stringResource(R.string.no_games_yet),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = NeonGray500,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(16.dp),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
@@ -130,13 +140,26 @@ fun ProfileScreen(
 
 @Composable
 fun ProfileHeader(
-    user: UserProfile, 
+    user: UserProfile,
+    isLoading: Boolean = false,
+    error: String? = null,
+    onClearError: () -> Unit = {},
     onUpdateProfile: (String?, String?) -> Unit = { _, _ -> }
 ) {
     var isEditing by remember { mutableStateOf(false) }
     var editedUsername by remember { mutableStateOf(user.username) }
     var editedPassword by remember { mutableStateOf("") }
-    
+    var savePending by remember { mutableStateOf(false) }
+
+    // Close edit mode and clear password when save completes without error
+    LaunchedEffect(isLoading) {
+        if (savePending && !isLoading && error == null) {
+            isEditing = false
+            editedPassword = ""
+            savePending = false
+        }
+    }
+
     GlassCard(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -157,9 +180,9 @@ fun ProfileHeader(
                         color = NeonPrimary
                     )
                 }
-                
+
                 Spacer(modifier = Modifier.width(16.dp))
-                
+
                 if (!isEditing) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
@@ -173,14 +196,18 @@ fun ProfileHeader(
                             color = NeonGray500
                         )
                     }
-                    IconButton(onClick = { isEditing = true }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Editar", tint = NeonSecondary)
+                    IconButton(onClick = { isEditing = true; onClearError() }) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = stringResource(R.string.edit_profile),
+                            tint = NeonSecondary
+                        )
                     }
                 } else {
                     Column(modifier = Modifier.weight(1f)) {
                         OutlinedTextField(
                             value = editedUsername,
-                            onValueChange = { editedUsername = it },
+                            onValueChange = { editedUsername = it; onClearError() },
                             label = { Text(stringResource(R.string.username_label)) },
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
@@ -193,10 +220,10 @@ fun ProfileHeader(
                         Spacer(modifier = Modifier.height(8.dp))
                         OutlinedTextField(
                             value = editedPassword,
-                            onValueChange = { editedPassword = it },
+                            onValueChange = { editedPassword = it; onClearError() },
                             label = { Text(stringResource(R.string.new_password_optional)) },
                             singleLine = true,
-                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            visualTransformation = PasswordVisualTransformation(),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = NeonGray100,
                                 unfocusedTextColor = NeonGray100,
@@ -204,20 +231,34 @@ fun ProfileHeader(
                                 unfocusedBorderColor = NeonGray500
                             )
                         )
+                        // Inline error display
+                        if (error != null) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = error,
+                                color = NeonError,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
                 }
             }
-            
+
             if (isEditing) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
                     horizontalArrangement = Arrangement.End
                 ) {
                     TextButton(
-                        onClick = { 
+                        onClick = {
                             isEditing = false
                             editedUsername = user.username
                             editedPassword = ""
+                            savePending = false
+                            onClearError()
                         }
                     ) {
                         Text(stringResource(R.string.cancel), color = NeonError)
@@ -226,12 +267,23 @@ fun ProfileHeader(
                     Button(
                         onClick = {
                             if (editedUsername.isNotBlank()) {
+                                onClearError()
                                 onUpdateProfile(editedUsername, editedPassword.ifBlank { null })
-                                isEditing = false
+                                savePending = true
+                                // Do NOT close edit mode here — wait for server response
                             }
                         },
+                        enabled = !isLoading && editedUsername.isNotBlank(),
                         colors = ButtonDefaults.buttonColors(containerColor = NeonPrimary)
                     ) {
+                        if (isLoading && savePending) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = Color.Black
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
                         Text(stringResource(R.string.save))
                     }
                 }
@@ -251,18 +303,18 @@ fun StatsSummary(user: UserProfile, history: List<GameHistoryItem>) {
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         StatCard(
-            label = "Partidas",
+            label = stringResource(R.string.stat_games),
             value = totalGames.toString(),
             modifier = Modifier.weight(1f)
         )
         StatCard(
-            label = "Victorias",
+            label = stringResource(R.string.stat_wins),
             value = wins.toString(),
             modifier = Modifier.weight(1f),
             color = NeonWarning
         )
         StatCard(
-            label = "Win Rate",
+            label = stringResource(R.string.stat_win_rate),
             value = "$winRate%",
             modifier = Modifier.weight(1f)
         )
@@ -271,15 +323,17 @@ fun StatsSummary(user: UserProfile, history: List<GameHistoryItem>) {
 
 @Composable
 fun StatCard(
-    label: String, 
-    value: String, 
+    label: String,
+    value: String,
     modifier: Modifier = Modifier,
     color: Color = NeonGray100
 ) {
     GlassCard(modifier = modifier) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
         ) {
             Text(
                 text = value,
@@ -313,7 +367,7 @@ fun GameHistoryCard(game: GameHistoryItem, myUserId: String) {
         ) {
             Column {
                 Text(
-                    text = if (isWin) "🏆 ¡Victoria!" else "Derrota",
+                    text = if (isWin) stringResource(R.string.victory) else stringResource(R.string.defeat),
                     style = MaterialTheme.typography.titleMedium,
                     color = if (isWin) NeonWarning else NeonGray300,
                     fontWeight = FontWeight.Bold
@@ -324,12 +378,6 @@ fun GameHistoryCard(game: GameHistoryItem, myUserId: String) {
                     color = NeonGray500
                 )
             }
-            
-            // Should verify if we have player count in GameHistoryItem. 
-            // Previous check showed: val id: String, val endedAt: Long, val winnerId: String
-            // server.js handles: playerCount, but let's check Kotlin definition.
-            
-            // Assuming we don't have playercount yet on client model, omitting.
         }
     }
 }
