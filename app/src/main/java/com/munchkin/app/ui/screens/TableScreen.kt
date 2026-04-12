@@ -253,8 +253,9 @@ fun PlayerAvatarNode(
                                 }
                             }
                             canvas.drawCircle(
-                                size.width / 2, size.height / 2,
-                                size.width / 2, paint
+                                androidx.compose.ui.geometry.Offset(size.width / 2, size.height / 2),
+                                size.width / 2,
+                                paint
                             )
                         }
                     } else Modifier
