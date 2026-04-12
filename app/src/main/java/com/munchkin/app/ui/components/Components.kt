@@ -20,8 +20,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -30,7 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.munchkin.app.core.Gender
 import com.munchkin.app.core.PlayerState
-import com.munchkin.app.ui.theme.getAvatarColor
+import com.munchkin.app.ui.theme.*
 
 /**
  * Large counter component for level/gear with animated number changes.
@@ -172,26 +177,48 @@ fun PlayerAvatar(
 ) {
     val backgroundColor = getAvatarColor(player.avatarId)
     val initial = player.name.firstOrNull()?.uppercase() ?: "?"
-    
+
     Box(
-        modifier = modifier
-            .size(size.dp)
-            .clip(CircleShape)
-            .background(backgroundColor)
-            .then(
-                if (showBorder) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                else Modifier
-            ),
+        modifier = modifier.size(size.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = initial,
-            style = MaterialTheme.typography.titleLarge.copy(
-                fontSize = (size / 2).sp,
-                fontWeight = FontWeight.Bold
-            ),
-            color = Color.White
-        )
+        // Glow ring when border shown
+        if (showBorder) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.radialGradient(
+                            listOf(NeonPrimary.copy(alpha = 0.35f), Color.Transparent)
+                        ),
+                        CircleShape
+                    )
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size((size - 2).dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(
+                        listOf(backgroundColor, backgroundColor.copy(alpha = 0.7f))
+                    )
+                )
+                .then(
+                    if (showBorder) Modifier.border(2.dp, NeonPrimary.copy(alpha = 0.8f), CircleShape)
+                    else Modifier
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = initial,
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontSize = (size / 2).sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                color = Color.White
+            )
+        }
     }
 }
 
@@ -212,41 +239,84 @@ fun PlayerCard(
     modifier: Modifier = Modifier,
     actions: @Composable (RowScope.() -> Unit) = {}
 ) {
+    val accentColor = when {
+        isTurn -> NeonWarning
+        isMe -> NeonPrimary
+        isHost -> NeonSecondary
+        else -> NeonGray500
+    }
     val borderColor by animateColorAsState(
-        targetValue = when {
-            isTurn -> com.munchkin.app.ui.theme.NeonWarning // Current Turn = Gold
-            isMe -> com.munchkin.app.ui.theme.NeonPrimary
-            isHost -> com.munchkin.app.ui.theme.NeonSecondary
-            else -> com.munchkin.app.ui.theme.NeonGray500
-        },
+        targetValue = accentColor,
         label = "borderColor"
     )
-    
-    val borderWidth = if (isTurn || isMe) 2.dp else 1.dp
-    
-    Card(
+
+    // Pulsing glow for current turn player
+    val glowAlpha = if (isTurn) {
+        val transition = rememberInfiniteTransition(label = "turnGlow")
+        transition.animateFloat(
+            initialValue = 0.2f, targetValue = 0.7f,
+            animationSpec = infiniteRepeatable(
+                tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse
+            ),
+            label = "turnGlowAlpha"
+        ).value
+    } else 0f
+
+    val containerBg = when {
+        isTurn -> NeonWarning.copy(alpha = 0.07f)
+        isMe -> NeonPrimary.copy(alpha = 0.06f)
+        else -> GlassBase
+    }
+    val borderWidth = if (isTurn || isMe) 1.5.dp else 1.dp
+    val shape = RoundedCornerShape(16.dp)
+
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isTurn)
-                com.munchkin.app.ui.theme.NeonSurfaceVariant // Slightly lighter for turn
-            else if (isMe) 
-                com.munchkin.app.ui.theme.NeonSurfaceVariant
-            else 
-                com.munchkin.app.ui.theme.NeonSurface
-        ),
-        border = CardDefaults.outlinedCardBorder().copy(
-            width = borderWidth,
-            brush = androidx.compose.ui.graphics.SolidColor(borderColor)
-        ),
-        shape = RoundedCornerShape(16.dp)
+            .then(
+                if (isTurn) Modifier.drawBehind {
+                    drawIntoCanvas { canvas ->
+                        val paint = Paint().also { p ->
+                            p.asFrameworkPaint().apply {
+                                isAntiAlias = true
+                                color = android.graphics.Color.TRANSPARENT
+                                setShadowLayer(14.dp.toPx(), 0f, 0f,
+                                    NeonWarning.copy(alpha = glowAlpha).toArgb())
+                            }
+                        }
+                        canvas.drawRoundRect(0f, 0f, size.width, size.height,
+                            16.dp.toPx(), 16.dp.toPx(), paint)
+                    }
+                } else Modifier
+            )
+            .clip(shape)
+            .background(containerBg)
+            .border(
+                width = borderWidth,
+                brush = Brush.linearGradient(
+                    listOf(borderColor.copy(alpha = if (isTurn) glowAlpha else 0.6f),
+                           borderColor.copy(alpha = 0.2f))
+                ),
+                shape = shape
+            )
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
     ) {
+        // Glass highlight overlay
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.linearGradient(
+                        0f to Color.White.copy(alpha = 0.05f),
+                        0.5f to Color.Transparent
+                    )
+                )
+        )
         Box {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(if (!player.isConnected && showDisconnectedBadge) Modifier.graphicsLayer { alpha = 0.6f } else Modifier)
+                    .then(if (!player.isConnected && showDisconnectedBadge) Modifier.graphicsLayer { alpha = 0.55f } else Modifier)
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {

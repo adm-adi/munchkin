@@ -21,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -29,8 +30,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.munchkin.app.R
 import com.munchkin.app.core.Gender
-import com.munchkin.app.ui.theme.AvatarResources
-import com.munchkin.app.ui.theme.getAvatarColor
+import com.munchkin.app.ui.components.AmbientOrb
+import com.munchkin.app.ui.components.GradientButton
+import com.munchkin.app.ui.theme.*
 import com.munchkin.app.network.UserProfile
 
 /**
@@ -54,17 +56,52 @@ fun CreateGameScreen(
     
     // Only lock the name if logged in, avatar can always be changed
     val isNameLocked = userProfile != null
-    
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(NeonBackground, NeonSurface.copy(alpha = 0.4f), NeonBackground)
+                )
+            )
+    ) {
+        AmbientOrb(
+            modifier = Modifier.align(Alignment.TopEnd).offset(x = 80.dp, y = (-80).dp),
+            color = NeonSecondary, size = 240.dp, alpha = 0.08f
+        )
+        AmbientOrb(
+            modifier = Modifier.align(Alignment.BottomStart).offset(x = (-40).dp, y = 40.dp),
+            color = NeonCyan, size = 200.dp, alpha = 0.06f
+        )
+
     Scaffold(
-        modifier = modifier,
+        modifier = Modifier.fillMaxSize(),
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.create_game)) },
+                title = {
+                    Text(
+                        stringResource(R.string.create_game),
+                        color = NeonGray100,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.back),
+                            tint = NeonGray100
+                        )
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                modifier = Modifier.background(
+                    Brush.verticalGradient(
+                        listOf(NeonBackground.copy(alpha = 0.96f), Color.Transparent)
+                    )
+                )
             )
         }
     ) { padding ->
@@ -79,19 +116,16 @@ fun CreateGameScreen(
             // Error message
             AnimatedVisibility(visible = error != null) {
                 error?.let {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer
-                        ),
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 16.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(NeonError.copy(alpha = 0.10f))
+                            .border(1.dp, NeonError.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                            .padding(16.dp)
                     ) {
-                        Text(
-                            text = it,
-                            modifier = Modifier.padding(16.dp),
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
+                        Text(text = it, color = NeonError, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
@@ -139,14 +173,17 @@ fun CreateGameScreen(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
                             .background(
-                                if (isSelected) MaterialTheme.colorScheme.primaryContainer 
-                                else MaterialTheme.colorScheme.surfaceVariant
+                                if (isSelected) NeonPrimary.copy(alpha = 0.15f)
+                                else GlassBase
                             )
-                            .border(2.dp, borderColor, RoundedCornerShape(12.dp))
-                            .clickable { selectedAvatarId = avatarId }  // Avatar always selectable
+                            .border(
+                                2.dp,
+                                if (isSelected) NeonPrimary else GlassBorder,
+                                RoundedCornerShape(12.dp)
+                            )
+                            .clickable { selectedAvatarId = avatarId }
                             .padding(8.dp)
                     ) {
-                        // Color-based avatar with initial letter
                         Box(
                             modifier = Modifier
                                 .size(56.dp)
@@ -165,10 +202,7 @@ fun CreateGameScreen(
                         Text(
                             text = AvatarResources.getAvatarName(avatarId),
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) 
-                                MaterialTheme.colorScheme.onPrimaryContainer 
-                            else 
-                                MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (isSelected) NeonPrimary else NeonGray400
                         )
                     }
                 }
@@ -276,50 +310,39 @@ fun CreateGameScreen(
             }
 
             AnimatedVisibility(visible = isSuperMunchkin) {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
-                    ),
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(NeonSecondary.copy(alpha = 0.08f))
+                        .border(1.dp, NeonSecondary.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                        .padding(12.dp)
                 ) {
                     Text(
                         text = stringResource(R.string.game_mode_super_desc),
-                        modifier = Modifier.padding(12.dp),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                        color = NeonSecondary
                     )
                 }
             }
 
             Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // Create button
-            Button(
-                onClick = { 
+            GradientButton(
+                text = if (isLoading) "Creando..." else stringResource(R.string.create),
+                onClick = {
                     if (name.isNotBlank()) {
                         onCreateGame(name, selectedAvatarId, selectedGender, selectedTimerSeconds, isSuperMunchkin)
                     }
                 },
                 enabled = name.isNotBlank() && !isLoading,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.create))
-                }
-            }
+                modifier = Modifier.fillMaxWidth(),
+                icon = if (isLoading) null else Icons.Default.PlayArrow,
+                gradientColors = GradientNeonPurple
+            )
         }
     }
+    } // close outer Box
 }

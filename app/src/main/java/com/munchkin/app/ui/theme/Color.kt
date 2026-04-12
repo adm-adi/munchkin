@@ -2,67 +2,80 @@ package com.munchkin.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ============== Neon Fantasy Palette ==============
+// ============== Neon Fantasy Palette — Vibrant Edition ==============
 
-// Backgrounds - Deep Slate/Blue
-val NeonBackground = Color(0xFF0F172A) // Slate 900
-val NeonSurface = Color(0xFF1E293B)    // Slate 800
-val NeonSurfaceVariant = Color(0xFF334155) // Slate 700
+// Backgrounds — Deep space blue-black
+val NeonBackground = Color(0xFF06091A)      // Near-black with blue tint
+val NeonSurface = Color(0xFF0D1225)         // Deep navy
+val NeonSurfaceVariant = Color(0xFF182038)  // Lighter navy
 
-// Primary - Electric Violet
-val NeonPrimary = Color(0xFF8B5CF6)    // Violet 500
-val NeonPrimaryLight = Color(0xFFA78BFA) // Violet 400
-val NeonPrimaryDark = Color(0xFF7C3AED)   // Violet 600
+// Primary — Electric Violet (more vivid)
+val NeonPrimary = Color(0xFFA855F7)         // Vibrant violet
+val NeonPrimaryLight = Color(0xFFC084FC)    // Bright lavender
+val NeonPrimaryDark = Color(0xFF7C3AED)     // Deep violet
 
-// Secondary - Hot Pink / Fuchsia
-val NeonSecondary = Color(0xFFD946EF)  // Fuchsia 500
-val NeonSecondaryLight = Color(0xFFE879F9)
-val NeonSecondaryDark = Color(0xFFC026D3)
+// Secondary — Electric Magenta
+val NeonSecondary = Color(0xFFE040FB)       // Vivid magenta/fuchsia
+val NeonSecondaryLight = Color(0xFFEA80FC)  // Light pink-purple
+val NeonSecondaryDark = Color(0xFFAA00FF)   // Deep purple-magenta
 
-// Tertiary - Cyan (Tech accents)
-val NeonCyan = Color(0xFF06B6D4)       // Cyan 500
-val NeonCyanLight = Color(0xFF22D3EE)
-val NeonCyanDark = Color(0xFF0891B2)
+// Tertiary — Electric Cyan
+val NeonCyan = Color(0xFF00E5FF)            // Vivid electric cyan
+val NeonCyanLight = Color(0xFF40FFFF)       // Bright turquoise
+val NeonCyanDark = Color(0xFF00B8D4)        // Deep teal-cyan
+
+// Accent — Electric Gold & Lime
+val NeonGold = Color(0xFFFFD600)            // Pure gold (victories/warnings)
+val NeonLime = Color(0xFF76FF03)            // Neon lime (success bonus)
+val NeonOrange = Color(0xFFFF6D00)          // Electric orange
 
 // Neutrals
-val NeonWhite = Color(0xFFF8FAFC)      // Slate 50
-val NeonGray100 = Color(0xFFF1F5F9)
-val NeonGray200 = Color(0xFFE2E8F0)
-val NeonGray300 = Color(0xFFCBD5E1)
-val NeonGray400 = Color(0xFF94A3B8)
-val NeonGray500 = Color(0xFF64748B)
+val NeonWhite = Color(0xFFF8FAFC)
+val NeonGray100 = Color(0xFFEEF2FF)         // Slightly blue-tinted white
+val NeonGray200 = Color(0xFFD0D7F0)
+val NeonGray300 = Color(0xFFB4BCDB)
+val NeonGray400 = Color(0xFF8892B0)
+val NeonGray500 = Color(0xFF5A6285)
 
-// Glass Effects
-val GlassWhite = Color(0x1FFFFFFF)       // ~12% white
-val GlassBorder = Color(0x33FFFFFF)      // 20% white
-val GlassDark = Color(0x4D000000)        // 30% black (darker for contrast)
+// ============== Glass Effect System ==============
+// Layered glass simulation: no real blur, depth through alpha
+val GlassWhite = Color(0x0FFFFFFF)          // 6% white — inner highlight
+val GlassBorder = Color(0x3DFFFFFF)         // 24% white — main border
+val GlassBorderBright = Color(0x66FFFFFF)   // 40% white — active/focus border
+val GlassBorderDim = Color(0x14FFFFFF)      // 8% white — subtle border
+val GlassDark = Color(0x26000000)           // 15% black — lighter glass base
+val GlassBase = Color(0x1A0D1530)           // Tinted dark glass
+val GlassDeep = Color(0x33060918)           // Deeper glass layer
 
-// Functional Colors
-val NeonSuccess = Color(0xFF10B981)      // Emerald 500
-val NeonError = Color(0xFFEF4444)        // Red 500
-val NeonWarning = Color(0xFFF59E0B)      // Amber 500
+// ============== Functional Colors ==============
+val NeonSuccess = Color(0xFF00E676)         // Vivid emerald green
+val NeonError = Color(0xFFFF1744)           // Vivid red
+val NeonWarning = Color(0xFFFFD600)         // Gold (same as NeonGold)
 
 // Combat Specific
-val HeroGreen = Color(0xFF10B981)
-val MonsterRed = Color(0xFFEF4444)
+val HeroGreen = Color(0xFF00E676)
+val MonsterRed = Color(0xFFFF1744)
 
-// Gradients
+// ============== Gradients ==============
 val GradientNeonPurple = listOf(NeonPrimary, NeonSecondary)
 val GradientNeonBlue = listOf(NeonCyanDark, NeonPrimary)
-val GradientNeonFire = listOf(NeonSecondary, Color(0xFFF43F5E)) // Fuchsia to Rose
+val GradientNeonFire = listOf(NeonSecondary, Color(0xFFFF1744))
+val GradientNeonGold = listOf(NeonGold, NeonOrange)
+val GradientViridian = listOf(NeonCyan, NeonPrimary)
+val GradientSunrise = listOf(NeonOrange, NeonSecondary, NeonPrimary)
 
-// Legacy/Compat mappings (for smoother migration if any direct refs exist)
+// ============== Legacy/Compat ==============
 val LumaGray100 = NeonGray100
 val LumaGray500 = NeonGray500
 val LumaGray900 = NeonBackground
 val LumaAccent = NeonSecondary
 val GradientOrangeEnd = NeonSecondaryLight
 
-// Avatar Colors
+// ============== Avatar Colors ==============
 val NeonAvatarColors = listOf(
     NeonPrimary, NeonSecondary, NeonCyan, NeonSuccess, NeonWarning, NeonError,
-    Color(0xFFEC4899), Color(0xFF8B5CF6), Color(0xFF6366F1), Color(0xFF3B82F6),
-    Color(0xFF14B8A6), Color(0xFFF59E0B)
+    Color(0xFFEC4899), Color(0xFF818CF8), Color(0xFF6366F1), Color(0xFF38BDF8),
+    Color(0xFF34D399), Color(0xFFFBBF24)
 )
 
 fun getAvatarColor(avatarId: Int): Color {

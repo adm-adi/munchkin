@@ -1,6 +1,9 @@
 package com.munchkin.app.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +16,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -21,11 +27,11 @@ import com.munchkin.app.R
 import com.munchkin.app.core.*
 import com.munchkin.app.network.CatalogMonster
 import com.munchkin.app.ui.components.CombatResultBanner
+import com.munchkin.app.ui.components.GradientButton
 import com.munchkin.app.ui.components.PlayerAvatar
 import com.munchkin.app.ui.components.QuickModifierButtons
 import com.munchkin.app.ui.components.RunAwayDialog
-import androidx.compose.foundation.clickable
-import com.munchkin.app.ui.theme.MunchkinTheme
+import com.munchkin.app.ui.theme.*
 
 /**
  * Combat calculator screen.
@@ -130,46 +136,70 @@ fun CombatScreen(
         combatState?.let { CombatCalculator.calculateResult(it, gameState) }
     }
     
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(NeonBackground, NeonSurface.copy(alpha = 0.4f), NeonBackground)
+                )
+            )
+    ) {
     Scaffold(
-        modifier = modifier,
+        modifier = Modifier.fillMaxSize(),
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.combat_title)) },
+                title = {
+                    Text(
+                        stringResource(R.string.combat_title),
+                        color = NeonGray100,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.back),
+                            tint = NeonGray100
+                        )
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                modifier = Modifier.background(
+                    Brush.verticalGradient(
+                        listOf(NeonBackground.copy(alpha = 0.96f), Color.Transparent)
+                    )
+                ),
                 actions = {
-                    // Cancel Combat Button (Only main player)
                     if (combatState != null && myPlayerId == combatState.mainPlayerId) {
-                        IconButton(onClick = { 
+                        IconButton(onClick = {
                             onEndCombat()
                             onBack()
                         }) {
                             Icon(
                                 Icons.Default.Close,
                                 contentDescription = stringResource(R.string.combat_cancel),
-                                tint = MaterialTheme.colorScheme.error
+                                tint = NeonError
                             )
                         }
                     }
-                    // Run Away Button (Main Player + Helper)
                     val isParticipant = combatState != null && (myPlayerId == combatState.mainPlayerId || myPlayerId == combatState.helperPlayerId)
                     if (combatState != null && combatState.monsters.isNotEmpty() && isParticipant) {
-                         IconButton(onClick = { showRunAwayDialog = true }) {
-                             Icon(
-                                 Icons.Default.DirectionsRun,
-                                 contentDescription = stringResource(R.string.combat_run_away)
-                             )
-                         }
+                        IconButton(onClick = { showRunAwayDialog = true }) {
+                            Icon(
+                                Icons.Default.DirectionsRun,
+                                contentDescription = stringResource(R.string.combat_run_away),
+                                tint = NeonWarning
+                            )
+                        }
                     }
                 }
             )
         }
     ) { padding ->
         if (combatState == null) {
-            // No active combat - show start button
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -177,22 +207,20 @@ fun CombatScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "⚔️",
-                        style = MaterialTheme.typography.displayMedium
-                    )
+                    Text(text = "⚔️", style = MaterialTheme.typography.displayMedium)
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         text = stringResource(R.string.combat_start_prompt),
-                        style = MaterialTheme.typography.headlineSmall
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = NeonGray200
                     )
                     Spacer(modifier = Modifier.height(24.dp))
-                    Button(
+                    GradientButton(
+                        text = stringResource(R.string.start_combat),
                         onClick = onStartCombat,
-                        modifier = Modifier.height(56.dp)
-                    ) {
-                        Text(stringResource(R.string.start_combat))
-                    }
+                        modifier = Modifier,
+                        gradientColors = GradientNeonFire
+                    )
                 }
             }
         } else {
@@ -511,6 +539,7 @@ fun CombatScreen(
             }
         )
     }
+    } // close outer Box
 }
 
 @Composable

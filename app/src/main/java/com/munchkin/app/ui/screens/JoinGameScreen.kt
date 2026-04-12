@@ -24,6 +24,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -33,7 +34,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.munchkin.app.R
 import com.munchkin.app.core.Gender
-import com.munchkin.app.ui.theme.getAvatarColor
+import com.munchkin.app.ui.components.AmbientOrb
+import com.munchkin.app.ui.theme.*
 import com.munchkin.app.network.UserProfile
 import com.munchkin.app.network.DiscoveredGame
 import kotlinx.coroutines.launch
@@ -114,26 +116,61 @@ fun JoinGameScreen(
         onStartDiscovery()
     }
     
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(NeonBackground, NeonSurface.copy(alpha = 0.4f), NeonBackground)
+                )
+            )
+    ) {
+        AmbientOrb(
+            modifier = Modifier.align(Alignment.TopCenter).offset(y = (-60).dp),
+            color = NeonPrimary, size = 260.dp, alpha = 0.08f
+        )
+        AmbientOrb(
+            modifier = Modifier.align(Alignment.BottomEnd).offset(x = 60.dp, y = 60.dp),
+            color = NeonCyan, size = 200.dp, alpha = 0.06f
+        )
+
     Scaffold(
-        modifier = modifier,
+        modifier = Modifier.fillMaxSize(),
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.join_game)) },
+                title = {
+                    Text(
+                        stringResource(R.string.join_game),
+                        color = NeonGray100,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.back),
+                            tint = NeonGray100
+                        )
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                modifier = Modifier.background(
+                    Brush.verticalGradient(
+                        listOf(NeonBackground.copy(alpha = 0.96f), Color.Transparent)
+                    )
+                ),
                 actions = {
-                    // Refresh button
                     IconButton(onClick = onStartDiscovery) {
                         if (isDiscovering) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.dp
+                                strokeWidth = 2.dp,
+                                color = NeonPrimary
                             )
                         } else {
-                            Icon(Icons.Default.Refresh, contentDescription = "Actualizar")
+                            Icon(Icons.Default.Refresh, contentDescription = "Actualizar", tint = NeonGray300)
                         }
                     }
                 }
@@ -151,29 +188,31 @@ fun JoinGameScreen(
             // Error message
             AnimatedVisibility(visible = error != null) {
                 error?.let {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer
-                        ),
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 8.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(NeonError.copy(alpha = 0.10f))
+                            .border(1.dp, NeonError.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                            .padding(16.dp)
                     ) {
-                        Text(
-                            text = it,
-                            modifier = Modifier.padding(16.dp),
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
+                        Text(text = it, color = NeonError, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
-            
+
             // === PLAYER INFO SECTION ===
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(GlassBase)
+                    .border(
+                        1.dp,
+                        Brush.linearGradient(listOf(GlassBorder.copy(alpha = 0.6f), GlassBorderDim)),
+                        RoundedCornerShape(20.dp)
+                    )
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp)
@@ -292,11 +331,12 @@ fun JoinGameScreen(
             Spacer(modifier = Modifier.height(16.dp))
             
             // === JOIN BY CODE ===
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(NeonPrimary.copy(alpha = 0.06f))
+                    .border(1.dp, NeonPrimary.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
             ) {
                 Row(
                     modifier = Modifier
@@ -351,42 +391,41 @@ fun JoinGameScreen(
             Text(
                 text = "Partidas disponibles",
                 style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
+                color = NeonCyan,
+                fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 4.dp, bottom = 8.dp)
             )
-            
+
             if (discoveredGames.isEmpty()) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                    )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(GlassBase)
+                        .border(1.dp, GlassBorder, RoundedCornerShape(16.dp))
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
                             Icons.Default.SearchOff,
                             contentDescription = null,
                             modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            tint = NeonGray500
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             text = if (isDiscovering) "Buscando partidas..." else "No hay partidas disponibles",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = NeonGray400
                         )
                         if (!isDiscovering) {
                             Text(
                                 text = "Crea una partida o introduce un código",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                color = NeonGray500
                             )
                         }
                     }
@@ -397,17 +436,17 @@ fun JoinGameScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     discoveredGames.forEach { game ->
-                        Card(
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(NeonSecondary.copy(alpha = 0.07f))
+                                .border(1.dp, NeonSecondary.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
                                 .clickable(enabled = !isLoading) {
                                     if (validateFields()) {
                                         onJoinDiscoveredGame(game, name, selectedAvatarId, selectedGender)
                                     }
-                                },
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-                            )
+                                }
                         ) {
                             Row(
                                 modifier = Modifier
@@ -415,48 +454,49 @@ fun JoinGameScreen(
                                     .padding(16.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Host avatar
                                 Box(
                                     modifier = Modifier
                                         .size(48.dp)
                                         .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary),
+                                        .background(Brush.linearGradient(GradientNeonPurple)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         Icons.Default.Person,
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onPrimary
+                                        tint = Color.White
                                     )
                                 }
-                                
+
                                 Spacer(modifier = Modifier.width(16.dp))
-                                
+
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = game.hostName,
                                         style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        color = NeonGray100
                                     )
                                     Text(
                                         text = "${game.playerCount}/${game.maxPlayers} jugadores • ${game.joinCode}",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = NeonGray400
                                     )
                                 }
-                                
+
                                 Icon(
                                     Icons.AutoMirrored.Filled.ArrowForward,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = NeonSecondary
                                 )
                             }
                         }
                     }
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
+    } // close outer Box
 }
