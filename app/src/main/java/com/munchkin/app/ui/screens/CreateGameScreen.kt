@@ -42,7 +42,7 @@ fun CreateGameScreen(
     isLoading: Boolean,
     error: String?,
     userProfile: UserProfile? = null,
-    onCreateGame: (name: String, avatarId: Int, gender: Gender, timerSeconds: Int) -> Unit,
+    onCreateGame: (name: String, avatarId: Int, gender: Gender, timerSeconds: Int, superMunchkin: Boolean) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -50,6 +50,7 @@ fun CreateGameScreen(
     var selectedAvatarId by remember { mutableIntStateOf(userProfile?.avatarId ?: 0) }
     var selectedGender by remember { mutableStateOf(Gender.M) }  // Default to Male
     var selectedTimerSeconds by remember { mutableIntStateOf(0) }
+    var isSuperMunchkin by remember { mutableStateOf(false) }
     
     // Only lock the name if logged in, avatar can always be changed
     val isNameLocked = userProfile != null
@@ -239,13 +240,66 @@ fun CreateGameScreen(
                 }
             }
             
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Game Mode selection
+            Text(
+                text = stringResource(R.string.game_mode),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.align(Alignment.Start)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                FilterChip(
+                    selected = !isSuperMunchkin,
+                    onClick = { isSuperMunchkin = false },
+                    label = { Text(stringResource(R.string.game_mode_normal), style = MaterialTheme.typography.labelSmall) },
+                    leadingIcon = if (!isSuperMunchkin) {
+                        { Icon(Icons.Default.Check, contentDescription = null, Modifier.size(16.dp)) }
+                    } else null,
+                    modifier = Modifier.weight(1f)
+                )
+                FilterChip(
+                    selected = isSuperMunchkin,
+                    onClick = { isSuperMunchkin = true },
+                    label = { Text(stringResource(R.string.game_mode_super), style = MaterialTheme.typography.labelSmall) },
+                    leadingIcon = if (isSuperMunchkin) {
+                        { Icon(Icons.Default.Check, contentDescription = null, Modifier.size(16.dp)) }
+                    } else null,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            AnimatedVisibility(visible = isSuperMunchkin) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.game_mode_super_desc),
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.weight(1f))
-            
+
             // Create button
             Button(
                 onClick = { 
                     if (name.isNotBlank()) {
-                        onCreateGame(name, selectedAvatarId, selectedGender, selectedTimerSeconds)
+                        onCreateGame(name, selectedAvatarId, selectedGender, selectedTimerSeconds, isSuperMunchkin)
                     }
                 },
                 enabled = name.isNotBlank() && !isLoading,

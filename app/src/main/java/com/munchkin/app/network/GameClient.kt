@@ -56,7 +56,8 @@ class GameClient {
      */
     suspend fun createGame(
         serverUrl: String,
-        playerMeta: PlayerMeta
+        playerMeta: PlayerMeta,
+        superMunchkin: Boolean = false
     ): Result<GameState> = withContext(Dispatchers.IO) {
         try {
             DLog.i(TAG, "Creating game on $serverUrl")
@@ -107,7 +108,8 @@ class GameClient {
                                     "avatarId": ${playerMeta.avatarId},
                                     "gender": "${playerMeta.gender.name}",
                                     "userId": ${if (playerMeta.userId != null) "\"${playerMeta.userId}\"" else "null"}
-                                }
+                                },
+                                "superMunchkin": $superMunchkin
                             }
                         """.trimIndent()
                         send(createMsgJson)

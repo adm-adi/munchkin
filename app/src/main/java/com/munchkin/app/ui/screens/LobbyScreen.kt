@@ -113,6 +113,38 @@ fun LobbyScreen(
                 }
             }
             
+            // Game mode badge
+            item {
+                val isSuperMunchkin = gameState.settings.maxLevel >= 20
+                Surface(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
+                    color = if (isSuperMunchkin)
+                        MaterialTheme.colorScheme.secondaryContainer
+                    else
+                        MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 4.dp)
+                ) {
+                    Text(
+                        text = if (isSuperMunchkin)
+                            stringResource(R.string.mode_badge_super)
+                        else
+                            stringResource(R.string.mode_badge_normal),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isSuperMunchkin)
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp, horizontal = 16.dp)
+                    )
+                }
+            }
+
             // Players header
             item {
                 Row(

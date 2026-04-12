@@ -153,8 +153,8 @@ class MainActivity : ComponentActivity() {
                                     isLoading = uiState.isLoading,
                                     error = uiState.error,
                                     userProfile = uiState.userProfile,
-                                    onCreateGame = { name, avatarId, gender, timerSeconds ->
-                                        viewModel.createGame(name, avatarId, gender, timerSeconds)
+                                    onCreateGame = { name, avatarId, gender, timerSeconds, superMunchkin ->
+                                        viewModel.createGame(name, avatarId, gender, timerSeconds, superMunchkin)
                                     },
                                     onBack = { viewModel.goBack() }
                                 )

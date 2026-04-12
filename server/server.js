@@ -254,6 +254,7 @@ class GameRoom {
         this.winnerId = null;
         this.turnPlayerId = hostId; // Start with host's turn
         this.combat = null;
+        this.maxLevel = 10; // Default; set to 20 for Super Munchkin mode
     }
 
     broadcast(message, excludePlayerId = null) {
@@ -320,7 +321,7 @@ class GameRoom {
             turnPlayerId: this.turnPlayerId,
             createdAt: this.createdAt,
             settings: {
-                maxLevel: 10,
+                maxLevel: this.maxLevel,
                 allowNegativeGear: true,
                 autoNextTurn: false
             }
@@ -495,13 +496,16 @@ function createPlayerState(ws, meta) {
 }
 
 function handleCreateGame(ws, message) {
-    const { playerMeta } = message;
+    const { playerMeta, superMunchkin } = message;
     const joinCode = generateJoinCode();
     const playerId = playerMeta.playerId || uuidv4();
 
-    logger.info(`🎲 Creating game for ${playerMeta.name} with playerId: ${playerId}`);
+    logger.info(`🎲 Creating game for ${playerMeta.name} with playerId: ${playerId}, superMunchkin: ${!!superMunchkin}`);
 
     const game = new GameRoom(playerId, joinCode, playerMeta.name, playerMeta.avatarId, playerMeta.gender, ws.userId);
+    if (superMunchkin === true) {
+        game.maxLevel = 20;
+    }
     game.players.set(playerId, createPlayerState(ws, playerMeta));
 
     games.set(game.id, game);
@@ -703,7 +707,7 @@ function applyEvent(game, event, playerId) {
 
     switch (event.type) {
         case 'INC_LEVEL':
-            player.level = Math.min(10, player.level + (event.amount || 1));
+            player.level = Math.min(game.maxLevel, player.level + (event.amount || 1));
             break;
         case 'DEC_LEVEL':
             player.level = Math.max(1, player.level - (event.amount || 1));
@@ -715,7 +719,7 @@ function applyEvent(game, event, playerId) {
             player.gear = player.gear - (event.amount || 1);
             break;
         case 'SET_LEVEL':
-            player.level = Math.max(1, Math.min(10, event.level));
+            player.level = Math.max(1, Math.min(game.maxLevel, event.level));
             break;
         case 'SET_GEAR':
             player.gear = event.gear;
@@ -831,11 +835,11 @@ function applyEvent(game, event, playerId) {
                 finalLevels = serverResult ? serverResult.totalLevels : (event.levelsGained || 0);
                 finalTreasures = serverResult ? serverResult.totalTreasures : (event.treasuresGained || 0);
                 finalHelperLevels = serverResult ? serverResult.helperLevelsGained : (event.helperLevelsGained || 0);
-                player.level = Math.min(10, player.level + finalLevels);
+                player.level = Math.min(game.maxLevel, player.level + finalLevels);
                 player.treasures = (player.treasures || 0) + finalTreasures;
                 if (finalHelperLevels > 0 && helperPlayerId) {
                     const helperPlayer = game.players.get(helperPlayerId);
-                    if (helperPlayer) helperPlayer.level = Math.min(10, helperPlayer.level + finalHelperLevels);
+                    if (helperPlayer) helperPlayer.level = Math.min(game.maxLevel, helperPlayer.level + finalHelperLevels);
                 }
             }
 
@@ -865,8 +869,8 @@ function applyEvent(game, event, playerId) {
     }
 
     // Check Win Condition
-    if (player.level >= 10 && !game.winnerId) {
-        logger.info(`🏆 Player ${player.name} reached Level 10!`);
+    if (player.level >= game.maxLevel && !game.winnerId) {
+        logger.info(`🏆 Player ${player.name} reached Level ${game.maxLevel}!`);
         closeGame(game, player.id);
     }
 }

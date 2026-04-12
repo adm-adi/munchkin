@@ -375,8 +375,8 @@ class GameViewModel : ViewModel() {
     /**
      * Create a new game as host.
      */
-    fun createGame(name: String, avatarId: Int, gender: Gender, timerSeconds: Int = 0) {
-        android.util.Log.d("GameViewModel", "createGame called: name=$name, avatarId=$avatarId, gender=$gender, timer=$timerSeconds")
+    fun createGame(name: String, avatarId: Int, gender: Gender, timerSeconds: Int = 0, superMunchkin: Boolean = false) {
+        android.util.Log.d("GameViewModel", "createGame called: name=$name, avatarId=$avatarId, gender=$gender, timer=$timerSeconds, superMunchkin=$superMunchkin")
         viewModelScope.launch {
             try {
                 android.util.Log.d("GameViewModel", "Setting loading state...")
@@ -405,7 +405,7 @@ class GameViewModel : ViewModel() {
                 val client = GameClient()
                 gameClient = client
                 
-                val result = client.createGame(SERVER_URL, playerMeta)
+                val result = client.createGame(SERVER_URL, playerMeta, superMunchkin)
                 
                 if (result.isFailure) {
                     val error = result.exceptionOrNull()?.message ?: "Error desconocido"

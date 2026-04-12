@@ -10,6 +10,12 @@
     <string name="your_name">Your name</string>
     <string name="select_avatar">Select avatar</string>
     <string name="gender">Gender</string>
+    <string name="game_mode">Game Mode</string>
+    <string name="game_mode_normal">Normal (Lvl. 10)</string>
+    <string name="game_mode_super">Super Munchkin (Lvl. 20)</string>
+    <string name="game_mode_super_desc">Players must reach level 20 to win!</string>
+    <string name="mode_badge_normal">🏆 Level 10</string>
+    <string name="mode_badge_super">⚡ Super Munchkin — Level 20</string>
     <string name="gender_male">Male</string>
     <string name="gender_female">Female</string>
     <string name="gender_na">N/A</string>
