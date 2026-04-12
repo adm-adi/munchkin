@@ -106,6 +106,15 @@ data class PlayerStatusMessage(
     val isConnected: Boolean
 ) : WsMessage()
 
+/**
+ * Host request to remove a player from the game.
+ */
+@Serializable
+@SerialName("KICK_PLAYER")
+data class KickPlayerMessage(
+    val targetPlayerId: PlayerId
+) : WsMessage()
+
 // ============== Auth Messages ==============
 
 @Serializable

@@ -257,4 +257,10 @@
     
     <!-- QR Scanner -->
     <string name="grant_permission">Accorder la permission</string>
+
+    <!-- Disconnection / Kick -->
+    <string name="kick_player">Expulser le joueur</string>
+    <string name="confirm_kick">Expulser %1$s de la partie ?</string>
+    <string name="waiting_for_player">En attente de %1$s…</string>
+    <string name="player_disconnected">Déconnecté</string>
 </resources>

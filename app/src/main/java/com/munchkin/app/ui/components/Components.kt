@@ -10,7 +10,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.ui.res.stringResource
+import com.munchkin.app.R
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -203,6 +207,7 @@ fun PlayerCard(
     showDisconnectedBadge: Boolean = true,
     showStats: Boolean = true,
     onToggleGender: (() -> Unit)? = null,
+    onKickPlayer: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     actions: @Composable (RowScope.() -> Unit) = {}
@@ -344,6 +349,21 @@ fun PlayerCard(
                                 )
                             }
                         }
+                        if (!player.isConnected && showDisconnectedBadge) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.errorContainer
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.player_disconnected),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
                 }
                     
@@ -393,9 +413,44 @@ fun PlayerCard(
                     Row {
                         actions()
                     }
+
+                    // Kick button (host only, disconnected players)
+                    if (!player.isConnected && showDisconnectedBadge && onKickPlayer != null) {
+                        var showKickConfirm by remember { mutableStateOf(false) }
+                        IconButton(onClick = { showKickConfirm = true }) {
+                            Icon(
+                                Icons.Default.PersonRemove,
+                                contentDescription = stringResource(R.string.kick_player),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                        if (showKickConfirm) {
+                            AlertDialog(
+                                onDismissRequest = { showKickConfirm = false },
+                                title = { Text(stringResource(R.string.kick_player)) },
+                                text = { Text(stringResource(R.string.confirm_kick, player.name)) },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        showKickConfirm = false
+                                        onKickPlayer()
+                                    }) {
+                                        Text(
+                                            stringResource(R.string.kick_player),
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { showKickConfirm = false }) {
+                                        Text(stringResource(R.string.cancel))
+                                    }
+                                }
+                            )
+                        }
+                    }
                 }
             }
-            
+
 
         }
     }

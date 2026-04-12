@@ -42,6 +42,7 @@ fun LobbyScreen(
     onDeleteGame: () -> Unit = {},
     onRollDice: () -> Unit = {},
     onSwapPlayers: (PlayerId, PlayerId) -> Unit = { _, _ -> },
+    onKickPlayer: ((PlayerId) -> Unit)? = null,
     connectionState: ConnectionState = ConnectionState.CONNECTED,
     reconnectAttempt: Int = 0,
     onRetryReconnect: () -> Unit = {},
@@ -290,9 +291,11 @@ fun LobbyScreen(
                             player = player,
                             isMe = player.playerId == myPlayerId,
                             isHost = player.playerId == gameState.hostId,
-                            showDisconnectedBadge = false,
+                            showDisconnectedBadge = true,
                             showStats = false,
                             modifier = Modifier.weight(1f),
+                            onKickPlayer = if (isHost && !player.isConnected && player.playerId != myPlayerId)
+                                { { onKickPlayer?.invoke(player.playerId) } } else null,
                             actions = {
                                 if (player.lastRoll != null) {
                                     Spacer(modifier = Modifier.width(8.dp))

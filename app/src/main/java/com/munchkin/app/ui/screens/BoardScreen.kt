@@ -46,6 +46,7 @@ fun BoardScreen(
     onEndTurn: () -> Unit = {},
     onToggleGender: () -> Unit = {},
     onSwapPlayers: (PlayerId, PlayerId) -> Unit = { _, _ -> },
+    onKickPlayer: ((PlayerId) -> Unit)? = null,
     logEntries: List<com.munchkin.app.core.GameLogEntry> = emptyList(),
     reconnectAttempt: Int = 0,
     onRetryReconnect: () -> Unit = {},
@@ -323,9 +324,37 @@ fun BoardScreen(
                                 }
                             }
                             Spacer(modifier = Modifier.height(8.dp))
+
+                            // Waiting for reconnect banner
+                            if (!currentTurnPlayer.isConnected) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.errorContainer
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.WifiOff,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = stringResource(R.string.waiting_for_player, currentTurnPlayer.name),
+                                            color = MaterialTheme.colorScheme.onErrorContainer,
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
-                    
+
                     // Player cards
                     itemsIndexed(
                         items = gameState.playerList,
@@ -371,7 +400,9 @@ fun BoardScreen(
                             isHost = player.playerId == gameState.hostId,
                             isTurn = player.playerId == gameState.turnPlayerId,
                             onToggleGender = if (player.playerId == myPlayerId) onToggleGender else null,
-                            onClick = { onPlayerClick(player.playerId) }
+                            onClick = { onPlayerClick(player.playerId) },
+                            onKickPlayer = if (isHost && !player.isConnected && player.playerId != myPlayerId)
+                                { { onKickPlayer?.invoke(player.playerId) } } else null
                         )
                     }
                     

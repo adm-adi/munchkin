@@ -1305,6 +1305,16 @@ class GameViewModel : ViewModel() {
      * Leave current game.
      */
     /**
+     * Kick a disconnected player from the game (Host only).
+     */
+    fun kickPlayer(targetPlayerId: PlayerId) {
+        if (!isHost) return
+        viewModelScope.launch {
+            gameClient?.kickPlayer(targetPlayerId)
+        }
+    }
+
+    /**
      * Delete the game (Host only).
      */
     fun deleteGame() {

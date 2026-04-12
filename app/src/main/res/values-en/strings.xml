@@ -257,4 +257,10 @@
     
     <!-- QR Scanner -->
     <string name="grant_permission">Grant permission</string>
+
+    <!-- Disconnection / Kick -->
+    <string name="kick_player">Kick player</string>
+    <string name="confirm_kick">Kick %1$s from the game?</string>
+    <string name="waiting_for_player">Waiting for %1$s…</string>
+    <string name="player_disconnected">Disconnected</string>
 </resources>

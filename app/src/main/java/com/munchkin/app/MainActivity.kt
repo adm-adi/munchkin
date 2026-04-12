@@ -212,6 +212,7 @@ class MainActivity : ComponentActivity() {
                                         onDeleteGame = { viewModel.deleteGame() },
                                         onRollDice = { viewModel.rollDiceForStart() },
                                         onSwapPlayers = { p1, p2 -> viewModel.swapPlayers(p1, p2) },
+                                        onKickPlayer = { viewModel.kickPlayer(it) },
                                         connectionState = uiState.connectionState,
                                         reconnectAttempt = uiState.reconnectAttempt,
                                         onRetryReconnect = { viewModel.retryReconnect() }
@@ -271,6 +272,7 @@ class MainActivity : ComponentActivity() {
                                             onEndTurn = { viewModel.endTurn() },
                                             onToggleGender = { viewModel.toggleGender() },
                                             onSwapPlayers = viewModel::swapPlayers,
+                                            onKickPlayer = { viewModel.kickPlayer(it) },
                                             logEntries = viewModel.gameLog.collectAsState().value,
                                             reconnectAttempt = uiState.reconnectAttempt,
                                             onRetryReconnect = { viewModel.retryReconnect() }

@@ -469,6 +469,10 @@ function handleMessage(ws, message) {
             handleEndTurn(ws);
             break;
 
+        case 'KICK_PLAYER':
+            handleKickPlayer(ws, message);
+            break;
+
         case 'COMBAT_DICE_ROLL':
             handleCombatDiceRoll(ws, message);
             break;
@@ -1541,23 +1545,9 @@ function handleDisconnect(ws) {
                 }
             }
 
-            // Turn Migration: If turn player disconnected, advance turn
-            if (game.turnPlayerId === clientData.playerId) {
-                const nextPlayerId = getNextTurnPlayerId(game);
-                if (nextPlayerId !== game.turnPlayerId) {
-                    game.turnPlayerId = nextPlayerId;
-                    game.combat = null; // Clear combat
-
-                    logger.info(`⏩ Auto-advancing turn from disconnected player to ${game.players.get(nextPlayerId)?.name}`);
-
-                    // Broadcast new state
-                    game.broadcast({
-                        type: "STATE_SNAPSHOT",
-                        gameState: game.buildGameState(),
-                        seq: game.seq
-                    });
-                }
-            }
+            // NOTE: We do NOT auto-advance the turn when a player disconnects.
+            // The turn is held for the disconnected player until they reconnect or the host kicks them.
+            // This prevents state desync and keeps the game fair.
 
             // Persist changes
             db.saveActiveGame(game).catch(err => logger.error('Failed to save game:', err));
@@ -1592,6 +1582,58 @@ function handleDeleteGame(ws, message) {
 
     games.delete(game.id);
     db.deleteActiveGame(game.id).catch(err => logger.error('Failed to delete game from DB:', err));
+}
+
+function handleKickPlayer(ws, message) {
+    const clientInfo = clientGames.get(ws);
+    if (!clientInfo) return;
+    const game = games.get(clientInfo.gameId);
+    if (!game) return;
+
+    // Only host can kick
+    if (game.hostId !== clientInfo.playerId) {
+        sendError(ws, "PERMISSION_DENIED", "Solo el anfitrión puede expulsar jugadores");
+        return;
+    }
+
+    const { targetPlayerId } = message;
+    if (!targetPlayerId || !game.players.has(targetPlayerId)) {
+        sendError(ws, "PLAYER_NOT_FOUND", "Jugador no encontrado");
+        return;
+    }
+
+    const kickedPlayer = game.players.get(targetPlayerId);
+
+    // If it was the kicked player's turn, advance to next BEFORE deleting
+    if (game.turnPlayerId === targetPlayerId) {
+        const nextId = getNextTurnPlayerId(game);
+        game.turnPlayerId = (nextId !== targetPlayerId) ? nextId : null;
+        game.combat = null; // Clear any active combat
+    }
+
+    // Remove player from game
+    game.players.delete(targetPlayerId);
+    if (Array.isArray(game.playerOrder)) {
+        game.playerOrder = game.playerOrder.filter(id => id !== targetPlayerId);
+    }
+
+    // Close the kicked player's WebSocket if they're still connected
+    for (const [clientWs, info] of clientGames.entries()) {
+        if (info.gameId === clientInfo.gameId && info.playerId === targetPlayerId) {
+            clientWs.close(1000, 'Kicked by host');
+            clientGames.delete(clientWs);
+            break;
+        }
+    }
+
+    logger.info(`👢 Player ${kickedPlayer?.name} kicked from ${game.joinCode} by host`);
+    game.seq++;
+    game.broadcast({
+        type: "STATE_SNAPSHOT",
+        gameState: game.buildGameState(),
+        seq: game.seq
+    });
+    db.saveActiveGame(game).catch(err => logger.error('Failed to save after kick:', err));
 }
 
 function sendError(ws, code, message) {

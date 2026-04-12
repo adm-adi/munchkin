@@ -502,6 +502,18 @@ class GameClient {
         }
     }
 
+    suspend fun kickPlayer(targetPlayerId: PlayerId): Result<Unit> {
+        val currentSession = session ?: return Result.failure(Exception("No conectado"))
+        return try {
+            val msg = KickPlayerMessage(targetPlayerId)
+            val jsonStr = json.encodeToString<WsMessage>(msg)
+            currentSession.send(jsonStr)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun sendDeleteGame(): Result<Unit> {
         val currentSession = session ?: return Result.failure(Exception("No conectado"))
         
