@@ -194,6 +194,21 @@ const games = new Map();
 // Store client -> gameId mapping
 const clientGames = new Map();
 
+// Debounced save: coalesces rapid successive saves (e.g. 6 players leveling at once)
+// into a single DB write per game after 500ms of inactivity.
+const pendingSaves = new Map(); // gameId -> timeoutHandle
+
+function debouncedSaveGame(game, delayMs = 500) {
+    const existing = pendingSaves.get(game.id);
+    if (existing) clearTimeout(existing);
+    const handle = setTimeout(() => {
+        pendingSaves.delete(game.id);
+        db.saveActiveGame(game).catch(err =>
+            logger.error(`💾 Debounced save failed for ${game.joinCode}:`, err));
+    }, delayMs);
+    pendingSaves.set(game.id, handle);
+}
+
 // Load persisted games on startup
 async function loadGamesFromDatabase() {
     try {
@@ -206,6 +221,8 @@ async function loadGamesFromDatabase() {
             game.combat = saved.combat;
             game.createdAt = saved.createdAt;
             game.seq = saved.seq;
+            game.maxLevel = saved.maxLevel || 10;
+            game.winnerId = saved.winnerId || null;
 
             // Restore players (without ws connections - they'll reconnect)
             for (const [playerId, playerData] of Object.entries(saved.players)) {
@@ -217,6 +234,7 @@ async function loadGamesFromDatabase() {
                     userId: playerData.userId,
                     level: playerData.level || 1,
                     gear: playerData.gear || 0,
+                    treasures: playerData.treasures || 0,
                     characterClass: playerData.characterClass || 'NONE',
                     characterRace: playerData.characterRace || 'HUMAN',
                     hasHalfBreed: playerData.hasHalfBreed || false,
@@ -690,14 +708,20 @@ function handleEvent(ws, message) {
     });
 
     // Persist game state after significant events
-    const saveableEvents = ['GAME_START', 'INC_LEVEL', 'DEC_LEVEL', 'SET_LEVEL', 'SET_GEAR',
-        'SET_CLASS', 'SET_RACE', 'COMBAT_START', 'COMBAT_END', 'GAME_END',
+    const saveableEvents = [
+        'GAME_START', 'GAME_END',
+        'INC_LEVEL', 'DEC_LEVEL', 'SET_LEVEL',
+        'INC_GEAR', 'DEC_GEAR', 'SET_GEAR',
+        'SET_CLASS', 'SET_RACE',
+        'SET_HALF_BREED', 'SET_SUPER_MUNCHKIN',
+        'END_TURN', 'PLAYER_ROLL',
+        'COMBAT_START', 'COMBAT_END',
         'COMBAT_ADD_MONSTER', 'COMBAT_REMOVE_MONSTER', 'COMBAT_UPDATE_MONSTER',
         'COMBAT_ADD_HELPER', 'COMBAT_REMOVE_HELPER',
         'COMBAT_MODIFY_MODIFIER', 'COMBAT_SET_MODIFIER', 'COMBAT_ADD_BONUS', 'COMBAT_REMOVE_BONUS'
     ];
     if (saveableEvents.includes(event.type)) {
-        db.saveActiveGame(game).catch(err => logger.error('Failed to save game:', err));
+        debouncedSaveGame(game);
     }
 }
 
@@ -1600,6 +1624,11 @@ setInterval(() => {
 async function gracefulShutdown(signal) {
     logger.info(`🛑 Received ${signal}. Saving active games and shutting down...`);
     try {
+        // Flush any pending debounced saves immediately
+        for (const [gameId, handle] of pendingSaves) {
+            clearTimeout(handle);
+            pendingSaves.delete(gameId);
+        }
         const savePromises = [];
         for (const game of games.values()) {
             savePromises.push(db.saveActiveGame(game).catch(err => logger.error(`Failed to save game ${game.joinCode}:`, err)));

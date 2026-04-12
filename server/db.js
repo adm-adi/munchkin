@@ -98,6 +98,18 @@ function initTables() {
             }
         });
 
+        // active_games column migrations
+        db.run(`ALTER TABLE active_games ADD COLUMN max_level INTEGER DEFAULT 10`, (err) => {
+            if (err && !err.message.includes("duplicate column name")) {
+                logger.error("Migration error (max_level):", err);
+            }
+        });
+        db.run(`ALTER TABLE active_games ADD COLUMN winner_id TEXT DEFAULT NULL`, (err) => {
+            if (err && !err.message.includes("duplicate column name")) {
+                logger.error("Migration error (winner_id):", err);
+            }
+        });
+
         // Performance indexes
         db.run(`CREATE INDEX IF NOT EXISTS idx_participants_user ON participants(user_id)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_games_winner ON games(winner_id)`);
@@ -399,6 +411,7 @@ function saveActiveGame(game) {
                 userId: player.userId,
                 level: player.level,
                 gear: player.gear,
+                treasures: player.treasures || 0,
                 characterClass: player.characterClass,
                 characterRace: player.characterRace,
                 hasHalfBreed: player.hasHalfBreed,
@@ -408,9 +421,10 @@ function saveActiveGame(game) {
             };
         }
 
-        const sql = `INSERT OR REPLACE INTO active_games 
-            (id, join_code, host_id, host_name, phase, turn_player_id, players_json, combat_json, created_at, last_activity_at, seq)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        const sql = `INSERT OR REPLACE INTO active_games
+            (id, join_code, host_id, host_name, phase, turn_player_id, players_json, combat_json,
+             created_at, last_activity_at, seq, max_level, winner_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
         db.run(sql, [
             game.id,
@@ -423,7 +437,9 @@ function saveActiveGame(game) {
             game.combat ? JSON.stringify(game.combat) : null,
             game.createdAt,
             Date.now(),
-            game.seq || 0
+            game.seq || 0,
+            game.maxLevel || 10,
+            game.winnerId || null
         ], function (err) {
             if (err) {
                 logger.error('❌ Error saving game:', err);
@@ -477,7 +493,9 @@ function loadActiveGames() {
                     combat,
                     createdAt: row.created_at,
                     lastActivityAt: row.last_activity_at,
-                    seq: row.seq
+                    seq: row.seq,
+                    maxLevel: row.max_level || 10,
+                    winnerId: row.winner_id || null
                 });
                 return acc;
             }, []);

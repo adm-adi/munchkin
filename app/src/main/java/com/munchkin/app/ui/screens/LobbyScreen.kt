@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.munchkin.app.R
 import com.munchkin.app.core.GameState
 import com.munchkin.app.core.PlayerId
+import com.munchkin.app.network.ConnectionState
 import com.munchkin.app.ui.components.ConnectionInfoCard
 import com.munchkin.app.ui.components.PlayerCard
 import com.munchkin.app.viewmodel.ConnectionInfo
@@ -41,6 +42,9 @@ fun LobbyScreen(
     onDeleteGame: () -> Unit = {},
     onRollDice: () -> Unit = {},
     onSwapPlayers: (PlayerId, PlayerId) -> Unit = { _, _ -> },
+    connectionState: ConnectionState = ConnectionState.CONNECTED,
+    reconnectAttempt: Int = 0,
+    onRetryReconnect: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showLeaveDialog by remember { mutableStateOf(false) }
@@ -100,6 +104,62 @@ fun LobbyScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Reconnect banner
+            val showBanner = connectionState == ConnectionState.RECONNECTING ||
+                             connectionState == ConnectionState.FAILED_PERMANENTLY
+            if (showBanner) {
+                item {
+                    val isFailed = connectionState == ConnectionState.FAILED_PERMANENTLY
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (isFailed) {
+                                Icon(
+                                    Icons.Default.WifiOff,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            } else {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = if (isFailed)
+                                    stringResource(R.string.reconnect_failed)
+                                else if (reconnectAttempt > 0)
+                                    stringResource(R.string.reconnecting_attempt, reconnectAttempt, 15)
+                                else
+                                    stringResource(R.string.reconnecting),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (isFailed) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                TextButton(onClick = onRetryReconnect) {
+                                    Text(
+                                        stringResource(R.string.reconnect_retry),
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Connection info for host
             if (isHost && connectionInfo != null) {
                 item {

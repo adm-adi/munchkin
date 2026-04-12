@@ -47,6 +47,8 @@ fun BoardScreen(
     onToggleGender: () -> Unit = {},
     onSwapPlayers: (PlayerId, PlayerId) -> Unit = { _, _ -> },
     logEntries: List<com.munchkin.app.core.GameLogEntry> = emptyList(),
+    reconnectAttempt: Int = 0,
+    onRetryReconnect: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showLeaveDialog by remember { mutableStateOf(false) }
@@ -150,12 +152,14 @@ fun BoardScreen(
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Connection lost banner
+                // Connection lost / reconnect banner
                 AnimatedVisibility(
-                    visible = connectionState == ConnectionState.RECONNECTING,
+                    visible = connectionState == ConnectionState.RECONNECTING ||
+                              connectionState == ConnectionState.FAILED_PERMANENTLY,
                     enter = slideInVertically() + fadeIn(),
                     exit = slideOutVertically() + fadeOut()
                 ) {
+                    val isFailed = connectionState == ConnectionState.FAILED_PERMANENTLY
                     Card(
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.errorContainer
@@ -168,12 +172,41 @@ fun BoardScreen(
                             modifier = Modifier.fillMaxWidth().padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            if (isFailed) {
+                                Icon(
+                                    Icons.Default.WifiOff,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            } else {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = stringResource(R.string.reconnecting),
-                                style = MaterialTheme.typography.bodyMedium
+                                text = if (isFailed)
+                                    stringResource(R.string.reconnect_failed)
+                                else if (reconnectAttempt > 0)
+                                    stringResource(R.string.reconnecting_attempt, reconnectAttempt, 15)
+                                else
+                                    stringResource(R.string.reconnecting),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.weight(1f)
                             )
+                            if (isFailed) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                TextButton(onClick = onRetryReconnect) {
+                                    Text(
+                                        stringResource(R.string.reconnect_retry),
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
                         }
                     }
                 }

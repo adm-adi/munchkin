@@ -153,6 +153,10 @@
     
     <!-- Connection -->
     <string name="reconnecting">Reconnexion…</string>
+    <string name="reconnecting_attempt">Reconnexion… (%1$d/%2$d)</string>
+    <string name="reconnect_failed">Impossible de se reconnecter</string>
+    <string name="reconnect_retry">Réessayer</string>
+    <string name="reconnected">Reconnecté !</string>
     <string name="connection_lost">Connexion perdue</string>
     <string name="host_left">L\'hôte a quitté</string>
     <string name="new_host">Nouvel hôte : %1$s</string>

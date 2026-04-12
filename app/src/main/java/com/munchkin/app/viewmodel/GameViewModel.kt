@@ -237,11 +237,20 @@ class GameViewModel : ViewModel() {
     fun checkReconnection() {
         val client = gameClient
         val saved = _savedGame.value
-        
-        if (saved != null && (client == null || !client.isConnected())) {
+
+        if (saved != null && (client == null || !client.isConnected() ||
+                client.connectionState.value == ConnectionState.FAILED_PERMANENTLY)) {
             android.util.Log.d("GameViewModel", "Auto-reconnecting to saved game...")
             resumeSavedGame()
         }
+    }
+
+    /**
+     * Manual retry after FAILED_PERMANENTLY — resets the flag and attempts reconnect.
+     */
+    fun retryReconnect() {
+        _uiState.update { it.copy(isReconnectFailed = false) }
+        resumeSavedGame()
     }
     
     /**
@@ -1474,8 +1483,25 @@ class GameViewModel : ViewModel() {
         }
         
         viewModelScope.launch {
+            var prevConnState: ConnectionState? = null
             gameClient?.connectionState?.collect { connState ->
-                _uiState.update { it.copy(connectionState = connState) }
+                // Emit success toast when we recover from a reconnect
+                if (prevConnState == ConnectionState.RECONNECTING && connState == ConnectionState.CONNECTED) {
+                    _events.emit(GameUiEvent.Reconnected)
+                }
+                prevConnState = connState
+                _uiState.update {
+                    it.copy(
+                        connectionState = connState,
+                        isReconnectFailed = connState == ConnectionState.FAILED_PERMANENTLY
+                    )
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            gameClient?.reconnectAttempt?.collect { attempt ->
+                _uiState.update { it.copy(reconnectAttempt = attempt) }
             }
         }
         
@@ -1632,6 +1658,8 @@ data class GameUiState(
     val isHost: Boolean = false,
     val connectionInfo: ConnectionInfo? = null,
     val connectionState: ConnectionState = ConnectionState.DISCONNECTED,
+    val reconnectAttempt: Int = 0,          // 0 = not reconnecting; >0 = current attempt number
+    val isReconnectFailed: Boolean = false, // true when FAILED_PERMANENTLY
 
     val discoveredGames: List<DiscoveredGame> = emptyList(),
     val isDiscovering: Boolean = false,
@@ -1679,6 +1707,7 @@ sealed class GameUiEvent {
     data class ShowSuccess(val message: String) : GameUiEvent()
     data class ShowMessage(val message: String) : GameUiEvent()
     data object PlaySound : GameUiEvent()
+    data object Reconnected : GameUiEvent()  // Fired when RECONNECTING → CONNECTED transition
 }
 
 // Response from server for available games

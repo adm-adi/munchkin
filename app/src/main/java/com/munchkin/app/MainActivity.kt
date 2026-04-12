@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.munchkin.app.R
 import com.munchkin.app.network.ConnectionState
 import com.munchkin.app.core.DiceRollPurpose
 import com.munchkin.app.ui.components.DebugLogViewer
@@ -52,6 +53,23 @@ class MainActivity : ComponentActivity() {
             MunchkinTheme {
                 val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
                 val scope = rememberCoroutineScope()
+
+                // Collect one-shot UI events (toasts, snackbars)
+                val context = androidx.compose.ui.platform.LocalContext.current
+                LaunchedEffect(viewModel) {
+                    viewModel.events.collect { event ->
+                        when (event) {
+                            is com.munchkin.app.viewmodel.GameUiEvent.Reconnected ->
+                                android.widget.Toast.makeText(
+                                    context,
+                                    context.getString(R.string.reconnected),
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            else -> { /* other events handled elsewhere */ }
+                        }
+                    }
+                }
+
                 DisposableEffect(lifecycleOwner) {
                     val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
                         if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
@@ -193,7 +211,10 @@ class MainActivity : ComponentActivity() {
                                         onLeaveGame = { viewModel.leaveGame() },
                                         onDeleteGame = { viewModel.deleteGame() },
                                         onRollDice = { viewModel.rollDiceForStart() },
-                                        onSwapPlayers = { p1, p2 -> viewModel.swapPlayers(p1, p2) }
+                                        onSwapPlayers = { p1, p2 -> viewModel.swapPlayers(p1, p2) },
+                                        connectionState = uiState.connectionState,
+                                        reconnectAttempt = uiState.reconnectAttempt,
+                                        onRetryReconnect = { viewModel.retryReconnect() }
                                     )
                                 }
                             }
@@ -243,7 +264,6 @@ class MainActivity : ComponentActivity() {
                                             onCombatClick = { viewModel.navigateTo(Screen.COMBAT) },
                                             onCatalogClick = { viewModel.navigateTo(Screen.CATALOG) },
                                             onSettingsClick = { viewModel.navigateTo(Screen.SETTINGS) },
-
                                             onLeaveGame = { viewModel.leaveGame() },
                                             onDeleteGame = { viewModel.deleteGame() },
                                             onConfirmWin = { viewModel.confirmWin(it) },
@@ -251,7 +271,9 @@ class MainActivity : ComponentActivity() {
                                             onEndTurn = { viewModel.endTurn() },
                                             onToggleGender = { viewModel.toggleGender() },
                                             onSwapPlayers = viewModel::swapPlayers,
-                                            logEntries = viewModel.gameLog.collectAsState().value
+                                            logEntries = viewModel.gameLog.collectAsState().value,
+                                            reconnectAttempt = uiState.reconnectAttempt,
+                                            onRetryReconnect = { viewModel.retryReconnect() }
                                         )
                                     }
                                 }

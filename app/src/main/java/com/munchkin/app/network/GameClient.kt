@@ -19,7 +19,8 @@ class GameClient {
     companion object {
         private const val TAG = "GameClient"
         private const val RECONNECT_DELAY_MS = 1000L
-        private const val MAX_RECONNECT_ATTEMPTS = 5
+        private const val MAX_RECONNECT_DELAY_MS = 30_000L  // cap at 30 seconds
+        private const val MAX_RECONNECT_ATTEMPTS = 15       // was 5
     }
     
     private var client: HttpClient? = null
@@ -30,6 +31,9 @@ class GameClient {
     private var lastUrl: String? = null
     private var lastJoinCode: String? = null
     private var lastPlayerMeta: PlayerMeta? = null
+
+    // Persistent engine — reused across events to avoid allocating a new instance per message
+    private var gameEngine: GameEngine? = null
     
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -42,6 +46,9 @@ class GameClient {
     
     private val _errors = MutableSharedFlow<String>()
     val errors: SharedFlow<String> = _errors.asSharedFlow()
+
+    private val _reconnectAttempt = MutableStateFlow(0)
+    val reconnectAttempt: StateFlow<Int> = _reconnectAttempt.asStateFlow()
     
     private val json = Json {
         ignoreUnknownKeys = true
@@ -283,10 +290,20 @@ class GameClient {
             is WelcomeMessage -> {
                 _gameState.value = message.gameState
                 _myPlayerId.value = message.yourPlayerId
+                // (Re-)initialize the persistent engine on every welcome/reconnect
+                val engine = GameEngine()
+                engine.loadState(message.gameState)
+                gameEngine = engine
                 Result.success(Unit)
             }
             is StateSnapshotMessage -> {
                 _gameState.value = message.gameState
+                // Re-sync engine to authoritative snapshot
+                gameEngine?.loadState(message.gameState) ?: run {
+                    val engine = GameEngine()
+                    engine.loadState(message.gameState)
+                    gameEngine = engine
+                }
                 Result.success(Unit)
             }
             is ErrorMessage -> {
@@ -344,6 +361,12 @@ class GameClient {
         when (message) {
             is StateSnapshotMessage -> {
                 _gameState.value = message.gameState
+                // Keep persistent engine in sync with server snapshots
+                gameEngine?.loadState(message.gameState) ?: run {
+                    val engine = GameEngine()
+                    engine.loadState(message.gameState)
+                    gameEngine = engine
+                }
             }
             is EventBroadcastMessage -> {
                 // Apply event to local state
@@ -372,17 +395,18 @@ class GameClient {
     }
     
     /**
-     * Apply an event to local game state.
+     * Apply an event to local game state using the persistent engine.
+     * Avoids allocating a new GameEngine instance on every incoming broadcast.
      */
     private fun applyEvent(event: GameEvent) {
-        val currentState = _gameState.value ?: return
-        
-        // Create a local game engine to apply the event
-        val tempEngine = GameEngine()
-        tempEngine.loadState(currentState)
-        tempEngine.processEvent(event)
-        
-        _gameState.value = tempEngine.gameState.value
+        val engine = gameEngine ?: run {
+            // Edge case: event arrives before WELCOME (e.g. during reconnect race).
+            // Bootstrap from current state and promote as the persistent engine.
+            val s = _gameState.value ?: return
+            GameEngine().also { it.loadState(s); gameEngine = it }
+        }
+        engine.processEvent(event)
+        _gameState.value = engine.gameState.value
     }
     
     /**
@@ -409,32 +433,38 @@ class GameClient {
     }
     
     /**
-     * Attempt to reconnect with backoff.
+     * Attempt to reconnect with exponential backoff (1s, 2s, 4s, 8s, 16s, 30s cap).
+     * Emits attempt counter so the UI can show progress.
+     * Sets FAILED_PERMANENTLY after all attempts are exhausted.
      */
     private suspend fun attemptReconnect() {
         val url = lastUrl ?: return
         val code = lastJoinCode ?: return
         val meta = lastPlayerMeta ?: return
-        
+
         reconnectJob = scope?.launch {
             var attempts = 0
-            
+
             while (attempts < MAX_RECONNECT_ATTEMPTS && isActive) {
-                delay(RECONNECT_DELAY_MS * (attempts + 1))
-                
-                Log.i(TAG, "Reconnect attempt ${attempts + 1}")
-                
+                // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s, 30s, ...
+                val delayMs = minOf(RECONNECT_DELAY_MS * (1L shl attempts), MAX_RECONNECT_DELAY_MS)
+                _reconnectAttempt.value = attempts + 1
+                Log.i(TAG, "Reconnect attempt ${attempts + 1}/$MAX_RECONNECT_ATTEMPTS (delay: ${delayMs}ms)")
+                delay(delayMs)
+
                 val result = connect(url, code, meta)
                 if (result.isSuccess) {
-                    Log.i(TAG, "Reconnected successfully")
+                    Log.i(TAG, "✅ Reconnected successfully on attempt ${attempts + 1}")
+                    _reconnectAttempt.value = 0
                     return@launch
                 }
-                
+
                 attempts++
             }
-            
-            Log.e(TAG, "Failed to reconnect after $MAX_RECONNECT_ATTEMPTS attempts")
-            _connectionState.value = ConnectionState.DISCONNECTED
+
+            Log.e(TAG, "❌ Failed to reconnect after $MAX_RECONNECT_ATTEMPTS attempts")
+            _reconnectAttempt.value = 0
+            _connectionState.value = ConnectionState.FAILED_PERMANENTLY
         }
     }
     
@@ -504,7 +534,9 @@ class GameClient {
         client = null
         scope?.cancel()
         scope = null
-        
+        gameEngine = null         // Reset so a fresh engine is created on next WELCOME
+        _reconnectAttempt.value = 0
+
         _connectionState.value = ConnectionState.DISCONNECTED
     }
     

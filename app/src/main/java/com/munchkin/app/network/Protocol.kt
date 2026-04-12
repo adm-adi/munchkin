@@ -360,7 +360,8 @@ enum class ConnectionState {
     CONNECTING,
     CONNECTED,
     RECONNECTING,
-    HANDOVER
+    HANDOVER,
+    FAILED_PERMANENTLY  // All automatic retry attempts exhausted; requires manual retry
 }
 
 // ============== Hosted Games Management ==============
