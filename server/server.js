@@ -223,6 +223,7 @@ async function loadGamesFromDatabase() {
             game.seq = saved.seq;
             game.maxLevel = saved.maxLevel || 10;
             game.winnerId = saved.winnerId || null;
+            game.originalHostId = saved.originalHostId || saved.hostId; // Fallback for old DB records
 
             // Restore players (without ws connections - they'll reconnect)
             for (const [playerId, playerData] of Object.entries(saved.players)) {
@@ -260,7 +261,9 @@ class GameRoom {
         this.id = uuidv4();
         this.joinCode = joinCode;
         this.hostId = hostId;
+        this.originalHostId = hostId; // Never changes — used to restore host on reconnect
         this.hostName = hostName;
+        this.pendingHostMigration = null; // Timer handle for delayed host migration
         this.hostAvatarId = avatarId;
         this.hostGender = gender;
         this.hostUserId = hostUserId; // Authenticated User ID (if any)
@@ -280,12 +283,11 @@ class GameRoom {
         let sentCount = 0;
         for (const [playerId, player] of this.players) {
             if (playerId !== excludePlayerId) {
-                if (player.ws.readyState === WebSocket.OPEN) {
+                if (player.ws && player.ws.readyState === WebSocket.OPEN) {
                     player.ws.send(data);
                     sentCount++;
-                } else {
-                    logger.info(`⚠️ Player ${player.name} (${playerId}) ws not open, state: ${player.ws.readyState}`);
                 }
+                // Silently skip disconnected players (ws is null or closed)
             }
         }
         logger.info(`📢 Broadcast ${message.type} to ${sentCount} players`);
@@ -330,6 +332,7 @@ class GameRoom {
             epoch: this.epoch,
             seq: this.seq,
             hostId: this.hostId,  // raw string
+            originalHostId: this.originalHostId,
             players: players,
             races: {},
             classes: {},
@@ -393,7 +396,11 @@ wss.on('connection', (ws, req) => {
     });
 
     ws.on('close', () => {
-        handleDisconnect(ws);
+        try {
+            handleDisconnect(ws);
+        } catch (e) {
+            logger.error('Error in handleDisconnect:', e);
+        }
     });
 
     ws.on('error', (err) => {
@@ -627,6 +634,20 @@ function handleHello(ws, message) {
             logger.info(`⏰ Cleanup timer cancelled for ${joinCode}`);
         }
 
+        // Cancel pending host migration if this player was the host
+        if (game.pendingHostMigration && playerId === game.hostId) {
+            clearTimeout(game.pendingHostMigration);
+            game.pendingHostMigration = null;
+            logger.info(`👑 Host ${player.name} reconnected — pending migration cancelled`);
+        }
+
+        // Restore original host status if they return after migration already fired
+        if (game.originalHostId === playerId && game.hostId !== playerId) {
+            game.hostId = playerId;
+            game.hostName = player.name;
+            logger.info(`👑 Original host ${player.name} reclaimed host status`);
+        }
+
         // Send WELCOME with playerId so client can properly navigate
         ws.send(JSON.stringify({
             type: "WELCOME",
@@ -634,12 +655,16 @@ function handleHello(ws, message) {
             gameState: game.buildGameState()
         }));
 
-        // Broadcast reconnection to other players
+        // Broadcast full STATE_SNAPSHOT to all — ensures every client sees consistent
+        // hostId, isConnected flags, and turnPlayerId after any reconnect
+        game.seq++;
         game.broadcast({
-            type: "PLAYER_STATUS",
-            playerId: playerId,
-            isConnected: true
-        }, playerId);
+            type: "STATE_SNAPSHOT",
+            gameState: game.buildGameState(),
+            seq: game.seq
+        });
+
+        db.saveActiveGame(game).catch(err => logger.error('Failed to save after reconnect:', err));
 
         logger.info(`🔄 Player ${playerMeta.name} reconnected to ${joinCode}`);
         return;
@@ -1525,24 +1550,31 @@ function handleDisconnect(ws) {
                 }
             }, 5 * 60 * 1000); // 5 minutes
         } else {
-            // Host Migration: If host disconnected, assign new connected host
+            // Delayed host migration: give host 90s to reconnect before transferring control.
+            // If the host returns within 90s, the migration is cancelled and they reclaim host status.
             if (game.hostId === clientData.playerId) {
-                // Find first connected player
-                for (const [pid, p] of game.players.entries()) {
-                    if (p.isConnected !== false && p.ws) {
-                        game.hostId = pid;
-                        game.hostName = p.name;
-                        logger.info(`👑 Host migrated to ${game.hostName} (${pid})`);
-
-                        // Broadcast new state with new host
-                        game.broadcast({
-                            type: "STATE_SNAPSHOT",
-                            gameState: game.buildGameState(),
-                            seq: game.seq
-                        });
-                        break;
+                if (game.pendingHostMigration) clearTimeout(game.pendingHostMigration);
+                game.pendingHostMigration = setTimeout(() => {
+                    game.pendingHostMigration = null;
+                    const hostPlayer = game.players.get(clientData.playerId);
+                    if (hostPlayer && !hostPlayer.isConnected) {
+                        for (const [pid, p] of game.players.entries()) {
+                            if (p.isConnected && p.ws && p.ws.readyState === WebSocket.OPEN) {
+                                game.hostId = pid;
+                                game.hostName = p.name;
+                                logger.info(`👑 Host migrated to ${p.name} after 90s timeout`);
+                                game.broadcast({
+                                    type: "STATE_SNAPSHOT",
+                                    gameState: game.buildGameState(),
+                                    seq: game.seq
+                                });
+                                db.saveActiveGame(game).catch(err => logger.error('Failed to save after migration:', err));
+                                break;
+                            }
+                        }
                     }
-                }
+                }, 90 * 1000);
+                logger.info(`⏳ Host ${game.hostName} disconnected — migration pending for 90s`);
             }
 
             // NOTE: We do NOT auto-advance the turn when a player disconnects.

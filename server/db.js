@@ -109,6 +109,11 @@ function initTables() {
                 logger.error("Migration error (winner_id):", err);
             }
         });
+        db.run(`ALTER TABLE active_games ADD COLUMN original_host_id TEXT DEFAULT NULL`, (err) => {
+            if (err && !err.message.includes("duplicate column name")) {
+                logger.error("Migration error (original_host_id):", err);
+            }
+        });
 
         // Performance indexes
         db.run(`CREATE INDEX IF NOT EXISTS idx_participants_user ON participants(user_id)`);
@@ -429,8 +434,8 @@ function saveActiveGame(game) {
 
         const sql = `INSERT OR REPLACE INTO active_games
             (id, join_code, host_id, host_name, phase, turn_player_id, players_json, combat_json,
-             created_at, last_activity_at, seq, max_level, winner_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+             created_at, last_activity_at, seq, max_level, winner_id, original_host_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
         db.run(sql, [
             game.id,
@@ -445,7 +450,8 @@ function saveActiveGame(game) {
             Date.now(),
             game.seq || 0,
             game.maxLevel || 10,
-            game.winnerId || null
+            game.winnerId || null,
+            game.originalHostId || game.hostId
         ], function (err) {
             if (err) {
                 logger.error('❌ Error saving game:', err);
@@ -492,6 +498,7 @@ function loadActiveGames() {
                     id: row.id,
                     joinCode: row.join_code,
                     hostId: row.host_id,
+                    originalHostId: row.original_host_id || row.host_id,
                     hostName: row.host_name,
                     phase: row.phase,
                     turnPlayerId: row.turn_player_id,
