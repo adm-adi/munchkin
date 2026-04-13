@@ -2,67 +2,79 @@ package com.munchkin.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ============== Neon Fantasy Palette — Vibrant Edition ==============
+// ============== Munchkin Official Palette — Dungeon Edition ==============
 
-// Backgrounds — Deep space blue-black
-val NeonBackground = Color(0xFF06091A)      // Near-black with blue tint
-val NeonSurface = Color(0xFF0D1225)         // Deep navy
-val NeonSurfaceVariant = Color(0xFF182038)  // Lighter navy
+// Backgrounds — Warm dungeon dark-black (replaces cold blue-black)
+val NeonBackground = Color(0xFF0F0A08)         // Dungeon black, warm red undertone
+val NeonSurface = Color(0xFF1A110D)             // Dark warm stone brown
+val NeonSurfaceVariant = Color(0xFF271A14)      // Lighter warm stone
 
-// Primary — Electric Violet (more vivid)
-val NeonPrimary = Color(0xFFA855F7)         // Vibrant violet
-val NeonPrimaryLight = Color(0xFFC084FC)    // Bright lavender
-val NeonPrimaryDark = Color(0xFF7C3AED)     // Deep violet
+// Primary — Munchkin Crimson Red (replaces electric violet)
+val NeonPrimary = Color(0xFFCC2020)             // Munchkin brand red
+val NeonPrimaryLight = Color(0xFFE05050)        // Lighter vivid red
+val NeonPrimaryDark = Color(0xFF8B0000)         // Deep blood red
 
-// Secondary — Electric Magenta
-val NeonSecondary = Color(0xFFE040FB)       // Vivid magenta/fuchsia
-val NeonSecondaryLight = Color(0xFFEA80FC)  // Light pink-purple
-val NeonSecondaryDark = Color(0xFFAA00FF)   // Deep purple-magenta
+// Secondary — Munchkin Amber Gold (replaces electric magenta)
+val NeonSecondary = Color(0xFFD4960A)           // Rich treasure-chest amber-gold
+val NeonSecondaryLight = Color(0xFFEDB84A)      // Light honey gold
+val NeonSecondaryDark = Color(0xFF8C5C00)       // Deep antique gold
 
-// Tertiary — Electric Cyan
-val NeonCyan = Color(0xFF00E5FF)            // Vivid electric cyan
-val NeonCyanLight = Color(0xFF40FFFF)       // Bright turquoise
-val NeonCyanDark = Color(0xFF00B8D4)        // Deep teal-cyan
+// Tertiary — Torch Orange (replaces electric cyan)
+val NeonCyan = Color(0xFFE85D00)                // Torch-flame orange
+val NeonCyanLight = Color(0xFFFF8C40)           // Light warm ember
+val NeonCyanDark = Color(0xFFA03A00)            // Deep burnt orange
 
-// Accent — Electric Gold & Lime
-val NeonGold = Color(0xFFFFD600)            // Pure gold (victories/warnings)
-val NeonLime = Color(0xFF76FF03)            // Neon lime (success bonus)
-val NeonOrange = Color(0xFFFF6D00)          // Electric orange
+// Accent — Gold, Lime, Orange
+val NeonGold = Color(0xFFFFD600)                // Pure bright gold (victories/warnings)
+val NeonLime = Color(0xFF8BC34A)                // Earthy moss green
+val NeonOrange = Color(0xFFFF6D00)              // Deep orange
 
-// Neutrals
-val NeonWhite = Color(0xFFF8FAFC)
-val NeonGray100 = Color(0xFFEEF2FF)         // Slightly blue-tinted white
-val NeonGray200 = Color(0xFFD0D7F0)
-val NeonGray300 = Color(0xFFB4BCDB)
-val NeonGray400 = Color(0xFF8892B0)
-val NeonGray500 = Color(0xFF5A6285)
+// Neutrals — Warm parchment scale (replaces cold blue-tinted grays)
+val NeonWhite = Color(0xFFFAF7F0)
+val NeonGray100 = Color(0xFFF5F0E8)             // Warm cream (primary text)
+val NeonGray200 = Color(0xFFD8CFC0)
+val NeonGray300 = Color(0xFFB8A898)
+val NeonGray400 = Color(0xFF8A7A6A)
+val NeonGray500 = Color(0xFF5A4A3A)
 
 // ============== Glass Effect System ==============
 // Layered glass simulation: no real blur, depth through alpha
-val GlassWhite = Color(0x0FFFFFFF)          // 6% white — inner highlight
-val GlassBorder = Color(0x3DFFFFFF)         // 24% white — main border
-val GlassBorderBright = Color(0x66FFFFFF)   // 40% white — active/focus border
-val GlassBorderDim = Color(0x14FFFFFF)      // 8% white — subtle border
-val GlassDark = Color(0x26000000)           // 15% black — lighter glass base
-val GlassBase = Color(0x1A0D1530)           // Tinted dark glass
-val GlassDeep = Color(0x33060918)           // Deeper glass layer
+val GlassWhite = Color(0x0FFFFFFF)              // 6% white — inner highlight
+val GlassBorder = Color(0x3DFFFFFF)             // 24% white — main border
+val GlassBorderBright = Color(0x66FFFFFF)       // 40% white — active/focus border
+val GlassBorderDim = Color(0x14FFFFFF)          // 8% white — subtle border
+val GlassDark = Color(0x26000000)               // 15% black — lighter glass base
+val GlassBase = Color(0x1A200A05)               // Warm amber-brown tinted glass (10%)
+val GlassDeep = Color(0x33150804)               // Deeper warm glass layer (20%)
 
 // ============== Functional Colors ==============
-val NeonSuccess = Color(0xFF00E676)         // Vivid emerald green
-val NeonError = Color(0xFFFF1744)           // Vivid red
-val NeonWarning = Color(0xFFFFD600)         // Gold (same as NeonGold)
+val NeonSuccess = Color(0xFF00E676)             // Vivid emerald green (level-up/win)
+val NeonError = Color(0xFFFF1744)               // Vivid red (errors/danger)
+val NeonWarning = Color(0xFFFFD600)             // Gold (turn warnings — same as NeonGold)
 
 // Combat Specific
 val HeroGreen = Color(0xFF00E676)
 val MonsterRed = Color(0xFFFF1744)
 
 // ============== Gradients ==============
+// Variable names kept for compatibility; values updated to Munchkin palette
 val GradientNeonPurple = listOf(NeonPrimary, NeonSecondary)
+// Red (#CC2020) → Gold (#D4960A) — main CTA buttons
+
 val GradientNeonBlue = listOf(NeonCyanDark, NeonPrimary)
-val GradientNeonFire = listOf(NeonSecondary, Color(0xFFFF1744))
+// Burnt Orange (#A03A00) → Red (#CC2020) — dungeon ember accent
+
+val GradientNeonFire = listOf(NeonOrange, Color(0xFFCC2020))
+// Orange (#FF6D00) → Red (#CC2020) — authentic fire (register/danger actions)
+
 val GradientNeonGold = listOf(NeonGold, NeonOrange)
+// Gold (#FFD600) → Orange (#FF6D00) — treasure gradient (unchanged)
+
 val GradientViridian = listOf(NeonCyan, NeonPrimary)
+// Torch Orange (#E85D00) → Red (#CC2020) — End Turn button
+
 val GradientSunrise = listOf(NeonOrange, NeonSecondary, NeonPrimary)
+// Orange (#FF6D00) → Gold (#D4960A) → Red (#CC2020) — dungeon torchlight sweep
 
 // ============== Legacy/Compat ==============
 val LumaGray100 = NeonGray100
@@ -71,11 +83,20 @@ val LumaGray900 = NeonBackground
 val LumaAccent = NeonSecondary
 val GradientOrangeEnd = NeonSecondaryLight
 
-// ============== Avatar Colors ==============
+// ============== Avatar Colors — Medieval Fantasy Palette ==============
 val NeonAvatarColors = listOf(
-    NeonPrimary, NeonSecondary, NeonCyan, NeonSuccess, NeonWarning, NeonError,
-    Color(0xFFEC4899), Color(0xFF818CF8), Color(0xFF6366F1), Color(0xFF38BDF8),
-    Color(0xFF34D399), Color(0xFFFBBF24)
+    NeonPrimary,              // 0 Guerrero — Munchkin red
+    NeonSecondary,            // 1 Mago — amber gold (arcane fire)
+    NeonCyan,                 // 2 Ladrón — torch orange
+    NeonSuccess,              // 3 Clérigo — emerald (holy)
+    NeonWarning,              // 4 Elfo — bright gold
+    NeonError,                // 5 Enano — vivid red (berserker)
+    Color(0xFF8B6914),        // 6 Bárbaro — dark bronze/leather
+    Color(0xFF6B3FA0),        // 7 Bardo — deep purple (theatrical)
+    Color(0xFF2E7D32),        // 8 Druida — forest green
+    Color(0xFF1565C0),        // 9 Monje — deep blue (discipline)
+    Color(0xFFB8860B),        // 10 Paladín — dark goldenrod (holy armor)
+    Color(0xFF8D4025),        // 11 Explorador — burnt sienna (outdoors)
 )
 
 fun getAvatarColor(avatarId: Int): Color {
