@@ -284,20 +284,21 @@ class MainActivity : ComponentActivity() {
                             Screen.PLAYER_DETAIL -> {
                                 val selectedPlayer = uiState.selectedPlayer
                                 val myPlayerId = uiState.myPlayerId
-                                
+
                                 if (selectedPlayer != null) {
                                     PlayerDetailScreen(
                                         player = selectedPlayer,
                                         onIncrementLevel = { viewModel.incrementLevel() },
                                         onDecrementLevel = { viewModel.decrementLevel() },
-                                        onModifyGear = { amount -> 
-                                            if (amount > 0) viewModel.incrementGear(amount) 
+                                        onModifyGear = { amount ->
+                                            if (amount > 0) viewModel.incrementGear(amount)
                                             else viewModel.decrementGear(-amount) // Pass positive magnitude
                                         },
                                         onSetClass = { viewModel.setCharacterClass(it) },
                                         onSetRace = { viewModel.setCharacterRace(it) },
                                         onBack = { viewModel.goBack() },
-                                        isReadOnly = selectedPlayer.playerId != myPlayerId
+                                        isReadOnly = selectedPlayer.playerId != myPlayerId,
+                                        maxLevel = uiState.gameState?.settings?.maxLevel ?: 10
                                     )
                                 }
                             }

@@ -35,6 +35,7 @@ fun PlayerDetailScreen(
     onSetRace: (CharacterRace) -> Unit = {},
     onBack: () -> Unit,
     isReadOnly: Boolean = false,
+    maxLevel: Int = 10,
     modifier: Modifier = Modifier
 ) {
     Scaffold(
@@ -67,7 +68,7 @@ fun PlayerDetailScreen(
                 onIncrement = onIncrementLevel,
                 onDecrement = onDecrementLevel,
                 minValue = 1,
-                maxValue = 10,
+                maxValue = maxLevel,
                 enabled = !isReadOnly
             )
             
