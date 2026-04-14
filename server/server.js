@@ -843,13 +843,13 @@ function applyEvent(game, event, playerId) {
             break;
         case 'COMBAT_MODIFY_MODIFIER':
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
-            if (event.target === 'HEROES') game.combat.heroModifier = Math.max(-20, Math.min(20, game.combat.heroModifier + event.delta));
-            else game.combat.monsterModifier = Math.max(-20, Math.min(20, game.combat.monsterModifier + event.delta));
+            if (event.target === 'HEROES') game.combat.heroModifier = (game.combat.heroModifier || 0) + (event.delta || 0);
+            else game.combat.monsterModifier = (game.combat.monsterModifier || 0) + (event.delta || 0);
             break;
         case 'COMBAT_SET_MODIFIER':
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
-            if (event.target === 'HEROES') game.combat.heroModifier = Math.max(-20, Math.min(20, event.value));
-            else game.combat.monsterModifier = Math.max(-20, Math.min(20, event.value));
+            if (event.target === 'HEROES') game.combat.heroModifier = (event.value || 0);
+            else game.combat.monsterModifier = (event.value || 0);
             break;
         case 'COMBAT_ADD_BONUS': {
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
