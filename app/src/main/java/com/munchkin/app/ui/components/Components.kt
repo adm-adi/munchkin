@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PersonRemove
@@ -28,7 +29,10 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -166,7 +170,8 @@ fun CounterButton(
 }
 
 /**
- * Player avatar circle with initial or image.
+ * Player avatar circle with image (gender-aware) or colored-initial fallback.
+ * Lookup order: avatar_{g}_{id} → avatar_m_{id} → avatar_{id} → colored initial.
  */
 @Composable
 fun PlayerAvatar(
@@ -175,8 +180,22 @@ fun PlayerAvatar(
     size: Int = 48,
     showBorder: Boolean = false
 ) {
+    val context = LocalContext.current
     val backgroundColor = getAvatarColor(player.avatarId)
     val initial = player.name.firstOrNull()?.uppercase() ?: "?"
+
+    val drawableResId: Int? = remember(player.avatarId, player.gender) {
+        val genderPrefix = if (player.gender == Gender.FEMALE) "f" else "m"
+        val names = listOf(
+            "avatar_${genderPrefix}_${player.avatarId}",
+            "avatar_m_${player.avatarId}",
+            "avatar_${player.avatarId}"
+        )
+        names.firstNotNullOfOrNull { name ->
+            val id = context.resources.getIdentifier(name, "drawable", context.packageName)
+            if (id != 0) id else null
+        }
+    }
 
     Box(
         modifier = modifier.size(size.dp),
@@ -210,14 +229,23 @@ fun PlayerAvatar(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = initial,
-                style = MaterialTheme.typography.titleLarge.copy(
-                    fontSize = (size / 2).sp,
-                    fontWeight = FontWeight.Bold
-                ),
-                color = Color.White
-            )
+            if (drawableResId != null) {
+                Image(
+                    painter = painterResource(id = drawableResId),
+                    contentDescription = player.name,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Text(
+                    text = initial,
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontSize = (size / 2).sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = Color.White
+                )
+            }
         }
     }
 }
