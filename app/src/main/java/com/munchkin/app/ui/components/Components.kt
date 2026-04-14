@@ -185,7 +185,7 @@ fun PlayerAvatar(
     val initial = player.name.firstOrNull()?.uppercase() ?: "?"
 
     val drawableResId: Int? = remember(player.avatarId, player.gender) {
-        val genderPrefix = if (player.gender == Gender.FEMALE) "f" else "m"
+        val genderPrefix = if (player.gender == Gender.F) "f" else "m"
         val names = listOf(
             "avatar_${genderPrefix}_${player.avatarId}",
             "avatar_m_${player.avatarId}",
