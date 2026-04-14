@@ -30,7 +30,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -180,21 +179,9 @@ fun PlayerAvatar(
     size: Int = 48,
     showBorder: Boolean = false
 ) {
-    val context = LocalContext.current
     val backgroundColor = getAvatarColor(player.avatarId)
-    val initial = player.name.firstOrNull()?.uppercase() ?: "?"
-
-    val drawableResId: Int? = remember(player.avatarId, player.gender) {
-        val genderPrefix = if (player.gender == Gender.F) "f" else "m"
-        val names = listOf(
-            "avatar_${genderPrefix}_${player.avatarId}",
-            "avatar_m_${player.avatarId}",
-            "avatar_${player.avatarId}"
-        )
-        names.firstNotNullOfOrNull { name ->
-            val id = context.resources.getIdentifier(name, "drawable", context.packageName)
-            if (id != 0) id else null
-        }
+    val drawableResId: Int = remember(player.avatarId, player.gender) {
+        AvatarResources.getAvatarDrawable(player.avatarId, player.gender == Gender.F)
     }
 
     Box(
@@ -229,23 +216,12 @@ fun PlayerAvatar(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            if (drawableResId != null) {
-                Image(
-                    painter = painterResource(id = drawableResId),
-                    contentDescription = player.name,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Text(
-                    text = initial,
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontSize = (size / 2).sp,
-                        fontWeight = FontWeight.Bold
-                    ),
-                    color = Color.White
-                )
-            }
+            Image(
+                painter = painterResource(id = drawableResId),
+                contentDescription = player.name,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
         }
     }
 }
