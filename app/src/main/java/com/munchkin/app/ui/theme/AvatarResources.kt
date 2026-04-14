@@ -30,9 +30,9 @@ object AvatarResources {
     fun getAvatarDrawable(avatarId: Int): Int {
         return when (avatarId % 12) {
             0 -> com.munchkin.app.R.drawable.avatar_m_0
-            1 -> com.munchkin.app.R.drawable.avatar_m_1
-            2 -> com.munchkin.app.R.drawable.avatar_m_2
-            3 -> com.munchkin.app.R.drawable.avatar_m_3
+            1 -> com.munchkin.app.R.drawable.avatar_m_2
+            2 -> com.munchkin.app.R.drawable.avatar_m_3
+            3 -> com.munchkin.app.R.drawable.avatar_m_1
             4 -> com.munchkin.app.R.drawable.avatar_m_4
             5 -> com.munchkin.app.R.drawable.avatar_m_5
             6 -> com.munchkin.app.R.drawable.avatar_m_6
