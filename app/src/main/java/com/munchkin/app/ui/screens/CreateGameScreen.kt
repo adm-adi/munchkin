@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -158,6 +159,7 @@ fun CreateGameScreen(
             Spacer(modifier = Modifier.height(12.dp))
             
             // Avatar grid with images
+            val context = LocalContext.current
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
                 modifier = Modifier.height(200.dp),
@@ -166,8 +168,19 @@ fun CreateGameScreen(
             ) {
                 itemsIndexed((0 until AvatarResources.AVATAR_COUNT).toList()) { _, avatarId ->
                     val isSelected = selectedAvatarId == avatarId
-                    val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
-                    
+                    val genderPrefix = if (selectedGender == Gender.F) "f" else "m"
+                    val drawableResId = remember(avatarId, selectedGender) {
+                        val names = listOf(
+                            "avatar_${genderPrefix}_$avatarId",
+                            "avatar_m_$avatarId",
+                            "avatar_$avatarId"
+                        )
+                        names.firstNotNullOfOrNull { name ->
+                            val id = context.resources.getIdentifier(name, "drawable", context.packageName)
+                            if (id != 0) id else null
+                        }
+                    }
+
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
@@ -191,12 +204,21 @@ fun CreateGameScreen(
                                 .background(getAvatarColor(avatarId)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = AvatarResources.getAvatarName(avatarId).first().toString(),
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold
-                            )
+                            if (drawableResId != null) {
+                                Image(
+                                    painter = painterResource(id = drawableResId),
+                                    contentDescription = AvatarResources.getAvatarName(avatarId),
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Text(
+                                    text = AvatarResources.getAvatarName(avatarId).first().toString(),
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
