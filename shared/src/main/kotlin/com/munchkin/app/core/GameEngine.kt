@@ -111,7 +111,7 @@ class GameEngine {
             is CatalogAddClass -> validateCatalogAddClass(event, state)
             is SetHalfBreed -> validateSetHalfBreed(event, state)
             is SetSuperMunchkin -> validateSetSuperMunchkin(event, state)
-            is PlayerRoll -> ValidationResult.Success(state, null)
+            is PlayerRoll -> validatePlayerRoll(event, state)
             else -> ValidationResult.Success(state, null)
         }
     }
@@ -244,6 +244,21 @@ class GameEngine {
         return ValidationResult.Success(state, null)
     }
     
+    private fun validatePlayerRoll(event: PlayerRoll, state: GameState): ValidationResult {
+        if (!state.players.containsKey(event.actorId)) {
+            return ValidationResult.Error("Jugador no encontrado")
+        }
+        if (state.phase == GamePhase.LOBBY) {
+            if (state.lobbyRollWinnerId != null) {
+                return ValidationResult.Error("El jugador inicial ya esta decidido")
+            }
+            if (!state.needsLobbyRoll(event.actorId)) {
+                return ValidationResult.Error("Ya lanzaste el dado")
+            }
+        }
+        return ValidationResult.Success(state, null)
+    }
+
     /**
      * Apply an event to produce new state.
      */
@@ -254,7 +269,7 @@ class GameEngine {
             is PlayerRoll -> applyPlayerRoll(event, state)
             is GameStart -> {
                 // Determine first player: Highest roller, or first in order
-                val startingPlayerId = state.players.values
+                val startingPlayerId = state.lobbyRollWinnerId ?: state.players.values
                     .maxByOrNull { it.lastRoll ?: 0 }
                     ?.takeIf { (it.lastRoll ?: 0) > 0 }
                     ?.playerId
@@ -387,16 +402,20 @@ class GameEngine {
             gender = event.playerMeta.gender,
             lastKnownIp = event.lastKnownIp
         )
-        return state.copy(
-            players = state.players + (event.playerMeta.playerId to newPlayer),
-            playerOrder = state.playerOrder + event.playerMeta.playerId
+        return resetLobbyRolls(
+            state.copy(
+                players = state.players + (event.playerMeta.playerId to newPlayer),
+                playerOrder = state.playerOrder + event.playerMeta.playerId
+            )
         )
     }
     
     private fun applyPlayerLeave(event: PlayerLeave, state: GameState): GameState {
-        return state.copy(
-            players = state.players - event.actorId,
-            playerOrder = state.playerOrder.filterNot { it == event.actorId }
+        return resetLobbyRolls(
+            state.copy(
+                players = state.players - event.actorId,
+                playerOrder = state.playerOrder.filterNot { it == event.actorId }
+            )
         )
     }
     
@@ -608,7 +627,15 @@ class GameEngine {
     private fun applyPlayerRoll(event: PlayerRoll, state: GameState): GameState {
         val player = state.players[event.actorId] ?: return state
         val updatedPlayer = player.copy(lastRoll = event.result)
-        val stateWithPlayer = state.copy(players = state.players + (player.playerId to updatedPlayer))
+        val updatedRollRounds = if (state.phase == GamePhase.LOBBY) {
+            state.lobbyRollRounds + (event.actorId to state.lobbyRollRound)
+        } else {
+            state.lobbyRollRounds
+        }
+        val stateWithPlayer = state.copy(
+            players = state.players + (player.playerId to updatedPlayer),
+            lobbyRollRounds = updatedRollRounds
+        )
         
         // If in combat or purpose implies combat, update combat state
         return if (stateWithPlayer.combat != null && 
@@ -626,21 +653,42 @@ class GameEngine {
              val updatedCombat = stateWithPlayer.combat.copy(lastDiceRoll = rollInfo)
              stateWithPlayer.copy(combat = updatedCombat)
         } else if (stateWithPlayer.phase == GamePhase.LOBBY && stateWithPlayer.allPlayersRolled) {
-            // In lobby: check for ties among highest rollers
-            val maxRoll = stateWithPlayer.players.values.maxOfOrNull { it.lastRoll ?: 0 } ?: 0
-            val tiedPlayers = stateWithPlayer.players.values.filter { it.lastRoll == maxRoll }
-            if (tiedPlayers.size > 1) {
-                // Reset tied players' rolls so they must re-roll
-                val resetPlayers = stateWithPlayer.players.mapValues { (_, p) ->
-                    if (p.lastRoll == maxRoll) p.copy(lastRoll = null) else p
-                }
-                stateWithPlayer.copy(players = resetPlayers)
-            } else {
-                stateWithPlayer
-            }
+            resolveLobbyRollRound(stateWithPlayer)
         } else {
             stateWithPlayer
         }
+    }
+
+    private fun resolveLobbyRollRound(state: GameState): GameState {
+        val rolls = state.activeLobbyRollPlayerIds.mapNotNull { playerId ->
+            val roll = state.players[playerId]?.lastRoll
+            if (roll == null) null else playerId to roll
+        }
+        val maxRoll = rolls.maxOfOrNull { it.second } ?: return state
+        val tiedPlayerIds = rolls.filter { it.second == maxRoll }.map { it.first }.toSet()
+        return if (tiedPlayerIds.size > 1) {
+            state.copy(
+                lobbyRollRound = state.lobbyRollRound + 1,
+                lobbyTieBreakerPlayerIds = tiedPlayerIds,
+                lobbyRollWinnerId = null
+            )
+        } else {
+            state.copy(
+                lobbyTieBreakerPlayerIds = emptySet(),
+                lobbyRollWinnerId = tiedPlayerIds.singleOrNull()
+            )
+        }
+    }
+
+    private fun resetLobbyRolls(state: GameState): GameState {
+        if (state.phase != GamePhase.LOBBY) return state
+        return state.copy(
+            players = state.players.mapValues { (_, player) -> player.copy(lastRoll = null) },
+            lobbyRollRound = 0,
+            lobbyRollRounds = emptyMap(),
+            lobbyTieBreakerPlayerIds = emptySet(),
+            lobbyRollWinnerId = null
+        )
     }
 }
 

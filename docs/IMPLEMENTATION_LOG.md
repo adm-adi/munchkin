@@ -115,3 +115,7 @@ Deployed the Kotlin/Ktor backend to the existing production `munchkin` service o
 ## 2026-04-24 - Combat power cap fix
 
 Bumped Android to `2.20.1` / version code `95` and removed the Android-side combat power ceilings. Combat hero/monster modifiers can now go past `+20` or `-20`, custom monster flat modifiers are no longer restricted to `-10..10`, and player level remains the bounded stat through `GameSettings.maxLevel`. Added app and shared regression tests for uncapped combat modifiers.
+
+## 2026-04-24 - Lobby dice and table polish fix
+
+Bumped Android to `2.20.2` / version code `96`. Reworked lobby starter dice state so ties keep previous rolls visible, only tied players reroll, duplicate lobby rolls are rejected, and the resolved winner is used as the starting turn player. Localized player-detail race/class dropdown labels and removed unreadable level/power/gender badges from table-mode avatars.

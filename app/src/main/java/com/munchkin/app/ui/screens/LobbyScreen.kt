@@ -342,7 +342,7 @@ fun LobbyScreen(
                                     if (isTied) {
                                         Button(
                                             onClick = onRollDice,
-                                            enabled = player.playerId == myPlayerId,
+                                            enabled = player.playerId == myPlayerId && gameState.needsLobbyRoll(player.playerId),
                                             modifier = Modifier.height(40.dp),
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = NeonError,

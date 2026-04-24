@@ -79,6 +79,8 @@
     
     <!-- Player Detail -->
     <string name="edit_player">Modifier le joueur</string>
+    <string name="class_label">Classe</string>
+    <string name="race_label">Race</string>
     <string name="add_race">Ajouter une race</string>
     <string name="add_class">Ajouter une classe</string>
     <string name="remove">Retirer</string>

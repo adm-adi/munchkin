@@ -275,70 +275,6 @@ fun PlayerAvatarNode(
                 contentScale = ContentScale.Fit
             )
 
-            // Combat Strength Badge (TopEnd)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .clip(CircleShape)
-                    .background(NeonError)
-                    .size(24.dp)
-            ) {
-                Text(
-                    text = "${player.level + player.gearBonus}",
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.align(Alignment.Center)
-                )
-            }
-
-            // Level Badge (TopStart)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .clip(CircleShape)
-                    .background(NeonPrimary)
-                    .size(24.dp)
-            ) {
-                Text(
-                    text = "${player.level}",
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.align(Alignment.Center)
-                )
-            }
-
-            // Gender Badge (BottomStart)
-            val genderSymbol = when (player.gender) {
-                com.munchkin.app.core.Gender.M -> "♂"
-                com.munchkin.app.core.Gender.F -> "♀"
-                com.munchkin.app.core.Gender.NA -> "Ø"
-            }
-            val genderColor = when (player.gender) {
-                com.munchkin.app.core.Gender.M -> Color(0xFF42A5F5)
-                com.munchkin.app.core.Gender.F -> Color(0xFFEC407A)
-                com.munchkin.app.core.Gender.NA -> NeonGray400
-            }
-
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .offset(x = (-4).dp, y = (-4).dp)
-                    .clip(CircleShape)
-                    .background(genderColor.copy(alpha = 0.9f))
-                    .size(20.dp)
-                    .border(1.dp, Color.White.copy(alpha = 0.5f), CircleShape)
-            ) {
-                Text(
-                    text = genderSymbol,
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.align(Alignment.Center)
-                )
-            }
-
             // Disconnected overlay
             if (!player.isConnected) {
                 Box(
@@ -374,7 +310,7 @@ fun PlayerAvatarNode(
         )
 
         Text(
-            text = "Nv ${player.level} • ⚔ ${player.level + player.gearBonus}",
+            text = stringResource(R.string.level_power_format, player.level, player.level + player.gearBonus),
             style = MaterialTheme.typography.bodySmall,
             color = NeonGray400
         )

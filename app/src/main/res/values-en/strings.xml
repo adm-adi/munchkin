@@ -79,6 +79,8 @@
     
     <!-- Player Detail -->
     <string name="edit_player">Edit player</string>
+    <string name="class_label">Class</string>
+    <string name="race_label">Race</string>
     <string name="add_race">Add race</string>
     <string name="add_class">Add class</string>
     <string name="remove">Remove</string>

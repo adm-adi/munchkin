@@ -149,6 +149,10 @@ data class GameState(
     val turnPlayerId: PlayerId? = null, // Current active player
     val turnEndsAt: Long? = null, // Authoritative deadline for the active turn
     val playerOrder: List<PlayerId> = emptyList(), // Custom Seat Order
+    val lobbyRollRound: Int = 0,
+    val lobbyRollRounds: Map<PlayerId, Int> = emptyMap(),
+    val lobbyTieBreakerPlayerIds: Set<PlayerId> = emptySet(),
+    val lobbyRollWinnerId: PlayerId? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val settings: GameSettings = GameSettings()
 ) {
@@ -170,30 +174,46 @@ data class GameState(
     /**
      * Check if all players have rolled dice
      */
-    val allPlayersRolled: Boolean get() = players.values.all { it.lastRoll != null }
+    val allPlayersRolled: Boolean get() {
+        if (lobbyRollWinnerId != null) return true
+        val requiredPlayerIds = activeLobbyRollPlayerIds
+        return requiredPlayerIds.isNotEmpty() && requiredPlayerIds.all { hasRolledInLobbyRound(it) }
+    }
     
     /**
      * Check if there is a tie for highest dice roll among players who need to re-roll
      */
-    val hasRollTie: Boolean get() {
-        if (!allPlayersRolled) return false
-        val maxRoll = players.values.maxOfOrNull { it.lastRoll ?: 0 } ?: return false
-        return players.values.count { it.lastRoll == maxRoll } > 1
-    }
+    val hasRollTie: Boolean get() = phase == GamePhase.LOBBY &&
+        lobbyRollWinnerId == null &&
+        lobbyTieBreakerPlayerIds.size > 1
     
     /**
      * Get player IDs that need to re-roll (tied for highest)
      */
-    val tiedPlayerIds: Set<PlayerId> get() {
-        if (!allPlayersRolled) return emptySet()
-        val maxRoll = players.values.maxOfOrNull { it.lastRoll ?: 0 } ?: return emptySet()
-        return players.values.filter { it.lastRoll == maxRoll }.map { it.playerId }.toSet()
-    }
+    val tiedPlayerIds: Set<PlayerId> get() = if (hasRollTie) lobbyTieBreakerPlayerIds else emptySet()
     
     /**
      * Check if game can start (2+ players and all rolled with no ties)
      */
-    val canStart: Boolean get() = players.size >= 2 && allPlayersRolled && !hasRollTie
+    val canStart: Boolean get() = players.size >= 2 && lobbyRollWinnerId != null
+
+    val activeLobbyRollPlayerIds: Set<PlayerId>
+        get() = if (lobbyTieBreakerPlayerIds.isNotEmpty()) {
+            lobbyTieBreakerPlayerIds.filter { players.containsKey(it) }.toSet()
+        } else {
+            players.keys
+        }
+
+    fun hasRolledInLobbyRound(playerId: PlayerId): Boolean {
+        return players[playerId]?.lastRoll != null && lobbyRollRounds[playerId] == lobbyRollRound
+    }
+
+    fun needsLobbyRoll(playerId: PlayerId): Boolean {
+        return phase == GamePhase.LOBBY &&
+            lobbyRollWinnerId == null &&
+            activeLobbyRollPlayerIds.contains(playerId) &&
+            !hasRolledInLobbyRound(playerId)
+    }
     
     /**
      * Get active (non-archived) races

@@ -303,3 +303,27 @@ Android capped combat side modifiers at `-20..20` and custom monster modifiers a
 
 Solution:
 Remove app-side caps from combat side modifiers and monster flat modifiers, keep only technical integer bounds and existing level bounds, and add app/shared regression tests for combat modifiers above 20.
+
+## 2026-04-24 - Lobby dice tie looked like a full reset
+
+Problem:
+When lobby starter rolls tied, the shared reducer immediately cleared tied players' `lastRoll` values. The UI already had a tie-breaker display path, but the state reset made devices look like the dice sequence restarted and everyone had to roll again without visible context.
+
+Solution:
+Track lobby roll rounds, active tie-breaker players, and the selected lobby roll winner in shared `GameState`. Keep tied roll values visible, require only tied players to reroll, reject duplicate lobby rolls, and choose the starter from the resolved tie-breaker group.
+
+## 2026-04-24 - Player detail race and class selectors used enum names
+
+Problem:
+The player detail race/class dropdowns rendered raw enum names such as `WARRIOR` and `HUMAN`, so Spanish mode still showed English/internal labels.
+
+Solution:
+Render race/class dropdown labels through localized string resources and add explicit singular race/class labels for Spanish, English, and French resources.
+
+## 2026-04-24 - Table avatars had unreadable inner badges
+
+Problem:
+Table mode drew level, power, and gender badges inside the avatar circle, which overlapped the avatar image and was hard to read.
+
+Solution:
+Remove the inner avatar badges and keep the level/power summary as readable text below the avatar.

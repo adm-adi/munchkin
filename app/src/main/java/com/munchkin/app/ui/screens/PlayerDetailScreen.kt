@@ -122,25 +122,25 @@ fun PlayerDetailScreen(
             // Class and Race Selectors (Only if not ReadOnly)
             if (!isReadOnly) {
                 // Class Selector
-                Text(text = "Clase", style = MaterialTheme.typography.titleMedium)
+                Text(text = stringResource(R.string.class_label), style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
                 AppDropdown(
                     options = CharacterClass.values().toList(),
                     selectedOption = player.characterClass,
                     onOptionSelected = onSetClass,
-                    labelMapper = { it.name }
+                    labelMapper = { it.localizedName() }
                 )
                 
                 Spacer(modifier = Modifier.height(24.dp))
                 
                 // Race Selector
-                Text(text = "Raza", style = MaterialTheme.typography.titleMedium)
+                Text(text = stringResource(R.string.race_label), style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
                 AppDropdown(
                     options = CharacterRace.values().toList(),
                     selectedOption = player.characterRace,
                     onOptionSelected = onSetRace,
-                    labelMapper = { it.name }
+                    labelMapper = { it.localizedName() }
                 )
                 
                 Spacer(modifier = Modifier.height(32.dp))
@@ -154,7 +154,7 @@ fun <T> AppDropdown(
     options: List<T>,
     selectedOption: T,
     onOptionSelected: (T) -> Unit,
-    labelMapper: (T) -> String
+    labelMapper: @Composable (T) -> String
 ) {
     var expanded by remember { mutableStateOf(false) }
     
@@ -184,6 +184,23 @@ fun <T> AppDropdown(
             }
         }
     }
+}
+
+@Composable
+private fun CharacterClass.localizedName(): String = when (this) {
+    CharacterClass.NONE -> stringResource(R.string.class_none)
+    CharacterClass.WARRIOR -> stringResource(R.string.class_warrior)
+    CharacterClass.WIZARD -> stringResource(R.string.class_wizard)
+    CharacterClass.THIEF -> stringResource(R.string.class_thief)
+    CharacterClass.CLERIC -> stringResource(R.string.class_cleric)
+}
+
+@Composable
+private fun CharacterRace.localizedName(): String = when (this) {
+    CharacterRace.HUMAN -> stringResource(R.string.race_human)
+    CharacterRace.ELF -> stringResource(R.string.race_elf)
+    CharacterRace.DWARF -> stringResource(R.string.race_dwarf)
+    CharacterRace.HALFLING -> stringResource(R.string.race_halfling)
 }
 
 
