@@ -2,9 +2,17 @@
     <string name="app_name">Munchkin Tracker</string>
     
     <!-- Home Screen -->
+    <string name="app_short_name">Munchkin</string>
     <string name="create_game">Créer une partie</string>
     <string name="join_game">Rejoindre une partie</string>
     <string name="settings">Paramètres</string>
+    <string name="saved_game">Partie sauvegardée</string>
+    <string name="saved_game_info_format">%1$d joueurs • %2$s</string>
+    <string name="continue_game">Continuer</string>
+    <string name="active_games">Vos parties actives</string>
+    <string name="hosted_game_info_format">%1$d joueurs • %2$s</string>
+    <string name="delete_party_title">Supprimer la partie ?</string>
+    <string name="delete_party_message">Cela supprimera la partie pour tous les joueurs. Cette action est irréversible.</string>
     
     <!-- Create Game -->
     <string name="your_name">Votre nom</string>
@@ -35,6 +43,13 @@
     <string name="connect">Connecter</string>
     <string name="connecting">Connexion…</string>
     <string name="connection_failed">Échec de connexion</string>
+    <string name="your_character">Votre personnage</string>
+    <string name="content_description_locked">Verrouillé</string>
+    <string name="available_games">Parties disponibles</string>
+    <string name="searching_games">Recherche de parties…</string>
+    <string name="no_open_games">Aucune partie disponible</string>
+    <string name="create_or_enter_code">Créez une partie ou saisissez un code</string>
+    <string name="open_game_info_format">%1$d/%2$d joueurs • %3$s</string>
     
     <!-- Lobby -->
     <string name="lobby">Salon d\'attente</string>
@@ -44,6 +59,10 @@
     <string name="confirm_leave">Voulez-vous vraiment quitter ?</string>
     <string name="host">Hôte</string>
     <string name="you">Vous</string>
+    <string name="player_fallback">Joueur</string>
+    <string name="log_level_up_format">%1$s monte au niveau %2$d</string>
+    <string name="log_level_down_format">%1$s descend au niveau %2$d</string>
+    <string name="log_combat_finished">Combat terminé</string>
     
     <!-- Board -->
     <string name="level">Niveau</string>
@@ -134,22 +153,32 @@
     <string name="confirm_exit">Confirmer à la sortie</string>
     <string name="about">À propos</string>
     <string name="version">Version</string>
+    <string name="version_short_format">v%1$s</string>
     <string name="check_updates">Vérifier les mises à jour</string>
     <string name="licenses">Licences</string>
     <string name="language">Langue</string>
     <string name="language_system">Système</string>
+    <string name="version_code_format">v%1$s (%2$d)</string>
+    <string name="developer">Développeur</string>
+    <string name="developer_credit">Alejandro</string>
     
     <!-- Updates -->
     <string name="updates_title">Mises à jour</string>
     <string name="current_version">Version actuelle</string>
     <string name="latest_version">Dernière version</string>
     <string name="update_available">Mise à jour disponible !</string>
+    <string name="update_available_message">La version %1$s est disponible</string>
     <string name="up_to_date">Vous êtes à jour</string>
     <string name="download">Télécharger</string>
     <string name="downloading">Téléchargement…</string>
     <string name="install">Installer</string>
     <string name="changelog">Notes de version</string>
     <string name="check_failed">Échec de la vérification des mises à jour</string>
+    <string name="update_check_error_format">Échec de la vérification des mises à jour : %1$s</string>
+    <string name="update_release_notes_fallback">Nouvelle version disponible</string>
+    <string name="update_download_title_format">Munchkin v%1$s</string>
+    <string name="update_download_description">Téléchargement de la mise à jour…</string>
+    <string name="file_size_format">Taille : %1$s</string>
     
     <!-- Connection -->
     <string name="reconnecting">Reconnexion…</string>
@@ -158,9 +187,6 @@
     <string name="reconnect_retry">Réessayer</string>
     <string name="reconnected">Reconnecté !</string>
     <string name="connection_lost">Connexion perdue</string>
-    <string name="host_left">L\'hôte a quitté</string>
-    <string name="new_host">Nouvel hôte : %1$s</string>
-    <string name="handover_in_progress">Transfert d\'hôte en cours…</string>
     
     <!-- Errors -->
     <string name="error">Erreur</string>
@@ -170,6 +196,18 @@
     <string name="error_game_full">Partie complète (6 joueurs max)</string>
     <string name="error_game_started">La partie a déjà commencé</string>
     <string name="error_permission_denied">Permission refusée</string>
+    <string name="error_prefix_format">Erreur : %1$s</string>
+    <string name="error_reorder_format">Échec du réordonnancement : %1$s</string>
+    <string name="error_connect_format">Échec de connexion : %1$s</string>
+    <string name="error_connection_timeout">Impossible de se connecter. Vérifiez votre connexion internet et réessayez.</string>
+    <string name="error_server_unavailable">Le serveur est indisponible. Réessayez plus tard.</string>
+    <string name="error_server_not_found">Serveur introuvable. Vérifiez votre connexion.</string>
+    <string name="error_connection_lost_retry">Connexion perdue. Réessayez.</string>
+    <string name="error_unauthorized_game">Vous n’avez pas l’autorisation de rejoindre cette partie.</string>
+    <string name="error_game_not_found">La partie n’existe plus.</string>
+    <string name="error_game_full_short">La partie est complète.</string>
+    <string name="error_connection_retry">Erreur de connexion. Réessayez.</string>
+    <string name="game_deleted_by_host">La partie a été supprimée par l’hôte.</string>
     
     <!-- Common -->
     <string name="ok">OK</string>
@@ -188,7 +226,18 @@
     <!-- Board -->
     <string name="game_label">Partie</string>
     <string name="delete_game">Supprimer la partie</string>
+    <string name="delete_game_title">Supprimer la partie</string>
+    <string name="delete_game_message">Voulez-vous vraiment supprimer cette partie ? Tous les joueurs seront déconnectés.</string>
+    <string name="delete">Supprimer</string>
     <string name="end_turn">Terminer le tour</string>
+    <string name="view_list">Vue liste</string>
+    <string name="view_table">Vue table</string>
+    <string name="history">Historique</string>
+    <string name="menu">Menu</string>
+    <string name="confirm_win_title">Confirmer la victoire</string>
+    <string name="confirm_win_message">Confirmer que %1$s a gagné la partie ?</string>
+    <string name="confirm_win">Confirmer</string>
+    <string name="not_yet">Pas encore</string>
     
     <!-- Combat -->
     <string name="select_helper">Choisir un assistant</string>
@@ -199,6 +248,40 @@
     <string name="create_new_button">Créer nouveau</string>
     <string name="no_players_available">Aucun autre joueur disponible.</string>
     <string name="level_power_format">Niveau %1$d | Puissance %2$d</string>
+
+    <!-- Combat UI (additional) -->
+    <string name="combat_is_undead">Mort-vivant</string>
+    <string name="combat_cancel">Annuler le combat</string>
+    <string name="combat_run_away">Fuir</string>
+    <string name="combat_no_monsters">Aucun monstre</string>
+    <string name="combat_bad_stuff_label">Sale coup</string>
+    <string name="combat_victory_end">VICTOIRE ! (Terminer)</string>
+    <string name="combat_accept_defeat">ACCEPTER LA DÉFAITE</string>
+    <string name="combat_rolled">a lancé un</string>
+    <string name="combat_escaped">Échappé !</string>
+    <string name="combat_failed_escape">Échec !</string>
+    <string name="combat_remove_helper">Retirer l\'assistant</string>
+    <string name="combat_start_prompt">Lancez un combat</string>
+    <string name="combat_helper_suffix">assistant</string>
+    <string name="combat_cleric_vs_undead">Clerc vs Mort-vivant</string>
+    <string name="combat_card_modifiers">Modificateurs de carte</string>
+
+    <!-- Class display names -->
+    <string name="class_none">Sans classe</string>
+    <string name="class_warrior">Guerrier</string>
+    <string name="class_wizard">Mage</string>
+    <string name="class_thief">Voleur</string>
+    <string name="class_cleric">Clerc</string>
+    <string name="class_ranger">Rôdeur</string>
+    <string name="class_bard">Barde</string>
+
+    <!-- Race display names -->
+    <string name="race_human">Humain</string>
+    <string name="race_elf">Elfe</string>
+    <string name="race_dwarf">Nain</string>
+    <string name="race_halfling">Halfelin</string>
+    <string name="race_gnome">Gnome</string>
+    <string name="race_orc">Orc</string>
     
     <!-- History -->
     <string name="winner_label">Gagnant :</string>

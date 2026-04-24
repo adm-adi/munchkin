@@ -114,7 +114,11 @@ fun SettingsScreen(
                             icon = Icons.Default.Info,
                             iconTint = NeonCyan,
                             title = stringResource(R.string.version),
-                            subtitle = "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
+                            subtitle = stringResource(
+                                R.string.version_code_format,
+                                BuildConfig.VERSION_NAME,
+                                BuildConfig.VERSION_CODE
+                            )
                         )
                         NeonDivider(color = NeonCyan)
                         GlassSettingsItem(
@@ -182,14 +186,14 @@ fun SettingsScreen(
                 // Developer Section
                 EntranceAnimation(delayMs = 160) {
                     GlassSettingsSection(
-                        title = "Developer",
+                        title = stringResource(R.string.developer),
                         titleColor = NeonGold
                     ) {
                         GlassSettingsItem(
                             icon = Icons.Default.Code,
                             iconTint = NeonGold,
-                            title = "Developer",
-                            subtitle = "Alejandro. El mejor del mundo y te callas."
+                            title = stringResource(R.string.developer),
+                            subtitle = stringResource(R.string.developer_credit)
                         )
                     }
                 }

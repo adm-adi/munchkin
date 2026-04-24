@@ -47,6 +47,9 @@ class GameClient {
     private val _errors = MutableSharedFlow<String>()
     val errors: SharedFlow<String> = _errors.asSharedFlow()
 
+    private val _gameDeleted = MutableSharedFlow<String>()
+    val gameDeleted: SharedFlow<String> = _gameDeleted.asSharedFlow()
+
     private val _reconnectAttempt = MutableStateFlow(0)
     val reconnectAttempt: StateFlow<Int> = _reconnectAttempt.asStateFlow()
     
@@ -64,7 +67,8 @@ class GameClient {
     suspend fun createGame(
         serverUrl: String,
         playerMeta: PlayerMeta,
-        superMunchkin: Boolean = false
+        superMunchkin: Boolean = false,
+        turnTimerSeconds: Int = 0
     ): Result<GameState> = withContext(Dispatchers.IO) {
         try {
             DLog.i(TAG, "Creating game on $serverUrl")
@@ -82,15 +86,17 @@ class GameClient {
             }
             
             // Parse URL
-            val urlParts = parseWsUrl(serverUrl)
-            if (urlParts == null) {
+            val endpoint = WsEndpointParser.parse(serverUrl)
+            if (endpoint == null) {
                 DLog.e(TAG, "Invalid URL: $serverUrl")
                 _connectionState.value = ConnectionState.DISCONNECTED
-                return@withContext Result.failure(Exception("URL inválida: $serverUrl"))
+                return@withContext Result.failure(Exception("Invalid URL: $serverUrl"))
             }
             
-            val (host, port, path) = urlParts
-            DLog.i(TAG, "Connecting to $host:$port$path")
+            if (!endpoint.isSecure) {
+                DLog.w(TAG, "Connecting over unencrypted ws://. Use wss:// for production servers.")
+            }
+            DLog.i(TAG, "Connecting to ${endpoint.host}:${endpoint.port}${endpoint.path}")
 
             scope?.cancel()
             scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -101,25 +107,15 @@ class GameClient {
             // Launch the WebSocket session in background - it will stay open
             scope?.launch {
                 try {
-                    client!!.webSocket(urlString = "${"wss".takeIf { serverUrl.startsWith("wss://") } ?: "ws"}://$host:$port${path ?: "/"}") {
+                    client!!.webSocket(urlString = endpoint.urlString) {
                         session = this
                         DLog.i(TAG, "Connected, sending CreateGame...")
-                        
-                        // Build JSON manually to avoid serialization issues
-                        val createMsgJson = """
-                            {
-                                "type": "CreateGameMessage",
-                                "playerMeta": {
-                                    "playerId": "${playerMeta.playerId.value}",
-                                    "name": "${playerMeta.name}",
-                                    "avatarId": ${playerMeta.avatarId},
-                                    "gender": "${playerMeta.gender.name}",
-                                    "userId": ${if (playerMeta.userId != null) "\"${playerMeta.userId}\"" else "null"}
-                                },
-                                "superMunchkin": $superMunchkin
-                            }
-                        """.trimIndent()
-                        send(createMsgJson)
+                        val createMessage = CreateGameRequest(
+                            playerMeta = playerMeta,
+                            superMunchkin = superMunchkin,
+                            turnTimerSeconds = turnTimerSeconds
+                        )
+                        send(json.encodeToString<WsMessage>(createMessage))
                         DLog.i(TAG, "Waiting for welcome...")
                         
                         // Wait for welcome
@@ -187,17 +183,19 @@ class GameClient {
             }
             
             // Parse URL
-            val urlParts = parseWsUrl(wsUrl)
-            if (urlParts == null) {
+            val endpoint = WsEndpointParser.parse(wsUrl)
+            if (endpoint == null) {
                 DLog.e(TAG, "Invalid URL format: $wsUrl")
                 Log.e(TAG, "Invalid URL format: $wsUrl")
                 _connectionState.value = ConnectionState.DISCONNECTED
-                return@withContext Result.failure(Exception("URL inválida: $wsUrl"))
+                return@withContext Result.failure(Exception("Invalid URL: $wsUrl"))
             }
             
-            val (host, port, path) = urlParts
-            DLog.i(TAG, "Parsed -> $host:$port$path")
-            Log.i(TAG, "Parsed URL -> host=$host, port=$port, path=$path")
+            if (!endpoint.isSecure) {
+                DLog.w(TAG, "Connecting over unencrypted ws://. Use wss:// for production servers.")
+            }
+            DLog.i(TAG, "Parsed -> ${endpoint.host}:${endpoint.port}${endpoint.path}")
+            Log.i(TAG, "Parsed URL -> host=${endpoint.host}, port=${endpoint.port}, path=${endpoint.path}")
 
             // Connect
             scope?.cancel()
@@ -211,7 +209,7 @@ class GameClient {
                 try {
                     DLog.i(TAG, "Opening WebSocket...")
                     Log.i(TAG, "Opening WebSocket connection...")
-                    client!!.webSocket(urlString = "${"wss".takeIf { wsUrl.startsWith("wss://") } ?: "ws"}://$host:$port$path") {
+                    client!!.webSocket(urlString = endpoint.urlString) {
                         session = this
                         DLog.i(TAG, "WS connected, sending hello")
                         Log.i(TAG, "WebSocket connected, sending hello...")
@@ -381,11 +379,11 @@ class GameClient {
             is PongMessage -> {
                 // Keepalive response
             }
-            is HandoverInitMessage -> {
-                handleHandover(message)
+            is GameOverRecordedMessage -> {
+                // The authoritative final snapshot is handled separately.
             }
             is GameDeletedMessage -> {
-                _errors.emit("La partida ha sido eliminada por el anfitrión")
+                _gameDeleted.emit(message.reason)
                 disconnect()
             }
             else -> {
@@ -469,24 +467,6 @@ class GameClient {
     }
     
     /**
-     * Handle handover to new host.
-     */
-    private suspend fun handleHandover(message: HandoverInitMessage) {
-        _connectionState.value = ConnectionState.HANDOVER
-        
-        // Disconnect from current host
-        disconnect()
-        
-        // Connect to new host
-        lastUrl = message.wsUrl
-        lastPlayerMeta?.let { meta ->
-            lastJoinCode?.let { code ->
-                connect(message.wsUrl, code, meta)
-            }
-        }
-    }
-    
-    /**
      * Send an event request to the server.
      */
     suspend fun sendEvent(event: GameEvent): Result<Unit> {
@@ -552,203 +532,26 @@ class GameClient {
         _connectionState.value = ConnectionState.DISCONNECTED
     }
     
-    // ============== Auth Methods ==============
-
-    suspend fun register(
-        serverUrl: String,
-        username: String,
-        email: String,
-        password: String
-    ): Result<AuthSuccessMessage> {
-        // Auto-generate dummy email if empty (Backward compatibility with older servers)
-        val finalEmail = if (email.isBlank()) {
-            val sanitized = username.lowercase().replace(Regex("[^a-z0-9]"), "")
-            "$sanitized@munchkin.local"
-        } else {
-            email
-        }
-        val msg = RegisterMessage(username, finalEmail, password, 0)
-        return performAuth(serverUrl, msg)
-    }
-
-    suspend fun login(
-        serverUrl: String,
-        email: String,
-        password: String
-    ): Result<AuthSuccessMessage> {
-        val msg = LoginMessage(email, password)
-        return performAuth(serverUrl, msg)
-    }
-
-    suspend fun loginWithToken(
-        serverUrl: String,
-        token: String
-    ): Result<AuthSuccessMessage> {
-        val msg = LoginWithTokenMessage(token)
-        return performAuth(serverUrl, msg)
-    }
-
-    private suspend fun performAuth(
-        serverUrl: String,
-        message: WsMessage
-    ): Result<AuthSuccessMessage> = withContext(Dispatchers.IO) {
-        try {
-            val urlParts = parseWsUrl(serverUrl) ?: return@withContext Result.failure(Exception("URL inválida"))
-            val (host, port, _) = urlParts
-            
-            DLog.i(TAG, "Auth: Connecting to $host:$port...")
-            
-            // Temporary client for auth
-            val authClient = HttpClient(CIO) { install(WebSockets) }
-            
-            var result: Result<AuthSuccessMessage>? = null
-            
-            authClient.webSocket(urlString = "${"wss".takeIf { serverUrl.startsWith("wss://") } ?: "ws"}://$host:$port/") {
-                // Send auth message - Encoded as WsMessage to preserve "type" field
-                val finalJson = json.encodeToString<WsMessage>(message)
-                DLog.i(TAG, "Sending auth: $finalJson")
-                send(finalJson)
-                
-                // Wait for response
-                try {
-                    val frame = incoming.receive()
-                    if (frame is Frame.Text) {
-                        val text = frame.readText()
-                        DLog.i(TAG, "Auth response: $text")
-                        
-                        val response = json.decodeFromString<WsMessage>(text)
-                        if (response is AuthSuccessMessage) {
-                            result = Result.success(response)
-                        } else if (response is ErrorMessage) {
-                            result = Result.failure(Exception(response.message))
-                        }
-                    }
-                } catch (e: Exception) {
-                    DLog.e(TAG, "Auth receive error: ${e.message}")
-                    result = Result.failure(e)
-                }
-                close()
-            }
-            authClient.close()
-            
-            result ?: Result.failure(Exception("No response from server"))
-            
-        } catch (e: Exception) {
-            DLog.e(TAG, "Auth error: ${e.message}")
-            Result.failure(e)
-        }
-    }
-
-    // ============== Catalog Methods ==============
-
-    suspend fun searchMonsters(
-        serverUrl: String,
-        query: String
-    ): Result<List<CatalogMonster>> = withContext(Dispatchers.IO) {
-        val msg = CatalogSearchRequest(query)
-        val response = sendOneOffRequest(serverUrl, msg)
-        
-        response.map {
-            if (it is CatalogSearchResult) it.results else emptyList()
-        }
-    }
-
-    suspend fun addMonsterToCatalog(
-        serverUrl: String,
-        monster: CatalogMonster,
-        userId: String
-    ): Result<CatalogMonster> = withContext(Dispatchers.IO) {
-        val msg = CatalogAddRequest(monster, userId)
-        val response = sendOneOffRequest(serverUrl, msg)
-
-        response.map {
-            if (it is CatalogAddSuccess) it.monster else monster
-        }
-    }
-
-    // ============== History Methods ==============
-
-    suspend fun getHistory(
-        serverUrl: String,
-        userId: String
-    ): Result<List<GameHistoryItem>> = withContext(Dispatchers.IO) {
-        val request = GetHistoryRequest(userId)
-        sendOneOffRequest(serverUrl, request).map { response ->
-            if (response is HistoryResult) {
-                response.games
-            } else {
-                emptyList()
-            }
-        }
-    }
-    
-    // Generic Helper for One-Off Requests (Catalog, History, etc.)
-    private suspend fun sendOneOffRequest(
-        serverUrl: String,
-        message: WsMessage
-    ): Result<WsMessage> = withContext(Dispatchers.IO) {
-        try {
-            val urlParts = parseWsUrl(serverUrl) ?: return@withContext Result.failure(Exception("URL inválida"))
-            val (host, port, _) = urlParts
-            
-            // Temporary client
-            val client = HttpClient(CIO) { install(WebSockets) }
-            var result: Result<WsMessage>? = null
-            
-            client.webSocket(urlString = "${"wss".takeIf { serverUrl.startsWith("wss://") } ?: "ws"}://$host:$port/") {
-                val jsonStr = json.encodeToString<WsMessage>(message)
-                send(jsonStr)
-                
-                try {
-                    val frame = incoming.receive()
-                    if (frame is Frame.Text) {
-                        val text = frame.readText()
-                        val response = json.decodeFromString<WsMessage>(text)
-                        
-                        if (response is ErrorMessage) {
-                            result = Result.failure(Exception(response.message))
-                        } else {
-                            result = Result.success(response)
-                        }
-                    }
-                } catch (e: Exception) {
-                    result = Result.failure(e)
-                }
-                close()
-            }
-            client.close()
-            
-            result ?: Result.failure(Exception("Sin respuesta del servidor"))
-            
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    // ============== History Methods ==============
 
     suspend fun sendGameOver(
-        serverUrl: String,
         gameId: String,
         winnerId: String
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        val msg = GameOverMessage(gameId, winnerId)
-        // Use temp connection or active session?
-        // Since host is likely connected, use session if available?
-        // But session logic is tied to connect() flow.
-        // It's safer to use the dedicated "sendCatalogRequest" style temp connection for these "one-off" events if we want reliable ack,
-        // OR reuse session if we are sure we are connected.
-        // However, GAME_OVER usually happens when still connected.
-        // Let's use sendCatalogRequest style for robustness or if connection drops.
-        // Actually, if we use temp connection, server handles it fine (stateless handler).
-        
-        sendOneOffRequest(serverUrl, msg).map { }
+        val currentSession = session ?: return@withContext Result.failure(Exception("No conectado"))
+        try {
+            val msg = GameOverMessage(gameId, winnerId)
+            currentSession.send(json.encodeToString<WsMessage>(msg))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     suspend fun sendSwapPlayers(player1: PlayerId, player2: PlayerId): Result<Unit> = withContext(Dispatchers.IO) {
+        val currentSession = session ?: return@withContext Result.failure(Exception("No conectado"))
         try {
             val msg = SwapPlayers(player1, player2)
-            session?.send(json.encodeToString<WsMessage>(msg))
+            currentSession.send(json.encodeToString<WsMessage>(msg))
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -757,138 +560,4 @@ class GameClient {
 
 
 
-    suspend fun getLeaderboard(
-        serverUrl: String
-    ): Result<List<LeaderboardEntry>> = withContext(Dispatchers.IO) {
-        sendOneOffRequest(serverUrl, GetLeaderboardRequest).map { response ->
-            if (response is LeaderboardResult) {
-                response.leaderboard
-            } else {
-                emptyList()
-            }
-        }
-    }
-    
-    suspend fun updateProfile(
-        serverUrl: String,
-        userId: String,
-        username: String?,
-        password: String?,
-        token: String
-    ): Result<UserProfile> = withContext(Dispatchers.IO) {
-        val req = UpdateProfileRequest(userId, username, password)
-        authenticatedRequest(serverUrl, token, req).map { response ->
-            if (response is ProfileUpdatedMessage) {
-                response.user
-            } else {
-                throw Exception("Respuesta inesperada del servidor")
-            }
-        }
-    }
-
-    // ============== Hosted Games Methods ==============
-
-    suspend fun getHostedGames(
-        serverUrl: String,
-        token: String
-    ): Result<List<HostedGame>> = withContext(Dispatchers.IO) {
-        authenticatedRequest(serverUrl, token, GetHostedGamesRequest).map { response ->
-            if (response is HostedGamesResult) {
-                response.games
-            } else {
-                emptyList()
-            }
-        }
-    }
-
-    suspend fun deleteHostedGame(
-        serverUrl: String,
-        token: String,
-        gameId: String
-    ): Result<Unit> = withContext(Dispatchers.IO) {
-        authenticatedRequest(serverUrl, token, DeleteHostedGame(gameId)).map { }
-    }
-
-    /**
-     * Helper for authenticated one-off requests.
-     * Connects -> Logs in -> Sends Request -> Waits for Response -> Disconnects.
-     */
-    private suspend fun authenticatedRequest(
-        serverUrl: String,
-        token: String,
-        request: WsMessage
-    ): Result<WsMessage> = withContext(Dispatchers.IO) {
-        try {
-            val urlParts = parseWsUrl(serverUrl) ?: return@withContext Result.failure(Exception("URL inválida"))
-            val (host, port, _) = urlParts
-            
-            val client = HttpClient(CIO) { install(WebSockets) }
-            var result: Result<WsMessage>? = null
-            
-            client.webSocket(urlString = "${"wss".takeIf { serverUrl.startsWith("wss://") } ?: "ws"}://$host:$port/") {
-                // 1. Login
-                val loginMsg = LoginWithTokenMessage(token)
-                send(json.encodeToString<WsMessage>(loginMsg))
-                
-                // Wait for Auth Success
-                var authenticated = false
-                try {
-                    val frame = incoming.receive()
-                    if (frame is Frame.Text) {
-                        val response = json.decodeFromString<WsMessage>(frame.readText())
-                        if (response is AuthSuccessMessage) {
-                            authenticated = true
-                        } else if (response is ErrorMessage) {
-                            result = Result.failure(Exception("Auth failed: ${response.message}"))
-                        }
-                    }
-                } catch (e: Exception) {
-                    result = Result.failure(Exception("Auth handshake failed"))
-                }
-
-                if (authenticated) {
-                    // 2. Send Actual Request
-                    send(json.encodeToString<WsMessage>(request))
-                    
-                    // 3. Wait for Response
-                    try {
-                        val frame = incoming.receive()
-                        if (frame is Frame.Text) {
-                            val response = json.decodeFromString<WsMessage>(frame.readText())
-                            if (response is ErrorMessage) {
-                                result = Result.failure(Exception(response.message))
-                            } else {
-                                result = Result.success(response)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        result = Result.failure(Exception("Request failed: ${e.message}"))
-                    }
-                }
-                
-                close()
-            }
-            client.close()
-            
-            result ?: Result.failure(Exception("No response or auth failed"))
-            
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    private fun parseWsUrl(url: String): Triple<String, Int, String>? {
-        val regex = Regex("""wss?://([^:]+):(\d+)(/.*)?""")
-        val match = regex.find(url) ?: return null
-
-        if (url.startsWith("ws://")) {
-            DLog.w(TAG, "⚠️ Connecting over unencrypted ws://. Use wss:// for production servers.")
-        }
-
-        val host = match.groupValues[1]
-        val port = match.groupValues[2].toIntOrNull() ?: return null
-        val path = match.groupValues.getOrNull(3)?.ifEmpty { "/game" } ?: "/game"
-
-        return Triple(host, port, path)
-    }
 }

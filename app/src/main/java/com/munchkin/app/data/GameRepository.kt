@@ -9,14 +9,21 @@ import kotlinx.coroutines.flow.map
 /**
  * Repository for managing saved games.
  */
-class GameRepository(context: Context) {
+interface SavedGameStore {
+    fun getLatestSavedGame(): Flow<SavedGame?>
+    suspend fun saveGame(gameState: GameState, myPlayerId: PlayerId, isHost: Boolean)
+    suspend fun deleteSavedGame(gameId: String)
+    suspend fun deleteAllSavedGames()
+}
+
+class GameRepository(context: Context) : SavedGameStore {
     private val dao = MunchkinDatabase.getInstance(context).savedGameDao()
     private val converter = GameStateConverter()
     
     /**
      * Get the latest saved game as a Flow.
      */
-    fun getLatestSavedGame(): Flow<SavedGame?> {
+    override fun getLatestSavedGame(): Flow<SavedGame?> {
         return dao.getLatestSavedGame().map { entity ->
             entity?.let { toSavedGame(it) }
         }
@@ -25,7 +32,7 @@ class GameRepository(context: Context) {
     /**
      * Save current game state.
      */
-    suspend fun saveGame(
+    override suspend fun saveGame(
         gameState: GameState,
         myPlayerId: PlayerId,
         isHost: Boolean
@@ -44,14 +51,14 @@ class GameRepository(context: Context) {
     /**
      * Delete a saved game.
      */
-    suspend fun deleteSavedGame(gameId: String) {
+    override suspend fun deleteSavedGame(gameId: String) {
         dao.delete(gameId)
     }
     
     /**
      * Delete all saved games.
      */
-    suspend fun deleteAllSavedGames() {
+    override suspend fun deleteAllSavedGames() {
         dao.deleteAll()
     }
     

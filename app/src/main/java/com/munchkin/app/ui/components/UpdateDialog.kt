@@ -65,7 +65,7 @@ fun UpdateDialog(
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 Text(
-                    text = "¡Nueva versión disponible!",
+                    text = stringResource(R.string.update_available),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = NeonGray100
@@ -74,7 +74,7 @@ fun UpdateDialog(
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 Text(
-                    text = "v${updateInfo.version}",
+                    text = stringResource(R.string.version_short_format, updateInfo.version),
                     style = MaterialTheme.typography.titleMedium,
                     color = NeonPrimary
                 )
@@ -120,7 +120,7 @@ fun UpdateDialog(
                 
                 // File size
                 Text(
-                    text = "Tamaño: ${formatFileSize(updateInfo.fileSize)}",
+                    text = stringResource(R.string.file_size_format, formatFileSize(updateInfo.fileSize)),
                     style = MaterialTheme.typography.bodySmall,
                     color = NeonGray500
                 )
@@ -203,13 +203,13 @@ fun UpdateBanner(
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Nueva versión disponible",
+                    text = stringResource(R.string.update_available),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                     color = NeonGray100
                 )
                 Text(
-                    text = "v$version",
+                    text = stringResource(R.string.version_short_format, version),
                     style = MaterialTheme.typography.bodySmall,
                     color = NeonPrimary
                 )

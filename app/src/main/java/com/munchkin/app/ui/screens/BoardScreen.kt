@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -123,23 +125,23 @@ fun BoardScreen(
                     actions = {
                         IconButton(onClick = { isTableView = !isTableView }) {
                             if (isTableView) {
-                                Icon(Icons.Default.List, contentDescription = "Vista Lista", tint = NeonGray200)
+                                Icon(Icons.AutoMirrored.Filled.List, contentDescription = stringResource(R.string.view_list), tint = NeonGray200)
                             } else {
-                                Icon(Icons.Default.GroupWork, contentDescription = "Vista Mesa", tint = NeonGray200)
+                                Icon(Icons.Default.GroupWork, contentDescription = stringResource(R.string.view_table), tint = NeonGray200)
                             }
                         }
                         IconButton(onClick = { showDiceDialog = true }) {
                             Text("🎲", fontSize = 22.sp)
                         }
                         IconButton(onClick = { showLogDrawer = true }) {
-                            Icon(Icons.Default.History, contentDescription = "Historial", tint = NeonGray200)
+                            Icon(Icons.Default.History, contentDescription = stringResource(R.string.history), tint = NeonGray200)
                         }
                         IconButton(onClick = onCatalogClick) {
-                            Icon(Icons.Default.MenuBook, contentDescription = stringResource(R.string.catalog), tint = NeonGray200)
+                            Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = stringResource(R.string.catalog), tint = NeonGray200)
                         }
                         Box {
                             IconButton(onClick = { showMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "Menú", tint = NeonGray200)
+                                Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.menu), tint = NeonGray200)
                             }
                             DropdownMenu(
                                 expanded = showMenu,
@@ -507,6 +509,36 @@ fun BoardScreen(
         )
     }
 
+    val pendingWinner = pendingWinnerId?.let { gameState.players[it] }
+    if (isHost && pendingWinner != null) {
+        AlertDialog(
+            onDismissRequest = onDismissWin,
+            containerColor = NeonSurface,
+            title = {
+                Text(
+                    stringResource(R.string.confirm_win_title),
+                    color = NeonGray100
+                )
+            },
+            text = {
+                Text(
+                    stringResource(R.string.confirm_win_message, pendingWinner.name),
+                    color = NeonGray300
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { onConfirmWin(pendingWinner.playerId) }) {
+                    Text(stringResource(R.string.confirm_win), color = NeonPrimary)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissWin) {
+                    Text(stringResource(R.string.not_yet), color = NeonGray400)
+                }
+            }
+        )
+    }
+
     // Leave/Delete Confirmation Dialog
     if (showLeaveDialog) {
         AlertDialog(
@@ -514,13 +546,13 @@ fun BoardScreen(
             containerColor = NeonSurface,
             title = {
                 Text(
-                    if (isHost) "Borrar Partida" else stringResource(R.string.leave_game),
+                    if (isHost) stringResource(R.string.delete_game_title) else stringResource(R.string.leave_game),
                     color = NeonGray100
                 )
             },
             text = {
                 Text(
-                    if (isHost) "¿Estás seguro de que quieres borrar la partida? Todos los jugadores serán desconectados."
+                    if (isHost) stringResource(R.string.delete_game_message)
                     else stringResource(R.string.confirm_leave),
                     color = NeonGray300
                 )
@@ -533,7 +565,7 @@ fun BoardScreen(
                     }
                 ) {
                     Text(
-                        if (isHost) "Borrar" else stringResource(R.string.yes),
+                        if (isHost) stringResource(R.string.delete) else stringResource(R.string.yes),
                         color = if (isHost) NeonError else NeonPrimary
                     )
                 }

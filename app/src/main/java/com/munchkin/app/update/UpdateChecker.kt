@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Environment
 import android.util.Log
 import androidx.core.content.FileProvider
+import com.munchkin.app.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -21,7 +22,12 @@ import java.net.URL
 /**
  * Handles checking for updates from GitHub releases and installing APKs.
  */
-class UpdateChecker(private val context: Context) {
+interface UpdateService {
+    suspend fun checkForUpdate(): UpdateResult
+    fun downloadAndInstall(updateInfo: UpdateInfo, onComplete: () -> Unit)
+}
+
+class UpdateChecker(private val context: Context) : UpdateService {
     companion object {
         private const val TAG = "UpdateChecker"
         private const val GITHUB_API_URL = "https://api.github.com/repos/adm-adi/munchkin/releases/latest"
@@ -36,7 +42,7 @@ class UpdateChecker(private val context: Context) {
      * Check for available updates.
      * @return UpdateInfo if update available, null otherwise
      */
-    suspend fun checkForUpdate(): UpdateResult = withContext(Dispatchers.IO) {
+    override suspend fun checkForUpdate(): UpdateResult = withContext(Dispatchers.IO) {
         try {
             // Get actual version from package info (NOT hardcoded)
             val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
@@ -63,7 +69,8 @@ class UpdateChecker(private val context: Context) {
                     UpdateResult.UpdateAvailable(
                         UpdateInfo(
                             version = latestVersion,
-                            releaseNotes = release.body ?: "Nueva versión disponible",
+                            releaseNotes = release.body
+                                ?: context.getString(R.string.update_release_notes_fallback),
                             downloadUrl = apkAsset.browserDownloadUrl,
                             fileSize = apkAsset.size
                         )
@@ -83,7 +90,7 @@ class UpdateChecker(private val context: Context) {
     /**
      * Download and install APK update.
      */
-    fun downloadAndInstall(updateInfo: UpdateInfo, onProgress: (Int) -> Unit, onComplete: () -> Unit) {
+    override fun downloadAndInstall(updateInfo: UpdateInfo, onComplete: () -> Unit) {
         val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         
         val apkFile = File(
@@ -97,8 +104,8 @@ class UpdateChecker(private val context: Context) {
         }
         
         val request = DownloadManager.Request(Uri.parse(updateInfo.downloadUrl))
-            .setTitle("Munchkin v${updateInfo.version}")
-            .setDescription("Descargando actualización...")
+            .setTitle(context.getString(R.string.update_download_title_format, updateInfo.version))
+            .setDescription(context.getString(R.string.update_download_description))
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationUri(Uri.fromFile(apkFile))
             .setAllowedOverMetered(true)

@@ -11,6 +11,8 @@
 /.idea
 .DS_Store
 /build
+/backend/build
+/shared/build
 /captures
 .externalNativeBuild
 .cxx

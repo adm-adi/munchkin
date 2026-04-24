@@ -1,149 +1,119 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
----
+This file provides guidance to Claude Code and Codex when working in this repository.
 
 ## Project Overview
 
-**Munchkin Mesa Tracker** is an Android app for local multiplayer Munchkin board game sessions over LAN. It uses a client-server architecture: an embedded Node.js server handles game state over WebSockets, and an Android Kotlin client connects to it.
+Munchkin Mesa Tracker is an Android app plus Kotlin backend for synchronized Munchkin board-game sessions. The app keeps the familiar table flow, while the backend is authoritative for live gameplay and persistent account/catalog/history data.
 
----
+## Required Context
+
+Before changing code, read:
+
+- `docs/PROBLEMS_AND_SOLUTIONS.md`
+- `docs/IMPLEMENTATION_LOG.md`
+- `CODEBASE.md`
+
+After implementation sessions, update the two docs above with new problems, fixes, and architectural changes.
 
 ## Build Commands
 
-### Android Client
-
-```bash
-# Build debug APK
-./gradlew assembleDebug
-# Output: app/build/outputs/apk/debug/app-debug.apk
-
-# Build release APK (requires keystore credentials in local.properties)
-./gradlew assembleRelease
-
-# Run unit tests
-./gradlew :app:test
-
-# Run a specific test class
-./gradlew :app:test --tests "*.CombatCalculatorTest"
+```powershell
+.\gradlew.bat :shared:test
+.\gradlew.bat :backend:test
+.\gradlew.bat :app:testDebugUnitTest
+.\gradlew.bat :app:compileDebugKotlin
+.\gradlew.bat :app:assembleDebug
 ```
 
-Signing credentials (`KEYSTORE_STORE_PASSWORD`, `KEYSTORE_KEY_ALIAS`, `KEYSTORE_KEY_PASSWORD`) are read from `local.properties` (gitignored) or environment variables. Keystore file: `munchkin.keystore` in the repo root.
+Release APK:
 
-### Node.js Server
-
-```bash
-cd server
-npm install
-npm start          # node server.js — runs on port 8765
+```powershell
+.\gradlew.bat :app:assembleRelease
 ```
 
-### Security Verification
+Backend distribution:
 
-```bash
-python scripts/security_verify.py   # Run before pushing
+```powershell
+.\gradlew.bat :backend:installDist
+.\gradlew.bat :backend:distZip
 ```
 
----
+Database migrations:
 
-## Testing on Emulators (Two-Device Setup)
-
-```bash
-# Terminal 1 — Host emulator
-emulator -avd Pixel_6_API_30 -port 5554
-
-# Terminal 2 — Client emulator
-emulator -avd Pixel_6_API_30_copy -port 5556
-
-# Allow client emulator to reach host emulator's server
-adb -s emulator-5556 reverse tcp:8765 tcp:8765
-# Client connects to: 10.0.2.2:8765
+```powershell
+.\gradlew.bat :backend:migrateDatabase
 ```
 
----
+Legacy SQLite import:
+
+```powershell
+.\gradlew.bat :backend:importLegacySqlite --args "C:\path\to\munchkin.db"
+```
 
 ## Architecture
 
-### The Golden Rule
+The dependency flow is:
 
-**Clients never mutate UI state directly.** Every action flows:
-1. UI calls `GameViewModel.someAction()`
-2. ViewModel emits a `GameEvent` wrapped in `EventRequestMessage` via WebSocket
-3. `server.js` validates, mutates in-memory `GameRoom`, broadcasts back
-4. All clients receive `EventBroadcastMessage` and rebuild their `GameState`
-
-### Key Data Flow
-
-```
-UI (Compose) → GameViewModel → GameClient (Ktor WS) → server.js
-                                                           ↓
-UI ← GameViewModel ← GameClient ←────────────── broadcast to all clients
+```text
+Android app -> shared <- backend
 ```
 
-### Critical Serialization Constraint
+`shared` owns ids, DTOs, game state, combat state, websocket protocol, and pure rule logic. Keep it free of Android and server-only dependencies.
 
-The client uses `kotlinx.serialization`; the server uses plain `JSON.parse`. When modifying `Models.kt`, `Events.kt`, or `Protocol.kt`:
-- `@JvmInline value class` serializes as its primitive type (not a wrapper object)
-- Enum names must match exactly what JavaScript expects
-- `@SerialName` annotations control the JSON field names
+The websocket protocol is gameplay-only. Auth, profile, catalog, history, leaderboard, open games, and hosted-game management belong to HTTP DTOs and routes; keep those DTO declarations in `ApiModels.kt`, not `Protocol.kt`.
 
-### Core Modules
+The backend is a Ktor service with PostgreSQL persistence and Flyway migrations. Gameplay rooms are authoritative in memory; finished games, users, monsters, history, and leaderboard data are persistent.
 
-| Module | Purpose |
-|--------|---------|
-| `core/Models.kt` | `GameState`, `PlayerState`, `CatalogEntry` — the data model |
-| `core/Events.kt` | Sealed `GameEvent` hierarchy — every player action |
-| `core/Combat.kt` | `CombatState`, `MonsterInstance`, `CombatResult` |
-| `core/CombatCalculator.kt` | Pure logic: evaluates combat outcome (warrior tie-break, conditional modifiers) |
-| `core/GameEngine.kt` | Client-side state reducer (server is authoritative) |
-| `network/Protocol.kt` | WebSocket message types (`WsMessage` sealed class) |
-| `network/GameClient.kt` | Ktor WS client, emits to `SharedFlow` for ViewModel |
-| `viewmodel/GameViewModel.kt` | ~60KB central ViewModel; owns `uiState: StateFlow<GameState?>` |
-| `server/server.js` | Node.js: auth, room management, event routing, state broadcast |
-| `server/db.js` | SQLite: users, hashed passwords (bcrypt), monster catalog, game history |
+The Android app uses:
 
-### Navigation / Screen Flow
+- `RealtimeGameSession` for the long-lived gameplay websocket.
+- `CreateGameRequest` must be serialized with kotlinx serialization; do not manually interpolate websocket JSON.
+- `WsEndpointParser` owns realtime websocket URL normalization; do not reintroduce ad-hoc regex parsing in `GameClient`.
+- `SavedGameStore`, `PlayerIdentityStore`, and `RealtimeSessionFactory` seams around `GameViewModel` so core gameplay flows can be JVM-tested.
+- `ApiClient` plus feature repositories for auth, profile, catalog, history, leaderboard, and game discovery.
+- Repository/session interfaces on the app side so feature ViewModels can be unit-tested without Android context or live HTTP clients.
+- `AccountViewModel` for session restore, login/register, logout, and profile updates.
+- `HistoryViewModel` for history and leaderboard screens instead of routing those calls through gameplay state.
+- `CatalogViewModel` for monster catalog search/create; combat only consumes created monsters as gameplay events.
+- `GameDirectoryViewModel` for open-game discovery and hosted-game deletion/list state.
+- `UpdateViewModel` for GitHub release checks and APK update download state.
+- `MunchkinNavHost` for navigation-compose routing and active-route ownership.
+- `GameEventFactory` for Android-side construction of shared gameplay events.
+- `PlayerIdFactory` for deterministic gameplay identity creation in tests and UUID-backed production ids.
+- `GameTextProvider` and `FriendlyErrorMapper` for testable gameplay resource text and connection-error mapping.
+- `GameStateTransitionAnalyzer` for pure gameplay transition side effects that should stay unit-tested outside `GameViewModel`.
+- `RealtimeSession.gameDeleted` for typed room-deletion cleanup; do not route this through localized error strings.
 
-```
-HomeScreen → CreateGameScreen ─┐
-           → JoinGameScreen   ─┴→ LobbyScreen → TableScreen
-                                                → BoardScreen (own player)
-                                                → CombatScreen
-```
+`AppConfig` is the single app-side source for the remote backend URL.
 
-### Server Architecture
+## Golden Rule
 
-`server.js` uses a `handleMessage` switch-case routing raw WebSocket JSON to handlers (`handleHello`, `handleEvent`, `handleCombat…`). Active game rooms live in `const games = new Map()` (in-memory). Auth uses simple JWTs; passwords are bcrypt-hashed in SQLite.
+Clients do not mutate gameplay state directly. UI actions create shared `GameEvent` values, the backend validates and applies them through `GameEngine`, then clients rebuild UI from snapshots or validated broadcasts.
 
----
+## Serialization Constraints
+
+- `@JvmInline value class` ids serialize as primitive strings.
+- Sealed websocket messages use `classDiscriminator = "type"`.
+- Enum and `@SerialName` values are wire protocol, not cosmetic names.
 
 ## Development Rules
 
-- **Localization**: All user-facing strings go in `strings.xml`. English and Spanish are required. `LocaleManager.kt` handles switching. No hardcoded strings in Compose.
-- **UI style**: Material 3 with custom styling. Avoid default/unstyled components. See `ui/theme/` and `ui/components/ModernComponents.kt`.
-- **WebSocket safety**: Always wrap raw WebSocket data parsing in `try-catch` (DoS protection). The server enforces a 50KB max payload.
-- **Player limits**: Max 6 players per room. Level is clamped 1–10. Race/class limits enforced server-side.
-- **`CODEBASE.md`**: A map of file dependencies lives in `CODEBASE.md` — check it before modifying shared files to identify what else needs updating.
+- User-facing strings belong in resources. Keep Spanish and English complete when adding text.
+- Keep max players, level clamping, race/class limits, and win confirmation server-authoritative.
+- Wrap websocket JSON parsing in `try-catch`.
+- Do not reintroduce embedded Android host, LAN discovery, Node server, or host handover code without a new ADR.
 
----
+## Production
 
-## Production Server
+Backend deploy:
 
-The server runs as a `systemd` service on a Hetzner VPS:
-
-```bash
-# Deploy
-cd /opt/munchkin-server && git pull && systemctl restart munchkin
-
-# Logs
-journalctl -u munchkin -f
+```powershell
+.\deploy-backend-prod.ps1
 ```
 
-WebSocket endpoint: `ws://23.88.48.58:8765`
+Local Android install:
 
----
-
-## Versioning & Releases
-
-Versions are set in `app/build.gradle.kts` (`versionName`, `versionCode`) and mirrored in `server/package.json`. The GitHub Actions workflow at `.github/workflows/release.yml` builds and publishes releases. Use `scripts/bump_version.py` to increment versions consistently.
+```powershell
+.\deploy_updates.ps1
+```

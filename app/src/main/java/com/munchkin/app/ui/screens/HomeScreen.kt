@@ -8,6 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -155,7 +156,7 @@ fun HomeScreen(
             
             // Title with gradient
             Text(
-                text = "Munchkin",
+                text = stringResource(R.string.app_short_name),
                 style = MaterialTheme.typography.displayMedium.copy(
                     fontWeight = FontWeight.Bold,
                     letterSpacing = (-1).sp
@@ -203,14 +204,18 @@ fun HomeScreen(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Partida guardada",
+                                        text = stringResource(R.string.saved_game),
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.SemiBold,
                                         color = NeonGray100
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "${saved.gameState.players.size} jugadores • ${saved.gameState.joinCode}",
+                                        text = stringResource(
+                                            R.string.saved_game_info_format,
+                                            saved.gameState.players.size,
+                                            saved.gameState.joinCode
+                                        ),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = NeonGray500
                                     )
@@ -220,7 +225,11 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.height(12.dp))
                             
                             GradientButton(
-                                text = if (isLoading) "Conectando..." else "Continuar",
+                                text = if (isLoading) {
+                                    stringResource(R.string.connecting)
+                                } else {
+                                    stringResource(R.string.continue_game)
+                                },
                                 onClick = onResumeGame,
                                 modifier = Modifier.fillMaxWidth(),
                                 icon = if (isLoading) null else Icons.Default.PlayArrow,
@@ -259,7 +268,7 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(32.dp))
                     
                     Text(
-                        text = "Tus Partidas Activas",
+                        text = stringResource(R.string.active_games),
                         style = MaterialTheme.typography.titleMedium,
                         color = NeonGray200,
                         modifier = Modifier.padding(bottom = 8.dp)
@@ -279,7 +288,7 @@ fun HomeScreen(
             
             // Version
             Text(
-                text = "v${com.munchkin.app.BuildConfig.VERSION_NAME}",
+                text = stringResource(R.string.version_short_format, com.munchkin.app.BuildConfig.VERSION_NAME),
                 style = MaterialTheme.typography.bodySmall,
                 color = NeonGray500
             )
@@ -314,7 +323,7 @@ fun HomeScreen(
                         )
                     } else {
                         Text(
-                            text = "Iniciar Sesión",
+                            text = stringResource(R.string.login_title),
                             color = NeonGray400
                         )
                     }
@@ -333,7 +342,7 @@ fun HomeScreen(
                                 onLogout()
                             },
                             leadingIcon = {
-                                Icon(Icons.Default.Logout, null, tint = NeonError)
+                                Icon(Icons.AutoMirrored.Filled.Logout, null, tint = NeonError)
                             }
                         )
                         DropdownMenuItem(
@@ -412,8 +421,8 @@ private fun HostedGameCard(
     if (showConfirm) {
         AlertDialog(
             onDismissRequest = { showConfirm = false },
-            title = { Text("¿Borrar partida?") },
-            text = { Text("Esto eliminará la partida para todos los jugadores. No se puede deshacer.") },
+            title = { Text(stringResource(R.string.delete_party_title)) },
+            text = { Text(stringResource(R.string.delete_party_message)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -422,12 +431,12 @@ private fun HostedGameCard(
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Eliminar")
+                    Text(stringResource(R.string.delete))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showConfirm = false }) {
-                    Text("Cancelar")
+                    Text(stringResource(R.string.cancel))
                 }
             }
         )
@@ -447,7 +456,7 @@ private fun HostedGameCard(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "${game.playerCount} jugadores • ${game.phase}",
+                    text = stringResource(R.string.hosted_game_info_format, game.playerCount, game.phase),
                     style = MaterialTheme.typography.bodySmall,
                     color = NeonGray400
                 )
@@ -456,7 +465,7 @@ private fun HostedGameCard(
             IconButton(onClick = { showConfirm = true }) {
                 Icon(
                     Icons.Default.Delete,
-                    contentDescription = "Borrar partida",
+                    contentDescription = stringResource(R.string.delete_game),
                     tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
                 )
             }

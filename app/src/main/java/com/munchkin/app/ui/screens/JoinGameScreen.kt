@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,13 +33,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.munchkin.app.AppConfig
 import com.munchkin.app.R
 import com.munchkin.app.core.Gender
 import com.munchkin.app.ui.components.AmbientOrb
 import com.munchkin.app.ui.theme.*
 import com.munchkin.app.network.UserProfile
 import com.munchkin.app.network.DiscoveredGame
-import kotlinx.coroutines.launch
 
 /**
  * Screen for joining an existing game.
@@ -84,8 +85,6 @@ fun JoinGameScreen(
         finishedListener = { shakeKey = 0 },
         label = "shake"
     )
-    
-    val scope = rememberCoroutineScope()
     
     // Validation function
     fun validateFields(): Boolean {
@@ -170,7 +169,11 @@ fun JoinGameScreen(
                                 color = NeonPrimary
                             )
                         } else {
-                            Icon(Icons.Default.Refresh, contentDescription = "Actualizar", tint = NeonGray300)
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = stringResource(R.string.reload),
+                                tint = NeonGray300
+                            )
                         }
                     }
                 }
@@ -218,7 +221,7 @@ fun JoinGameScreen(
                     modifier = Modifier.padding(16.dp)
                 ) {
                     Text(
-                        text = "Tu personaje",
+                        text = stringResource(R.string.your_character),
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -239,7 +242,13 @@ fun JoinGameScreen(
                             Icon(Icons.Default.Person, contentDescription = null)
                         },
                         trailingIcon = if (isNameLocked) {
-                            { Icon(Icons.Default.Lock, contentDescription = "Locked", tint = MaterialTheme.colorScheme.primary) }
+                            {
+                                Icon(
+                                    Icons.Default.Lock,
+                                    contentDescription = stringResource(R.string.content_description_locked),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         } else null,
                         supportingText = if (nameError && !isNameLocked) {
                             { Text(stringResource(R.string.name_required_error), color = MaterialTheme.colorScheme.error) }
@@ -363,8 +372,13 @@ fun JoinGameScreen(
                         onClick = {
                             if (validateFields()) {
                                 // Join using server URL with code
-                                val wsUrl = "wss://munchking-sirpepo.duckdns.org:8765"
-                                onJoinGame(wsUrl, joinCode, name, selectedAvatarId, selectedGender)
+                                onJoinGame(
+                                    AppConfig.SERVER_URL,
+                                    joinCode,
+                                    name,
+                                    selectedAvatarId,
+                                    selectedGender
+                                )
                             }
                         },
                         enabled = joinCode.length >= 4 && !isLoading,
@@ -377,7 +391,7 @@ fun JoinGameScreen(
                                 strokeWidth = 2.dp
                             )
                         } else {
-                            Icon(Icons.Default.Login, contentDescription = null)
+                            Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null)
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(stringResource(R.string.join))
                         }
@@ -389,7 +403,7 @@ fun JoinGameScreen(
             
             // === AVAILABLE GAMES LIST ===
             Text(
-                text = "Partidas disponibles",
+                text = stringResource(R.string.available_games),
                 style = MaterialTheme.typography.titleSmall,
                 color = NeonCyan,
                 fontWeight = FontWeight.SemiBold,
@@ -417,13 +431,17 @@ fun JoinGameScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = if (isDiscovering) "Buscando partidas..." else "No hay partidas disponibles",
+                            text = if (isDiscovering) {
+                                stringResource(R.string.searching_games)
+                            } else {
+                                stringResource(R.string.no_open_games)
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = NeonGray400
                         )
                         if (!isDiscovering) {
                             Text(
-                                text = "Crea una partida o introduce un código",
+                                text = stringResource(R.string.create_or_enter_code),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = NeonGray500
                             )
@@ -478,7 +496,12 @@ fun JoinGameScreen(
                                         color = NeonGray100
                                     )
                                     Text(
-                                        text = "${game.playerCount}/${game.maxPlayers} jugadores • ${game.joinCode}",
+                                        text = stringResource(
+                                            R.string.open_game_info_format,
+                                            game.playerCount,
+                                            game.maxPlayers,
+                                            game.joinCode
+                                        ),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = NeonGray400
                                     )

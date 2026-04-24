@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -293,7 +294,7 @@ fun AuthScreen(
                                         ((isRegister && username.isNotBlank() && email.isNotBlank()) ||
                                         (!isRegister && email.isNotBlank())),
                                     modifier = Modifier.fillMaxWidth(),
-                                    icon = if (isLoading) null else Icons.Default.Login,
+                                    icon = if (isLoading) null else Icons.AutoMirrored.Filled.Login,
                                     gradientColors = if (isRegister) GradientNeonFire else GradientNeonPurple
                                 )
 

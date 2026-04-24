@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -189,7 +190,7 @@ fun CombatScreen(
                     if (combatState != null && combatState.monsters.isNotEmpty() && isParticipant) {
                         IconButton(onClick = { showRunAwayDialog = true }) {
                             Icon(
-                                Icons.Default.DirectionsRun,
+                                Icons.AutoMirrored.Filled.DirectionsRun,
                                 contentDescription = stringResource(R.string.combat_run_away),
                                 tint = NeonWarning
                             )
@@ -524,7 +525,6 @@ fun CombatScreen(
                     com.munchkin.app.ui.components.CombatAnimationType.DEFEAT -> onEndCombat()
                     com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_SUCCESS -> onResolveRunAway(true)
                     com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_FAIL -> onResolveRunAway(false)
-                    else -> Unit
                 }
             }
         )

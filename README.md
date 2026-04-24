@@ -1,126 +1,96 @@
-# 🗡️ Munchkin Mesa Tracker
+# Munchkin Mesa Tracker
 
-Aplicación Android para llevar partidas de Munchkin entre amigos en la misma mesa, con sincronización en tiempo real vía LAN.
+Android app and Kotlin backend for synchronized Munchkin table sessions.
 
-## Características
+## Stack
 
-- 📱 **Solo Android** - Diseñado para jugar en la misma mesa
-- 🌐 **Sincronización LAN** - WebSocket sobre WiFi/hotspot
-- 👥 **2-6 jugadores** - Cada uno controla solo su personaje
-- ⚔️ **Calculadora de combate** - Con modificadores condicionales
-- 🎨 **UI premium** - Material 3, animaciones y haptics
-- 📲 **QR para unirse** - Escanea o introduce manualmente
+- Android client: Kotlin, Jetpack Compose, Material 3, Room, Ktor client.
+- Shared rules/contracts: Kotlin JVM module with serializable game state, events, protocol DTOs, and pure combat logic.
+- Backend: Kotlin, Ktor, WebSockets, HTTP JSON APIs, PostgreSQL, Flyway migrations, JWT auth, BCrypt password hashing.
 
-## Stack Técnico
+## Build And Test
 
-- **Lenguaje**: Kotlin
-- **UI**: Jetpack Compose + Material 3
-- **Arquitectura**: MVVM + UDF (StateFlow)
-- **Red**: Ktor WebSocket (servidor embebido)
-- **Persistencia**: Room (próximamente)
-- **Mínimo SDK**: API 26 (Android 8.0)
-
-## Compilar
-
-```bash
-# Desde la raíz del proyecto
-./gradlew assembleDebug
-
-# El APK estará en:
-# app/build/outputs/apk/debug/app-debug.apk
+```powershell
+.\gradlew.bat :shared:test
+.\gradlew.bat :backend:test
+.\gradlew.bat :app:compileDebugKotlin
+.\gradlew.bat :app:assembleDebug
 ```
 
-## Probar en Emulador
+Debug APK output:
 
-### Configuración de 2 emuladores
-
-```bash
-# Terminal 1: Emulador A (Host)
-emulator -avd Pixel_6_API_30 -port 5554
-
-# Terminal 2: Emulador B (Client)
-emulator -avd Pixel_6_API_30_copy -port 5556
+```text
+app/build/outputs/apk/debug/app-debug.apk
 ```
 
-### Conectar emuladores entre sí
+Release signing reads `KEYSTORE_STORE_PASSWORD`, `KEYSTORE_KEY_ALIAS`, and `KEYSTORE_KEY_PASSWORD` from `local.properties` or environment variables. The release keystore is `munchkin.keystore` in the repo root.
 
-Para que el emulador B conecte al emulador A:
+## Run Backend Locally
 
-```bash
-# Desde el emulador B, usa esta IP para conectar:
-# 10.0.2.2:8765
-# (10.0.2.2 es el alias del host desde el emulador)
+Set PostgreSQL environment variables if you are not using the defaults:
 
-# O usa port forwarding:
-adb -s emulator-5556 reverse tcp:8765 tcp:8765
+```powershell
+$env:MUNCHKIN_DATABASE_URL="jdbc:postgresql://localhost:5432/munchkin"
+$env:MUNCHKIN_DATABASE_USER="munchkin"
+$env:MUNCHKIN_DATABASE_PASSWORD="munchkin"
+$env:MUNCHKIN_JWT_SECRET="change-this"
+.\gradlew.bat :backend:migrateDatabase
+.\gradlew.bat :backend:run
 ```
 
-### Flujo de prueba
+Default websocket endpoints:
 
-1. **Emulador A**: Abre la app → "Crear Partida" → Anota el código
-2. **Emulador B**: Abre la app → "Unirse" → Introduce IP `10.0.2.2:8765` + código
-3. **Ambos**: Verificar que aparecen en el lobby
-4. **Emulador A**: Pulsar "Iniciar Partida"
-5. **Ambos**: Probar cambiar nivel/equipo y verificar sincronización
-
-## Estructura del Proyecto
-
-```
-app/src/main/java/com/munchkin/app/
-├── core/               # Modelos y lógica de juego
-│   ├── Models.kt       # PlayerState, GameState, etc.
-│   ├── Combat.kt       # CombatState, MonsterInstance
-│   ├── Events.kt       # Todos los eventos del juego
-│   ├── GameEngine.kt   # Procesador de eventos (host)
-│   └── CombatCalculator.kt
-├── network/            # Capa de red
-│   ├── Protocol.kt     # Mensajes WebSocket
-│   ├── GameServer.kt   # Servidor Ktor (host)
-│   └── GameClient.kt   # Cliente Ktor
-├── ui/
-│   ├── theme/          # Material 3 (colores, tipografía)
-│   ├── components/     # Componentes reutilizables
-│   └── screens/        # Pantallas (Home, Lobby, Board, etc.)
-├── viewmodel/          # GameViewModel
-├── MainActivity.kt
-└── MunchkinApp.kt
+```text
+ws://localhost:8765/
+ws://localhost:8765/ws/game
 ```
 
-## Reglas Implementadas
+HTTP endpoints:
 
-- ✅ Nivel siempre entre 1 y 10
-- ✅ Empates en combate: ganan los monstruos
-- ✅ Solo puedes editar tu propio personaje
-- ✅ Máximo 1 raza (2 con Mestizo)
-- ✅ Máximo 1 clase (2 con Super Munchkin)
-
-## Tests
-
-```bash
-# Unit tests
-./gradlew :app:test
-
-# Tests específicos
-./gradlew :app:test --tests "*.LevelValidationTest"
-./gradlew :app:test --tests "*.CombatCalculatorTest"
+```text
+GET  /health
+POST /api/auth/register
+POST /api/auth/login
+GET  /api/profile
+PATCH /api/profile
+GET  /api/catalog/monsters
+POST /api/catalog/monsters
+GET  /api/history
+GET  /api/leaderboard
+GET  /api/games/open
+GET  /api/games/hosted
+DELETE /api/games/hosted/{gameId}
 ```
 
-## Próximamente
+## Legacy Data Migration
 
-- [ ] Handover de host (si el anfitrión se desconecta)
-- [ ] Persistencia con Room
-- [ ] Sonidos y haptics configurables
-- [ ] Escáner QR funcional
-- [ ] Actualizador in-app desde GitHub
+Completed legacy SQLite data can be imported into PostgreSQL:
 
-## Despliegue del Servidor
-
-Para actualizar el servidor en producción:
-
-```bash
-cd /opt/munchkin-server && git pull && systemctl restart munchkin
+```powershell
+$env:MUNCHKIN_DATABASE_URL="jdbc:postgresql://localhost:5432/munchkin"
+$env:MUNCHKIN_DATABASE_USER="munchkin"
+$env:MUNCHKIN_DATABASE_PASSWORD="munchkin"
+.\gradlew.bat :backend:importLegacySqlite --args "C:\path\to\munchkin.db"
 ```
 
-## Licencia
+The importer migrates users, password hashes, monsters, and completed game history. Live in-progress rooms are intentionally not imported.
 
-Copyright © 2024. Proyecto personal para uso con amigos.
+## Deploy
+
+Local Android install:
+
+```powershell
+.\deploy_updates.ps1
+```
+
+Production backend deploy:
+
+```powershell
+.\deploy-backend-prod.ps1
+```
+
+The deploy script packages the Ktor backend, uploads it to Hetzner, runs Flyway migrations, and restarts the `munchkin-backend` systemd service.
+
+## Project Map
+
+See `CODEBASE.md` for the current module map and dependency flow.

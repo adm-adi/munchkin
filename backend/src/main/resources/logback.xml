@@ -1,0 +1,17 @@
+<configuration>
+    <property name="LOG_LEVEL" value="${MUNCHKIN_LOG_LEVEL:-INFO}" />
+
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="io.netty" level="WARN" />
+    <logger name="com.zaxxer.hikari" level="INFO" />
+    <logger name="org.flywaydb" level="INFO" />
+
+    <root level="${LOG_LEVEL}">
+        <appender-ref ref="STDOUT" />
+    </root>
+</configuration>

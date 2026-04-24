@@ -2,9 +2,17 @@
     <string name="app_name">Munchkin Tracker</string>
     
     <!-- Home Screen -->
+    <string name="app_short_name">Munchkin</string>
     <string name="create_game">Crear Partida</string>
     <string name="join_game">Unirse a Partida</string>
     <string name="settings">Ajustes</string>
+    <string name="saved_game">Partida guardada</string>
+    <string name="saved_game_info_format">%1$d jugadores • %2$s</string>
+    <string name="continue_game">Continuar</string>
+    <string name="active_games">Tus Partidas Activas</string>
+    <string name="hosted_game_info_format">%1$d jugadores • %2$s</string>
+    <string name="delete_party_title">¿Borrar partida?</string>
+    <string name="delete_party_message">Esto eliminará la partida para todos los jugadores. No se puede deshacer.</string>
     
     <!-- Create Game -->
     <string name="your_name">Tu nombre</string>
@@ -35,6 +43,13 @@
     <string name="connect">Conectar</string>
     <string name="connecting">Conectando…</string>
     <string name="connection_failed">Error de conexión</string>
+    <string name="your_character">Tu personaje</string>
+    <string name="content_description_locked">Bloqueado</string>
+    <string name="available_games">Partidas disponibles</string>
+    <string name="searching_games">Buscando partidas…</string>
+    <string name="no_open_games">No hay partidas disponibles</string>
+    <string name="create_or_enter_code">Crea una partida o introduce un código</string>
+    <string name="open_game_info_format">%1$d/%2$d jugadores • %3$s</string>
     
     <!-- Lobby -->
     <string name="lobby">Sala de espera</string>
@@ -44,6 +59,10 @@
     <string name="confirm_leave">¿Seguro que quieres salir?</string>
     <string name="host">Anfitrión</string>
     <string name="you">Tú</string>
+    <string name="player_fallback">Jugador</string>
+    <string name="log_level_up_format">%1$s subió a Nivel %2$d</string>
+    <string name="log_level_down_format">%1$s bajó a Nivel %2$d</string>
+    <string name="log_combat_finished">Combate finalizado</string>
     
     <!-- Board -->
     <string name="level">Nivel</string>
@@ -134,22 +153,32 @@
     <string name="confirm_exit">Confirmar al salir</string>
     <string name="about">Acerca de</string>
     <string name="version">Versión</string>
+    <string name="version_short_format">v%1$s</string>
     <string name="check_updates">Buscar actualizaciones</string>
     <string name="licenses">Licencias</string>
     <string name="language">Idioma</string>
     <string name="language_system">Sistema</string>
+    <string name="version_code_format">v%1$s (%2$d)</string>
+    <string name="developer">Desarrollador</string>
+    <string name="developer_credit">Alejandro</string>
     
     <!-- Updates -->
     <string name="updates_title">Actualizaciones</string>
     <string name="current_version">Versión actual</string>
     <string name="latest_version">Última versión</string>
     <string name="update_available">¡Actualización disponible!</string>
+    <string name="update_available_message">Nueva versión %1$s disponible</string>
     <string name="up_to_date">Estás al día</string>
     <string name="download">Descargar</string>
     <string name="downloading">Descargando…</string>
     <string name="install">Instalar</string>
     <string name="changelog">Cambios</string>
     <string name="check_failed">Error al comprobar actualizaciones</string>
+    <string name="update_check_error_format">Error al comprobar actualizaciones: %1$s</string>
+    <string name="update_release_notes_fallback">Nueva versión disponible</string>
+    <string name="update_download_title_format">Munchkin v%1$s</string>
+    <string name="update_download_description">Descargando actualización…</string>
+    <string name="file_size_format">Tamaño: %1$s</string>
     
     <!-- Connection -->
     <string name="reconnecting">Reconectando…</string>
@@ -158,9 +187,6 @@
     <string name="reconnect_retry">Reintentar</string>
     <string name="reconnected">¡Reconectado!</string>
     <string name="connection_lost">Conexión perdida</string>
-    <string name="host_left">El anfitrión ha salido</string>
-    <string name="new_host">Nuevo anfitrión: %1$s</string>
-    <string name="handover_in_progress">Transferencia de host en curso…</string>
     
     <!-- Errors -->
     <string name="error">Error</string>
@@ -170,6 +196,18 @@
     <string name="error_game_full">Partida llena (máximo 6 jugadores)</string>
     <string name="error_game_started">La partida ya ha comenzado</string>
     <string name="error_permission_denied">Permiso denegado</string>
+    <string name="error_prefix_format">Error: %1$s</string>
+    <string name="error_reorder_format">Error al reordenar: %1$s</string>
+    <string name="error_connect_format">Error al conectar: %1$s</string>
+    <string name="error_connection_timeout">No se pudo conectar. Comprueba tu conexión a internet y vuelve a intentarlo.</string>
+    <string name="error_server_unavailable">El servidor no está disponible. Inténtalo más tarde.</string>
+    <string name="error_server_not_found">No se encuentra el servidor. Comprueba tu conexión.</string>
+    <string name="error_connection_lost_retry">Se perdió la conexión. Vuelve a intentarlo.</string>
+    <string name="error_unauthorized_game">No tienes permiso para unirte a esta partida.</string>
+    <string name="error_game_not_found">La partida ya no existe.</string>
+    <string name="error_game_full_short">La partida está llena.</string>
+    <string name="error_connection_retry">Error de conexión. Vuelve a intentarlo.</string>
+    <string name="game_deleted_by_host">La partida ha sido eliminada por el anfitrión.</string>
     
     <!-- Common -->
     <string name="ok">Aceptar</string>
@@ -188,7 +226,18 @@
     <!-- Board -->
     <string name="game_label">Partida</string>
     <string name="delete_game">Borrar Partida</string>
+    <string name="delete_game_title">Borrar partida</string>
+    <string name="delete_game_message">¿Estás seguro de que quieres borrar la partida? Todos los jugadores serán desconectados.</string>
+    <string name="delete">Borrar</string>
     <string name="end_turn">Terminar Turno</string>
+    <string name="view_list">Vista lista</string>
+    <string name="view_table">Vista mesa</string>
+    <string name="history">Historial</string>
+    <string name="menu">Menú</string>
+    <string name="confirm_win_title">Confirmar victoria</string>
+    <string name="confirm_win_message">¿Confirmar que %1$s ha ganado la partida?</string>
+    <string name="confirm_win">Confirmar</string>
+    <string name="not_yet">Aún no</string>
     
     <!-- Combat -->
     <string name="select_helper">Seleccionar Ayudante</string>

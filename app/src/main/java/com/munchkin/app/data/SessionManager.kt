@@ -12,7 +12,21 @@ import kotlinx.serialization.encodeToString
  * Manages user session persistence using EncryptedSharedPreferences.
  * Tokens and profile data are stored encrypted on-device (AES256-GCM).
  */
-class SessionManager(context: Context) {
+interface AccountSessionStore {
+    fun saveSession(profile: UserProfile)
+    fun saveAuthToken(token: String)
+    fun getAuthToken(): String?
+    fun getSession(): UserProfile?
+    fun clearSession()
+}
+
+interface PlayerIdentityStore {
+    fun savePlayerId(joinCode: String, playerId: String)
+    fun getPlayerId(joinCode: String): String?
+    fun clearPlayerId(joinCode: String)
+}
+
+class SessionManager(context: Context) : AccountSessionStore, PlayerIdentityStore {
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
         .build()
@@ -35,7 +49,7 @@ class SessionManager(context: Context) {
     /**
      * Save the user profile to persistent storage.
      */
-    fun saveSession(profile: UserProfile) {
+    override fun saveSession(profile: UserProfile) {
         val jsonString = json.encodeToString(profile)
         prefs.edit { 
             putString(KEY_USER_PROFILE, jsonString) 
@@ -45,7 +59,7 @@ class SessionManager(context: Context) {
     /**
      * Save the auth token.
      */
-    fun saveAuthToken(token: String) {
+    override fun saveAuthToken(token: String) {
         prefs.edit {
             putString(KEY_AUTH_TOKEN, token)
         }
@@ -54,14 +68,14 @@ class SessionManager(context: Context) {
     /**
      * Get the auth token.
      */
-    fun getAuthToken(): String? {
+    override fun getAuthToken(): String? {
         return prefs.getString(KEY_AUTH_TOKEN, null)
     }
 
     /**
      * Retrieve the saved user profile, or null if not found.
      */
-    fun getSession(): UserProfile? {
+    override fun getSession(): UserProfile? {
         val jsonString = prefs.getString(KEY_USER_PROFILE, null) ?: return null
         return try {
             json.decodeFromString<UserProfile>(jsonString)
@@ -74,7 +88,7 @@ class SessionManager(context: Context) {
     /**
      * Clear the user session (Logout).
      */
-    fun clearSession() {
+    override fun clearSession() {
         prefs.edit { 
             remove(KEY_USER_PROFILE)
             remove(KEY_AUTH_TOKEN)
@@ -84,7 +98,7 @@ class SessionManager(context: Context) {
     /**
      * Save the playerId for a specific joinCode (for reconnection).
      */
-    fun savePlayerId(joinCode: String, playerId: String) {
+    override fun savePlayerId(joinCode: String, playerId: String) {
         prefs.edit {
             putString(KEY_PLAYER_ID_PREFIX + joinCode.uppercase(), playerId)
         }
@@ -93,14 +107,14 @@ class SessionManager(context: Context) {
     /**
      * Get the saved playerId for a joinCode, or null if not found.
      */
-    fun getPlayerId(joinCode: String): String? {
+    override fun getPlayerId(joinCode: String): String? {
         return prefs.getString(KEY_PLAYER_ID_PREFIX + joinCode.uppercase(), null)
     }
     
     /**
      * Clear the playerId for a specific joinCode.
      */
-    fun clearPlayerId(joinCode: String) {
+    override fun clearPlayerId(joinCode: String) {
         prefs.edit {
             remove(KEY_PLAYER_ID_PREFIX + joinCode.uppercase())
         }

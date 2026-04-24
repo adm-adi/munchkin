@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - 'codex/**'
+
+jobs:
+  verify:
+    name: Build, Test, And Migrate
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: munchkin_test
+          POSTGRES_USER: munchkin
+          POSTGRES_PASSWORD: munchkin
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      MUNCHKIN_DATABASE_URL: jdbc:postgresql://localhost:5432/munchkin_test
+      MUNCHKIN_DATABASE_USER: munchkin
+      MUNCHKIN_DATABASE_PASSWORD: munchkin
+      MUNCHKIN_JWT_SECRET: ci-secret-change-before-prod
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Verify shared, backend, app, and migrations
+        run: ./gradlew :shared:test :backend:test :backend:migrateDatabase :app:testDebugUnitTest :app:compileDebugKotlin --stacktrace

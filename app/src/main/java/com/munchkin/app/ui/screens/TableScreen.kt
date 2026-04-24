@@ -68,8 +68,6 @@ fun TableScreen(
         val width = constraints.maxWidth
         val height = constraints.maxHeight
 
-        val cx = width / 2
-        val cy = height / 2
         val radius = minOf(width, height) / 2 * 0.68f
 
         val anglePerPlayer = 360f / players.size.coerceAtLeast(1)
