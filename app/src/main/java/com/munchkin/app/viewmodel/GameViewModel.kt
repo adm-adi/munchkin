@@ -643,7 +643,9 @@ class GameViewModel(
             BonusTarget.HEROES -> currentCombat.heroModifier
             BonusTarget.MONSTER -> currentCombat.monsterModifier
         }
-        val newValue = (currentValue + delta).coerceIn(-20, 20)
+        val newValue = (currentValue.toLong() + delta.toLong())
+            .coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong())
+            .toInt()
 
         sendPlayerEvent { playerId ->
             eventFactory.setCombatModifier(playerId, target, newValue)

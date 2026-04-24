@@ -30,7 +30,7 @@ class GameEventFactoryTest {
     }
 
     @Test
-    fun addMonsterClampsLevelAndModifier() {
+    fun addMonsterClampsLevelAndPreservesModifier() {
         val ids = ArrayDeque(listOf("event-1", "monster-1"))
         val factory = GameEventFactory(
             newId = { ids.removeFirst() },
@@ -48,12 +48,12 @@ class GameEventFactoryTest {
         assertEquals("event-1", event.eventId)
         assertEquals("monster-1", event.monster.id)
         assertEquals(20, event.monster.baseLevel)
-        assertEquals(-10, event.monster.flatModifier)
+        assertEquals(-99, event.monster.flatModifier)
         assertEquals(true, event.monster.isUndead)
     }
 
     @Test
-    fun combatModifierAndRollClampUnsafeInput() {
+    fun combatModifierPreservesPowerAndRollClampsDie() {
         val factory = GameEventFactory(
             newId = { "event-1" },
             now = { 123L }
@@ -62,7 +62,7 @@ class GameEventFactoryTest {
         val modifierEvent = factory.setCombatModifier(actorId, BonusTarget.MONSTER, 99) as CombatSetModifier
         val rollEvent = factory.roll(actorId, 99, DiceRollPurpose.RUN_AWAY, success = true) as PlayerRoll
 
-        assertEquals(20, modifierEvent.value)
+        assertEquals(99, modifierEvent.value)
         assertEquals(6, rollEvent.result)
         assertEquals(DiceRollPurpose.RUN_AWAY, rollEvent.purpose)
         assertEquals(true, rollEvent.success)

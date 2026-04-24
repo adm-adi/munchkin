@@ -8,6 +8,9 @@ import com.munchkin.app.network.ConnectionState
 import com.munchkin.app.network.GAME_DELETED_BY_HOST_REASON
 import com.munchkin.app.network.RealtimeSession
 import com.munchkin.app.network.RealtimeSessionFactory
+import com.munchkin.app.core.BonusTarget
+import com.munchkin.app.core.CombatSetModifier
+import com.munchkin.app.core.CombatState
 import com.munchkin.app.core.GameEvent
 import com.munchkin.app.core.GameId
 import com.munchkin.app.core.GamePhase
@@ -262,6 +265,36 @@ class GameViewModelTest {
         advanceUntilIdle()
 
         assertTrue(events.contains(GameUiEvent.ShowError("connection-failed")))
+    }
+
+    @Test
+    fun combatModifierCanGrowPastTwenty() = runTest(mainDispatcherRule.testDispatcher) {
+        val hostId = PlayerId("host-player")
+        val gameState = gameState(playerId = hostId, phase = GamePhase.IN_GAME).copy(
+            combat = CombatState(mainPlayerId = hostId, heroModifier = 20)
+        )
+        val session = FakeRealtimeSession(createResult = Result.success(gameState))
+        val viewModel = viewModel(
+            savedGameStore = FakeSavedGameStore(),
+            playerIdentityStore = FakePlayerIdentityStore(),
+            realtimeSessionFactory = FakeRealtimeSessionFactory(session),
+            eventFactory = GameEventFactory(newId = { "combat-modifier" }, now = { 456L }),
+            playerIdFactory = FixedPlayerIdFactory(hostId)
+        )
+
+        viewModel.createGame(
+            name = "Host",
+            avatarId = 1,
+            gender = Gender.M,
+            userProfile = null
+        )
+        advanceUntilIdle()
+        viewModel.modifyCombatModifier(BonusTarget.HEROES, 10)
+        advanceUntilIdle()
+
+        val event = session.sentEvents.single() as CombatSetModifier
+        assertEquals(BonusTarget.HEROES, event.target)
+        assertEquals(30, event.value)
     }
 
     @Test

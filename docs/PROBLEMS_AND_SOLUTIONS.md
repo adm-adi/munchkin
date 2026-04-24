@@ -295,3 +295,11 @@ CI and release workflows still installed JDK 17, while the current backend artif
 
 Solution:
 Update both GitHub workflows to use Temurin JDK 21 so branch verification and tag releases match local and production runtime requirements.
+
+## 2026-04-24 - Combat power modifiers were capped
+
+Problem:
+Android capped combat side modifiers at `-20..20` and custom monster modifiers at `-10..10`, so players could not add all Munchkin card bonuses/maluses during combat. Only player level should be constrained by the selected game max level.
+
+Solution:
+Remove app-side caps from combat side modifiers and monster flat modifiers, keep only technical integer bounds and existing level bounds, and add app/shared regression tests for combat modifiers above 20.

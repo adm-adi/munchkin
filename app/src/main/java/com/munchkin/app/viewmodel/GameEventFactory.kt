@@ -122,7 +122,7 @@ class GameEventFactory(
     }
 
     fun setCombatModifier(actorId: PlayerId, target: BonusTarget, value: Int): GameEvent = build(actorId) {
-        CombatSetModifier(eventId, actorId, timestamp, target = target, value = value.coerceIn(-20, 20))
+        CombatSetModifier(eventId, actorId, timestamp, target = target, value = value)
     }
 
     fun startCombat(actorId: PlayerId, mainPlayerId: PlayerId): GameEvent = build(actorId) {
@@ -138,7 +138,7 @@ class GameEventFactory(
                 id = newId(),
                 name = name,
                 baseLevel = level.coerceIn(1, 20),
-                flatModifier = modifier.coerceIn(-10, 10),
+                flatModifier = modifier,
                 isUndead = isUndead
             )
         )

@@ -63,7 +63,7 @@ class CatalogViewModel(
         val monster = CatalogMonster(
             name = name,
             level = level.coerceIn(1, 20),
-            modifier = modifier.coerceIn(-10, 10),
+            modifier = modifier,
             isUndead = isUndead,
             createdBy = userProfile?.id ?: fallbackOwnerId
         )

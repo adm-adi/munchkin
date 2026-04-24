@@ -617,10 +617,7 @@ fun MonsterSearchDialog(
                     OutlinedTextField(
                         value = modifier,
                         onValueChange = { v ->
-                            val sanitized = if (v.startsWith("-")) "-" + v.drop(1).filter { c -> c.isDigit() }.take(2)
-                                           else v.filter { c -> c.isDigit() }.take(2)
-                            val n = sanitized.toIntOrNull()
-                            modifier = if (n != null) n.coerceIn(-10, 10).toString() else sanitized
+                            modifier = sanitizeSignedIntegerInput(v)
                         },
                         label = { Text(stringResource(R.string.modifier)) },
                         modifier = Modifier.weight(1f),
@@ -644,7 +641,7 @@ fun MonsterSearchDialog(
                         onCreateNew(
                             query,
                             (level.toIntOrNull() ?: 1).coerceIn(1, 20),
-                            (modifier.toIntOrNull() ?: 0).coerceIn(-10, 10),
+                            modifier.toBoundedIntOrZero(),
                             isUndead
                         )
                     }
@@ -659,6 +656,26 @@ fun MonsterSearchDialog(
         }
     )
     }
+
+private fun sanitizeSignedIntegerInput(value: String): String {
+    val isNegative = value.startsWith("-")
+    val digits = value.drop(if (isNegative) 1 else 0)
+        .filter { it.isDigit() }
+        .take(10)
+    return when {
+        isNegative && digits.isEmpty() -> "-"
+        isNegative -> "-$digits"
+        else -> digits
+    }
+}
+
+private fun String.toBoundedIntOrZero(): Int {
+    if (this == "-") return 0
+    return toLongOrNull()
+        ?.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong())
+        ?.toInt()
+        ?: 0
+}
 
 
 

@@ -111,3 +111,7 @@ Bumped the Android release to `2.20.0` / version code `94`. Added optional Ktor 
 ## 2026-04-24 - Production Ktor cutover and migration
 
 Deployed the Kotlin/Ktor backend to the existing production `munchkin` service on HTTPS/WSS port `8765`, backed by the new Dockerized PostgreSQL database. Installed the required Java 21 runtime, switched the deploy package to Gradle's distribution ZIP, fixed remote script CRLF handling, added typed health/error responses, added production logging configuration, and aligned GitHub CI/release workflows with JDK 21. Ran Flyway on production, imported the legacy SQLite users, monster catalog, completed game history, and participants into PostgreSQL, then verified HTTPS health, public HTTP endpoints, auth/profile flow, WSS create/ping/delete gameplay flow, and zero remaining open smoke-test rooms.
+
+## 2026-04-24 - Combat power cap fix
+
+Bumped Android to `2.20.1` / version code `95` and removed the Android-side combat power ceilings. Combat hero/monster modifiers can now go past `+20` or `-20`, custom monster flat modifiers are no longer restricted to `-10..10`, and player level remains the bounded stat through `GameSettings.maxLevel`. Added app and shared regression tests for uncapped combat modifiers.

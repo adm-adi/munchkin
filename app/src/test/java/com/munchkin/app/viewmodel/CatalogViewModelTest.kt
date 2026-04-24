@@ -38,7 +38,7 @@ class CatalogViewModelTest {
     }
 
     @Test
-    fun createGlobalMonsterClampsInputAndEmitsCreatedMonster() = runTest(mainDispatcherRule.testDispatcher) {
+    fun createGlobalMonsterClampsLevelAndPreservesModifier() = runTest(mainDispatcherRule.testDispatcher) {
         val repository = FakeCatalogDataSource()
         val viewModel = CatalogViewModel(repository)
         val emittedMonsters = mutableListOf<CatalogMonster>()
@@ -58,7 +58,7 @@ class CatalogViewModelTest {
 
         val requestedMonster = repository.addedMonsters.single()
         assertEquals(20, requestedMonster.level)
-        assertEquals(-10, requestedMonster.modifier)
+        assertEquals(-99, requestedMonster.modifier)
         assertEquals(true, requestedMonster.isUndead)
         assertEquals("local-owner", requestedMonster.createdBy)
         assertEquals(listOf(requestedMonster.copy(id = "created-monster")), viewModel.uiState.value.searchResults)
