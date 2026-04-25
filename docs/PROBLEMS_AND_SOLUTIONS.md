@@ -327,3 +327,11 @@ Table mode drew level, power, and gender badges inside the avatar circle, which 
 
 Solution:
 Remove the inner avatar badges and keep the level/power summary as readable text below the avatar.
+
+## 2026-04-25 - Some avatar surfaces ignored selected gender
+
+Problem:
+New male/female avatar artwork was added, but join-game and table-mode avatar rendering still used the default male drawable path instead of selecting the drawable from the player's selected gender.
+
+Solution:
+Replace the numbered avatar mapping with semantic male/female drawable slots, update create/join avatar labels to use localized resources, render join-game and table-mode avatars with the selected/player gender, and keep the local avatar import folder ignored after copying optimized drawable assets into the app.

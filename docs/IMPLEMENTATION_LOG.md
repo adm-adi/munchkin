@@ -119,3 +119,7 @@ Bumped Android to `2.20.1` / version code `95` and removed the Android-side comb
 ## 2026-04-24 - Lobby dice and table polish fix
 
 Bumped Android to `2.20.2` / version code `96`. Reworked lobby starter dice state so ties keep previous rolls visible, only tied players reroll, duplicate lobby rolls are rejected, and the resolved winner is used as the starting turn player. Localized player-detail race/class dropdown labels and removed unreadable level/power/gender badges from table-mode avatars.
+
+## 2026-04-25 - New gendered avatar set
+
+Bumped Android to `2.20.3` / version code `97`. Imported the new warrior, wizard, thief, cleric, human, elf, dwarf, and halfling male/female avatar artwork as optimized 512 px drawable resources. Reworked `AvatarResources` to use semantic avatar slots, added localized avatar-name strings, and fixed join-game plus table-mode avatar rendering so changing/selecting gender shows the matching male or female artwork.

@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.munchkin.app.R
+import com.munchkin.app.core.Gender
 import com.munchkin.app.core.PlayerId
 import com.munchkin.app.core.PlayerState
 import com.munchkin.app.ui.theme.AvatarResources
@@ -205,7 +206,7 @@ fun PlayerAvatarNode(
 ) {
     val avatarSize = 80.dp
     val color = getAvatarColor(player.avatarId)
-    val drawableId = AvatarResources.getAvatarDrawable(player.avatarId)
+    val drawableId = AvatarResources.getAvatarDrawable(player.avatarId, player.gender == Gender.F)
 
     // Pulsing glow for current turn
     val glowAlpha = if (isTurn) {

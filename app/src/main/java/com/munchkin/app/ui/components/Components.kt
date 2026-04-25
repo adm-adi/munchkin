@@ -170,7 +170,7 @@ fun CounterButton(
 
 /**
  * Player avatar circle with image (gender-aware) or colored-initial fallback.
- * Lookup order: avatar_{g}_{id} → avatar_m_{id} → avatar_{id} → colored initial.
+ * Avatar slots are mapped through AvatarResources so all surfaces use the same artwork.
  */
 @Composable
 fun PlayerAvatar(

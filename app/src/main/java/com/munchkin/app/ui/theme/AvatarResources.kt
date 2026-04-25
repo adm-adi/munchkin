@@ -1,84 +1,91 @@
 package com.munchkin.app.ui.theme
 
+import com.munchkin.app.R
+
 /**
- * Avatar resource helper — maps avatarId + gender to the correct drawable.
- *
- * File numbering does not match slot order (the first 4 characters were
- * generated in a different order). The correct indirection is:
- *   slot 0 (Guerrero)  → file 0
- *   slot 1 (Mago)      → file 2
- *   slot 2 (Ladrón)    → file 3
- *   slot 3 (Clérigo)   → file 1
- *   slots 4-11         → file == slot (direct)
+ * Maps avatar slots and gender to the matching drawable resource.
  */
 object AvatarResources {
+    private enum class AvatarSlot(
+        val label: String,
+        val labelRes: Int,
+        val maleDrawable: Int,
+        val femaleDrawable: Int
+    ) {
+        WARRIOR(
+            "Guerrero",
+            R.string.avatar_warrior,
+            R.drawable.avatar_warrior_m,
+            R.drawable.avatar_warrior_f
+        ),
+        WIZARD(
+            "Mago",
+            R.string.avatar_wizard,
+            R.drawable.avatar_wizard_m,
+            R.drawable.avatar_wizard_f
+        ),
+        THIEF(
+            "Ladron",
+            R.string.avatar_thief,
+            R.drawable.avatar_thief_m,
+            R.drawable.avatar_thief_f
+        ),
+        CLERIC(
+            "Clerigo",
+            R.string.avatar_cleric,
+            R.drawable.avatar_cleric_m,
+            R.drawable.avatar_cleric_f
+        ),
+        HUMAN(
+            "Humano",
+            R.string.avatar_human,
+            R.drawable.avatar_human_m,
+            R.drawable.avatar_human_f
+        ),
+        ELF(
+            "Elfo",
+            R.string.avatar_elf,
+            R.drawable.avatar_elf_m,
+            R.drawable.avatar_elf_f
+        ),
+        DWARF(
+            "Enano",
+            R.string.avatar_dwarf,
+            R.drawable.avatar_dwarf_m,
+            R.drawable.avatar_dwarf_f
+        ),
+        HALFLING(
+            "Mediano",
+            R.string.avatar_halfling,
+            R.drawable.avatar_halfling_m,
+            R.drawable.avatar_halfling_f
+        )
+    }
 
     /**
-     * Get avatar display name for the given slot.
+     * Get avatar display name for non-Compose contexts.
      */
-    fun getAvatarName(avatarId: Int): String {
-        return when (avatarId % 12) {
-            0 -> "Guerrero"
-            1 -> "Mago"
-            2 -> "Ladrón"
-            3 -> "Clérigo"
-            4 -> "Elfo"
-            5 -> "Enano"
-            6 -> "Bárbaro"
-            7 -> "Bardo"
-            8 -> "Druida"
-            9 -> "Monje"
-            10 -> "Paladín"
-            11 -> "Explorador"
-            else -> "Aventurero"
-        }
-    }
+    fun getAvatarName(avatarId: Int): String = slot(avatarId).label
+
+    /**
+     * Get localized avatar display-name resource for UI text.
+     */
+    fun getAvatarNameRes(avatarId: Int): Int = slot(avatarId).labelRes
 
     /**
      * Get the drawable resource for the given avatar slot and gender.
      */
     fun getAvatarDrawable(avatarId: Int, isFemale: Boolean = false): Int {
-        return if (isFemale) getFemaleDrawable(avatarId) else getMaleDrawable(avatarId)
+        val avatarSlot = slot(avatarId)
+        return if (isFemale) avatarSlot.femaleDrawable else avatarSlot.maleDrawable
     }
 
-    private fun getMaleDrawable(avatarId: Int): Int {
-        return when (avatarId % 12) {
-            0  -> com.munchkin.app.R.drawable.avatar_m_0   // Guerrero
-            1  -> com.munchkin.app.R.drawable.avatar_m_2   // Mago
-            2  -> com.munchkin.app.R.drawable.avatar_m_3   // Ladrón
-            3  -> com.munchkin.app.R.drawable.avatar_m_1   // Clérigo
-            4  -> com.munchkin.app.R.drawable.avatar_m_4   // Elfo
-            5  -> com.munchkin.app.R.drawable.avatar_m_5   // Enano
-            6  -> com.munchkin.app.R.drawable.avatar_m_6   // Bárbaro
-            7  -> com.munchkin.app.R.drawable.avatar_m_7   // Bardo
-            8  -> com.munchkin.app.R.drawable.avatar_m_8   // Druida
-            9  -> com.munchkin.app.R.drawable.avatar_m_9   // Monje
-            10 -> com.munchkin.app.R.drawable.avatar_m_10  // Paladín
-            11 -> com.munchkin.app.R.drawable.avatar_m_11  // Explorador
-            else -> com.munchkin.app.R.drawable.avatar_m_0
-        }
-    }
-
-    private fun getFemaleDrawable(avatarId: Int): Int {
-        return when (avatarId % 12) {
-            0  -> com.munchkin.app.R.drawable.avatar_f_0   // Guerrero
-            1  -> com.munchkin.app.R.drawable.avatar_f_2   // Mago
-            2  -> com.munchkin.app.R.drawable.avatar_f_3   // Ladrón
-            3  -> com.munchkin.app.R.drawable.avatar_f_1   // Clérigo
-            4  -> com.munchkin.app.R.drawable.avatar_f_4   // Elfo
-            5  -> com.munchkin.app.R.drawable.avatar_f_5   // Enano
-            6  -> com.munchkin.app.R.drawable.avatar_f_6   // Bárbaro
-            7  -> com.munchkin.app.R.drawable.avatar_f_7   // Bardo
-            8  -> com.munchkin.app.R.drawable.avatar_f_8   // Druida
-            9  -> com.munchkin.app.R.drawable.avatar_f_9   // Monje
-            10 -> com.munchkin.app.R.drawable.avatar_f_10  // Paladín
-            11 -> com.munchkin.app.R.drawable.avatar_f_11  // Explorador
-            else -> com.munchkin.app.R.drawable.avatar_f_0
-        }
+    private fun slot(avatarId: Int): AvatarSlot {
+        return AvatarSlot.entries[Math.floorMod(avatarId, AvatarSlot.entries.size)]
     }
 
     /**
      * Total number of available avatars.
      */
-    const val AVATAR_COUNT = 12
+    val AVATAR_COUNT: Int = AvatarSlot.entries.size
 }

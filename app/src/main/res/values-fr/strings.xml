@@ -17,6 +17,14 @@
     <!-- Create Game -->
     <string name="your_name">Votre nom</string>
     <string name="select_avatar">Choisir un avatar</string>
+    <string name="avatar_warrior">Guerrier</string>
+    <string name="avatar_wizard">Mage</string>
+    <string name="avatar_thief">Voleur</string>
+    <string name="avatar_cleric">Clerc</string>
+    <string name="avatar_human">Humain</string>
+    <string name="avatar_elf">Elfe</string>
+    <string name="avatar_dwarf">Nain</string>
+    <string name="avatar_halfling">Halfelin</string>
     <string name="gender">Genre</string>
     <string name="game_mode">Mode de jeu</string>
     <string name="game_mode_normal">Normal (Niv. 10)</string>

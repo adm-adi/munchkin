@@ -195,14 +195,14 @@ fun CreateGameScreen(
                         ) {
                             Image(
                                 painter = painterResource(id = drawableResId),
-                                contentDescription = AvatarResources.getAvatarName(avatarId),
+                                contentDescription = stringResource(AvatarResources.getAvatarNameRes(avatarId)),
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop
                             )
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = AvatarResources.getAvatarName(avatarId),
+                            text = stringResource(AvatarResources.getAvatarNameRes(avatarId)),
                             style = MaterialTheme.typography.labelSmall,
                             color = if (isSelected) NeonPrimary else NeonGray400
                         )

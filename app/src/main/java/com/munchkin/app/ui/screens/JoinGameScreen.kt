@@ -269,11 +269,20 @@ fun JoinGameScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Avatars
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            (0..5).forEach { avatarId ->
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(4),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(92.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            itemsIndexed((0 until AvatarResources.AVATAR_COUNT).toList()) { _, avatarId ->
                                 val isSelected = selectedAvatarId == avatarId
-                                val avatarRes = com.munchkin.app.ui.theme.AvatarResources.getAvatarDrawable(avatarId)
+                                val avatarRes = AvatarResources.getAvatarDrawable(
+                                    avatarId,
+                                    selectedGender == Gender.F
+                                )
                                 Box(
                                     modifier = Modifier
                                         .size(40.dp)
@@ -290,7 +299,7 @@ fun JoinGameScreen(
                                 ) {
                                     androidx.compose.foundation.Image(
                                         painter = androidx.compose.ui.res.painterResource(avatarRes),
-                                        contentDescription = com.munchkin.app.ui.theme.AvatarResources.getAvatarName(avatarId),
+                                        contentDescription = stringResource(AvatarResources.getAvatarNameRes(avatarId)),
                                         modifier = Modifier
                                             .size(32.dp)
                                             .clip(CircleShape)

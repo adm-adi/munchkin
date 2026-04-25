@@ -28,6 +28,7 @@ output.json
 # App specific
 /app/build
 /app/release
+/avatar_import/
 
 # Gradle
 .gradle/
