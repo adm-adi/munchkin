@@ -81,7 +81,15 @@ fun MunchkinNavHost(
 
     LaunchedEffect(catalogViewModel) {
         catalogViewModel.createdMonsters.collect { monster ->
-            viewModel.addMonster(monster.name, monster.level, monster.modifier, monster.isUndead)
+            viewModel.addMonster(
+                name = monster.name,
+                level = monster.level,
+                modifier = monster.modifier,
+                isUndead = monster.isUndead,
+                treasures = monster.treasures,
+                levels = monster.levels,
+                badStuff = monster.badStuff
+            )
         }
     }
 
@@ -447,18 +455,29 @@ private fun CombatRoute(
             myPlayerId = myPlayerId,
             monsterSearchResults = catalogState.searchResults,
             onStartCombat = { viewModel.startCombat() },
-            onAddMonster = { name, level, mod, undead ->
-                viewModel.addMonster(name, level, mod, undead)
+            onAddMonster = { monster ->
+                viewModel.addMonster(
+                    name = monster.name,
+                    level = monster.level,
+                    modifier = monster.modifier,
+                    isUndead = monster.isUndead,
+                    treasures = monster.treasures,
+                    levels = monster.levels,
+                    badStuff = monster.badStuff
+                )
             },
             onSearchMonsters = { catalogViewModel.searchMonsters(it) },
-            onRequestCreateGlobalMonster = { name, level, mod, undead ->
+            onRequestCreateGlobalMonster = { monster ->
                 catalogViewModel.createGlobalMonster(
-                    name = name,
-                    level = level,
-                    modifier = mod,
-                    isUndead = undead,
+                    name = monster.name,
+                    level = monster.level,
+                    modifier = monster.modifier,
+                    isUndead = monster.isUndead,
                     userProfile = accountState.userProfile,
-                    fallbackOwnerId = myPlayerId.value
+                    fallbackOwnerId = myPlayerId.value,
+                    treasures = monster.treasures,
+                    levels = monster.levels,
+                    badStuff = monster.badStuff
                 )
             },
             onAddHelper = { viewModel.addHelper(it) },

@@ -52,14 +52,20 @@ class CatalogViewModelTest {
             modifier = -99,
             isUndead = true,
             userProfile = null,
-            fallbackOwnerId = "local-owner"
+            fallbackOwnerId = "local-owner",
+            treasures = 120,
+            levels = 12,
+            badStuff = " Lose one item. "
         )
         advanceUntilIdle()
 
         val requestedMonster = repository.addedMonsters.single()
         assertEquals(20, requestedMonster.level)
         assertEquals(-99, requestedMonster.modifier)
+        assertEquals(99, requestedMonster.treasures)
+        assertEquals(10, requestedMonster.levels)
         assertEquals(true, requestedMonster.isUndead)
+        assertEquals("Lose one item.", requestedMonster.badStuff)
         assertEquals("local-owner", requestedMonster.createdBy)
         assertEquals(listOf(requestedMonster.copy(id = "created-monster")), viewModel.uiState.value.searchResults)
         assertEquals(listOf(requestedMonster.copy(id = "created-monster")), emittedMonsters)

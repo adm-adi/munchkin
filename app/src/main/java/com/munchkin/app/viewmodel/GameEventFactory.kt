@@ -129,7 +129,16 @@ class GameEventFactory(
         CombatStart(eventId, actorId, timestamp, mainPlayerId = mainPlayerId)
     }
 
-    fun addMonster(actorId: PlayerId, name: String, level: Int, modifier: Int, isUndead: Boolean): GameEvent = build(actorId) {
+    fun addMonster(
+        actorId: PlayerId,
+        name: String,
+        level: Int,
+        modifier: Int,
+        isUndead: Boolean,
+        treasures: Int = 1,
+        levels: Int = 1,
+        badStuff: String = ""
+    ): GameEvent = build(actorId) {
         CombatAddMonster(
             eventId,
             actorId,
@@ -139,7 +148,10 @@ class GameEventFactory(
                 name = name,
                 baseLevel = level.coerceIn(1, 20),
                 flatModifier = modifier,
-                isUndead = isUndead
+                treasures = treasures.coerceIn(0, 99),
+                levels = levels.coerceIn(1, 10),
+                isUndead = isUndead,
+                badStuff = badStuff.trim()
             )
         )
     }

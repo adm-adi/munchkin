@@ -352,6 +352,17 @@
     
     <!-- QR Scanner -->
     <string name="grant_permission">Dar permiso</string>
+    <string name="scan_card_button">Escanear carta</string>
+    <string name="scan_monster_card">Escanear carta de monstruo</string>
+    <string name="scan_card_hint">Enfoca el texto de la carta. La lectura es solo una ayuda: revisa los datos antes de guardar.</string>
+    <string name="scan_card_no_text">A&#250;n no se detecta texto.</string>
+    <string name="use_scan">Usar lectura</string>
+    <string name="review_scan">Revisar lectura</string>
+    <string name="raw_scan_text">Texto detectado</string>
+    <string name="treasures">Tesoros</string>
+    <string name="levels_gained">Niveles ganados</string>
+    <string name="save_scanned_monster">Guardar y a&#241;adir</string>
+    <string name="scan_card_camera_permission">Se necesita permiso de c&#225;mara para escanear cartas.</string>
 
     <!-- Disconnection / Kick -->
     <string name="kick_player">Expulsar jugador</string>

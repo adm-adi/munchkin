@@ -352,6 +352,17 @@
     
     <!-- QR Scanner -->
     <string name="grant_permission">Grant permission</string>
+    <string name="scan_card_button">Scan card</string>
+    <string name="scan_monster_card">Scan monster card</string>
+    <string name="scan_card_hint">Point the camera at the card text. OCR is only a helper: review the values before saving.</string>
+    <string name="scan_card_no_text">No text detected yet.</string>
+    <string name="use_scan">Use scan</string>
+    <string name="review_scan">Review scan</string>
+    <string name="raw_scan_text">Detected text</string>
+    <string name="treasures">Treasures</string>
+    <string name="levels_gained">Levels gained</string>
+    <string name="save_scanned_monster">Save and add</string>
+    <string name="scan_card_camera_permission">Camera permission is required to scan cards.</string>
 
     <!-- Disconnection / Kick -->
     <string name="kick_player">Kick player</string>

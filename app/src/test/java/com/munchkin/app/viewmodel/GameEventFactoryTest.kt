@@ -42,14 +42,20 @@ class GameEventFactoryTest {
             name = "Ancient Dragon",
             level = 99,
             modifier = -99,
-            isUndead = true
+            isUndead = true,
+            treasures = 120,
+            levels = 12,
+            badStuff = " Lose two levels. "
         ) as CombatAddMonster
 
         assertEquals("event-1", event.eventId)
         assertEquals("monster-1", event.monster.id)
         assertEquals(20, event.monster.baseLevel)
         assertEquals(-99, event.monster.flatModifier)
+        assertEquals(99, event.monster.treasures)
+        assertEquals(10, event.monster.levels)
         assertEquals(true, event.monster.isUndead)
+        assertEquals("Lose two levels.", event.monster.badStuff)
     }
 
     @Test

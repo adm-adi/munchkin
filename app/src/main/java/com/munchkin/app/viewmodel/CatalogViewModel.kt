@@ -58,13 +58,19 @@ class CatalogViewModel(
         modifier: Int,
         isUndead: Boolean,
         userProfile: UserProfile?,
-        fallbackOwnerId: String
+        fallbackOwnerId: String,
+        treasures: Int = 1,
+        levels: Int = 1,
+        badStuff: String = ""
     ) {
         val monster = CatalogMonster(
             name = name,
             level = level.coerceIn(1, 20),
             modifier = modifier,
+            treasures = treasures.coerceIn(0, 99),
+            levels = levels.coerceIn(1, 10),
             isUndead = isUndead,
+            badStuff = badStuff.trim(),
             createdBy = userProfile?.id ?: fallbackOwnerId
         )
 

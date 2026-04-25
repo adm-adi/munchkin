@@ -7,8 +7,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
@@ -24,15 +26,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.munchkin.app.R
 import com.munchkin.app.core.*
 import com.munchkin.app.network.CatalogMonster
+import com.munchkin.app.ui.components.CardTextScanner
 import com.munchkin.app.ui.components.CombatResultBanner
 import com.munchkin.app.ui.components.GradientButton
 import com.munchkin.app.ui.components.PlayerAvatar
 import com.munchkin.app.ui.components.QuickModifierButtons
 import com.munchkin.app.ui.components.RunAwayDialog
 import com.munchkin.app.ui.theme.*
+import com.munchkin.app.util.MonsterCardParser
+import com.munchkin.app.util.ScannedMonsterDraft
 
 /**
  * Combat calculator screen.
@@ -44,9 +51,9 @@ fun CombatScreen(
     myPlayerId: PlayerId,
     monsterSearchResults: List<CatalogMonster>,
     onStartCombat: () -> Unit,
-    onAddMonster: (name: String, level: Int, modifier: Int, isUndead: Boolean) -> Unit,
+    onAddMonster: (CatalogMonster) -> Unit,
     onSearchMonsters: (String) -> Unit,
-    onRequestCreateGlobalMonster: (String, Int, Int, Boolean) -> Unit,
+    onRequestCreateGlobalMonster: (CatalogMonster) -> Unit,
     onAddHelper: (PlayerId) -> Unit,
     onRemoveHelper: () -> Unit,
     onModifyModifier: (target: BonusTarget, delta: Int) -> Unit,
@@ -469,12 +476,12 @@ fun CombatScreen(
             onDismiss = { showAddMonster = false },
             onSelectMonster = { monster ->
                 // Add local AND ensure it's in catalog (implicit by selection)
-                onAddMonster(monster.name, monster.level, monster.modifier, monster.isUndead)
+                onAddMonster(monster)
                 showAddMonster = false
             },
-            onCreateNew = { name, level, mod, undead ->
+            onCreateNew = { monster ->
                 // Create global then add local (handled by ViewModel on success)
-                onRequestCreateGlobalMonster(name, level, mod, undead)
+                onRequestCreateGlobalMonster(monster)
                 showAddMonster = false
             }
         )
@@ -548,12 +555,14 @@ fun MonsterSearchDialog(
     onSearch: (String) -> Unit,
     onDismiss: () -> Unit,
     onSelectMonster: (CatalogMonster) -> Unit,
-    onCreateNew: (String, Int, Int, Boolean) -> Unit
+    onCreateNew: (CatalogMonster) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
     var level by remember { mutableStateOf("1") }
     var modifier by remember { mutableStateOf("0") }
     var isUndead by remember { mutableStateOf(false) }
+    var showScanner by remember { mutableStateOf(false) }
+    var scannedDraft by remember { mutableStateOf<ScannedMonsterDraft?>(null) }
 
     // Debounce search
     LaunchedEffect(query) {
@@ -575,6 +584,14 @@ fun MonsterSearchDialog(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
+                OutlinedButton(
+                    onClick = { showScanner = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.DocumentScanner, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.scan_card_button))
+                }
 
                 if (query.isNotEmpty() && searchResults.isNotEmpty()) {
                     Text(stringResource(R.string.results_label), style = MaterialTheme.typography.labelSmall)
@@ -639,10 +656,12 @@ fun MonsterSearchDialog(
                 onClick = {
                     if (query.isNotBlank()) {
                         onCreateNew(
-                            query,
-                            (level.toIntOrNull() ?: 1).coerceIn(1, 20),
-                            modifier.toBoundedIntOrZero(),
-                            isUndead
+                            CatalogMonster(
+                                name = query,
+                                level = (level.toIntOrNull() ?: 1).coerceIn(1, 20),
+                                modifier = modifier.toBoundedIntOrZero(),
+                                isUndead = isUndead
+                            )
                         )
                     }
                 },
@@ -655,7 +674,167 @@ fun MonsterSearchDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         }
     )
+
+    if (showScanner) {
+        Dialog(
+            onDismissRequest = { showScanner = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize()) {
+                CardTextScanner(
+                    onTextCaptured = { text ->
+                        scannedDraft = MonsterCardParser.parse(text)
+                        showScanner = false
+                    },
+                    onClose = { showScanner = false }
+                )
+            }
+        }
     }
+
+    scannedDraft?.let { draft ->
+        ScannedMonsterReviewDialog(
+            draft = draft,
+            onDismiss = { scannedDraft = null },
+            onSave = { monster ->
+                scannedDraft = null
+                onCreateNew(monster)
+                onDismiss()
+            }
+        )
+    }
+    }
+
+@Composable
+private fun ScannedMonsterReviewDialog(
+    draft: ScannedMonsterDraft,
+    onDismiss: () -> Unit,
+    onSave: (CatalogMonster) -> Unit
+) {
+    var name by remember(draft) { mutableStateOf(draft.name) }
+    var level by remember(draft) { mutableStateOf(draft.level.toString()) }
+    var modifier by remember(draft) { mutableStateOf(draft.modifier.toString()) }
+    var treasures by remember(draft) { mutableStateOf(draft.treasures.toString()) }
+    var levels by remember(draft) { mutableStateOf(draft.levels.toString()) }
+    var isUndead by remember(draft) { mutableStateOf(draft.isUndead) }
+    var badStuff by remember(draft) { mutableStateOf(draft.badStuff) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.review_scan)) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.monster_name)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = level,
+                        onValueChange = { value ->
+                            level = value.filter(Char::isDigit).take(2)
+                        },
+                        label = { Text(stringResource(R.string.level)) },
+                        modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                    OutlinedTextField(
+                        value = modifier,
+                        onValueChange = { value ->
+                            modifier = sanitizeSignedIntegerInput(value)
+                        },
+                        label = { Text(stringResource(R.string.modifier)) },
+                        modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = treasures,
+                        onValueChange = { value ->
+                            treasures = value.filter(Char::isDigit).take(2)
+                        },
+                        label = { Text(stringResource(R.string.treasures)) },
+                        modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                    OutlinedTextField(
+                        value = levels,
+                        onValueChange = { value ->
+                            levels = value.filter(Char::isDigit).take(2)
+                        },
+                        label = { Text(stringResource(R.string.levels_gained)) },
+                        modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.combat_is_undead), style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = isUndead, onCheckedChange = { isUndead = it })
+                }
+                OutlinedTextField(
+                    value = badStuff,
+                    onValueChange = { badStuff = it },
+                    label = { Text(stringResource(R.string.combat_bad_stuff_label)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2
+                )
+                if (draft.rawText.isNotBlank()) {
+                    Text(
+                        text = stringResource(R.string.raw_scan_text),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Text(
+                            text = draft.rawText,
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onSave(
+                        CatalogMonster(
+                            name = name.trim(),
+                            level = (level.toIntOrNull() ?: 1).coerceIn(1, 20),
+                            modifier = modifier.toBoundedIntOrZero(),
+                            treasures = (treasures.toIntOrNull() ?: 1).coerceIn(0, 99),
+                            levels = (levels.toIntOrNull() ?: 1).coerceIn(1, 10),
+                            isUndead = isUndead,
+                            badStuff = badStuff.trim()
+                        )
+                    )
+                },
+                enabled = name.isNotBlank()
+            ) {
+                Text(stringResource(R.string.save_scanned_monster))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
 
 private fun sanitizeSignedIntegerInput(value: String): String {
     val isNegative = value.startsWith("-")

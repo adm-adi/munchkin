@@ -127,3 +127,7 @@ Bumped Android to `2.20.3` / version code `97`. Imported the new warrior, wizard
 ## 2026-04-25 - Shared turn timer banner
 
 Bumped Android to `2.20.4` / version code `98`. Added a reusable `TurnStatusBanner` that uses the authoritative `GameState.turnEndsAt` deadline to display the active turn countdown in both table mode and list mode. The banner now pulses red and shows a shrinking progress bar when ten seconds or less remain, and `SoundManager` exposes a turn-warning vibration pattern that fires once for the current player.
+
+## 2026-04-25 - Scan-card monster entry
+
+Bumped Android to `2.20.5` / version code `99`. Abandoned the planned external sheet/database import and kept official card data out of the repo, APK, and backend release artifacts. Added a CameraX/ML Kit text-recognition scanner from the combat add-monster dialog, a review/edit step for OCR results, heuristic parsing for monster name, level, treasures, levels gained, undead marker, and bad-stuff text, and app tests for ES/EN/FR-like fake scan rows. Extended catalog creation and combat monster events so treasures, levels, and bad-stuff from scanned or catalog monsters are preserved instead of dropping back to defaults.

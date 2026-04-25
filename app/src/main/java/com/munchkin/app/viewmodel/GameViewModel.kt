@@ -665,9 +665,17 @@ class GameViewModel(
     /**
      * Add a monster to combat.
      */
-    fun addMonster(name: String, level: Int, modifier: Int, isUndead: Boolean) {
+    fun addMonster(
+        name: String,
+        level: Int,
+        modifier: Int,
+        isUndead: Boolean,
+        treasures: Int = 1,
+        levels: Int = 1,
+        badStuff: String = ""
+    ) {
         sendPlayerEvent { playerId ->
-            eventFactory.addMonster(playerId, name, level, modifier, isUndead)
+            eventFactory.addMonster(playerId, name, level, modifier, isUndead, treasures, levels, badStuff)
         }
     }
     

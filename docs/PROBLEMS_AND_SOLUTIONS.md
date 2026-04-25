@@ -343,3 +343,11 @@ The backend already propagated turn timer settings and authoritative `turnEndsAt
 
 Solution:
 Add a shared turn-status banner that derives remaining time from `turnEndsAt`, use it in both board-list and table mode, show a red pulsing progress bar when the turn is nearly over, and trigger a one-time warning vibration on the active player's device.
+
+## 2026-04-25 - Public card imports risked wrong/private card data
+
+Problem:
+Importing a public Italian monster sheet would have coupled the app to unreviewed translations and external copyrighted card data, which is wrong for a public repository and could produce names/effects that do not match the physical cards being played.
+
+Solution:
+Do not import or bundle external card databases. Add an OCR scan-and-review flow for physical monster cards instead, keeping card text user-confirmed at runtime and preserving scanned monster rewards/bad-stuff fields through the catalog and combat event path.
