@@ -335,3 +335,11 @@ New male/female avatar artwork was added, but join-game and table-mode avatar re
 
 Solution:
 Replace the numbered avatar mapping with semantic male/female drawable slots, update create/join avatar labels to use localized resources, render join-game and table-mode avatars with the selected/player gender, and keep the local avatar import folder ignored after copying optimized drawable assets into the app.
+
+## 2026-04-25 - Turn timer was not visible in table mode
+
+Problem:
+The backend already propagated turn timer settings and authoritative `turnEndsAt` deadlines, and board-list mode had a local countdown, but table mode only showed whose turn it was. Players using the default table view could not see how much time remained or get a clear low-time warning.
+
+Solution:
+Add a shared turn-status banner that derives remaining time from `turnEndsAt`, use it in both board-list and table mode, show a red pulsing progress bar when the turn is nearly over, and trigger a one-time warning vibration on the active player's device.

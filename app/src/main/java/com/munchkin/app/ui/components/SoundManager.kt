@@ -37,7 +37,8 @@ object SoundManager {
         LEVEL_UP,
         VICTORY,
         DEFEAT,
-        BUTTON_CLICK
+        BUTTON_CLICK,
+        TURN_WARNING
     }
 
     // Public API
@@ -72,11 +73,17 @@ object SoundManager {
         vibrate(VibrationPattern.BUTTON_CLICK)
     }
 
+    fun playTurnWarning() {
+        playTone(SoundType.TURN_START)
+        vibrate(VibrationPattern.TURN_WARNING)
+    }
+
     fun playButtonClick() {
         playTone(SoundType.CLICK)
         vibrate(VibrationPattern.BUTTON_CLICK)
     }
 
+    @Suppress("UNUSED_PARAMETER")
     private fun playTone(type: SoundType) {
         if (!soundsEnabled) return
         // Placeholder for future sound implementation
@@ -121,6 +128,11 @@ object SoundManager {
                     VibrationPattern.BUTTON_CLICK -> {
                         // Quick tap feedback
                         vibrator.vibrate(VibrationEffect.createOneShot(30, 64))
+                    }
+                    VibrationPattern.TURN_WARNING -> {
+                        val timings = longArrayOf(0, 90, 60, 140)
+                        val amplitudes = intArrayOf(0, 180, 0, 255)
+                        vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1))
                     }
                 }
             } else {

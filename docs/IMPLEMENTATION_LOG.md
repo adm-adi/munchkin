@@ -123,3 +123,7 @@ Bumped Android to `2.20.2` / version code `96`. Reworked lobby starter dice stat
 ## 2026-04-25 - New gendered avatar set
 
 Bumped Android to `2.20.3` / version code `97`. Imported the new warrior, wizard, thief, cleric, human, elf, dwarf, and halfling male/female avatar artwork as optimized 512 px drawable resources. Reworked `AvatarResources` to use semantic avatar slots, added localized avatar-name strings, and fixed join-game plus table-mode avatar rendering so changing/selecting gender shows the matching male or female artwork.
+
+## 2026-04-25 - Shared turn timer banner
+
+Bumped Android to `2.20.4` / version code `98`. Added a reusable `TurnStatusBanner` that uses the authoritative `GameState.turnEndsAt` deadline to display the active turn countdown in both table mode and list mode. The banner now pulses red and shows a shrinking progress bar when ten seconds or less remain, and `SoundManager` exposes a turn-warning vibration pattern that fires once for the current player.

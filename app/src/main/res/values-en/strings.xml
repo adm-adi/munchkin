@@ -248,6 +248,8 @@
     <string name="confirm_win_message">Confirm that %1$s won the game?</string>
     <string name="confirm_win">Confirm</string>
     <string name="not_yet">Not yet</string>
+    <string name="your_turn">Your turn!</string>
+    <string name="player_turn">Turn: %1$s</string>
     
     <!-- Combat -->
     <string name="select_helper">Select Helper</string>

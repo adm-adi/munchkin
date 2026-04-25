@@ -35,6 +35,7 @@ import com.munchkin.app.R
 import com.munchkin.app.core.Gender
 import com.munchkin.app.core.PlayerId
 import com.munchkin.app.core.PlayerState
+import com.munchkin.app.ui.components.TurnStatusBanner
 import com.munchkin.app.ui.theme.AvatarResources
 import com.munchkin.app.ui.theme.*
 import kotlin.math.cos
@@ -49,6 +50,8 @@ fun TableScreen(
     players: List<PlayerState>,
     currentUser: PlayerId?,
     turnPlayerId: PlayerId? = null,
+    turnTimerSeconds: Int = 0,
+    turnEndsAt: Long? = null,
     onPlayerClick: (PlayerId) -> Unit,
     onEndTurn: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -77,41 +80,18 @@ fun TableScreen(
         val turnPlayer = players.find { it.playerId == turnPlayerId }
         if (turnPlayer != null) {
             val isMyTurn = turnPlayer.playerId == currentUser
-            val bannerColor = if (isMyTurn) NeonPrimary else NeonGray500
-
-            Box(
+            TurnStatusBanner(
+                turnPlayerName = turnPlayer.name,
+                isMyTurn = isMyTurn,
+                timerSeconds = turnTimerSeconds,
+                turnEndsAt = turnEndsAt,
+                turnKey = turnPlayerId?.value,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .fillMaxWidth()
                     .padding(top = 16.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(
-                        if (isMyTurn) NeonPrimary.copy(alpha = 0.12f)
-                        else GlassBase
-                    )
-                    .border(
-                        1.dp,
-                        Brush.linearGradient(
-                            listOf(bannerColor.copy(alpha = 0.6f), bannerColor.copy(alpha = 0.1f))
-                        ),
-                        RoundedCornerShape(14.dp)
-                    )
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (!isMyTurn) {
-                        Text(text = "⏳", fontSize = 16.sp)
-                    }
-                    Text(
-                        text = if (isMyTurn) "¡Es tu turno!" else "Turno de ${turnPlayer.name}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isMyTurn) NeonGray100 else NeonGray300
-                    )
-                }
-            }
+                    .padding(horizontal = 18.dp)
+            )
         }
 
         // Table ring (neon border circle)

@@ -248,6 +248,8 @@
     <string name="confirm_win_message">Confirmer que %1$s a gagné la partie ?</string>
     <string name="confirm_win">Confirmer</string>
     <string name="not_yet">Pas encore</string>
+    <string name="your_turn">À vous !</string>
+    <string name="player_turn">Tour de %1$s</string>
     
     <!-- Combat -->
     <string name="select_helper">Choisir un assistant</string>

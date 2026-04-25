@@ -17,7 +17,6 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import kotlinx.coroutines.isActive
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -31,6 +30,7 @@ import com.munchkin.app.core.GameState
 import com.munchkin.app.core.PlayerId
 import com.munchkin.app.ui.components.AmbientOrb
 import com.munchkin.app.ui.components.PlayerCard
+import com.munchkin.app.ui.components.TurnStatusBanner
 import com.munchkin.app.network.ConnectionState
 import com.munchkin.app.ui.theme.*
 
@@ -259,6 +259,8 @@ fun BoardScreen(
                             players = gameState.players.values.toList(),
                             currentUser = myPlayerId,
                             turnPlayerId = gameState.turnPlayerId,
+                            turnTimerSeconds = gameState.settings.turnTimerSeconds,
+                            turnEndsAt = gameState.turnEndsAt,
                             onPlayerClick = onPlayerClick,
                             onEndTurn = if (canEndTurn) onEndTurn else null,
                             modifier = Modifier.weight(1f).fillMaxWidth()
@@ -275,98 +277,16 @@ fun BoardScreen(
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 val currentTurnPlayer = gameState.turnPlayerId?.let { gameState.players[it] }
-                                val timerDuration = gameState.settings.turnTimerSeconds
-
-                                var remainingSeconds by remember(gameState.turnPlayerId) {
-                                    mutableIntStateOf(timerDuration)
-                                }
-
-                                if (timerDuration > 0 && currentTurnPlayer != null) {
-                                    LaunchedEffect(gameState.turnPlayerId, timerDuration) {
-                                        remainingSeconds = timerDuration
-                                        while (isActive && remainingSeconds > 0) {
-                                            kotlinx.coroutines.delay(1000)
-                                            remainingSeconds--
-                                            if (remainingSeconds == 10) {
-                                                com.munchkin.app.ui.components.SoundManager.playTurnStart()
-                                            }
-                                            if (remainingSeconds <= 5 && remainingSeconds > 0) {
-                                                com.munchkin.app.ui.components.SoundManager.playButtonClick()
-                                            }
-                                        }
-                                    }
-                                }
-
                                 if (currentTurnPlayer != null) {
-                                    val isMyTurn = gameState.turnPlayerId == myPlayerId
-                                    val timerColor = when {
-                                        timerDuration == 0 -> NeonGray400
-                                        remainingSeconds <= 10 -> NeonError
-                                        remainingSeconds <= 30 -> NeonWarning
-                                        else -> NeonPrimary
-                                    }
-                                    val turnAccent = if (isMyTurn) NeonPrimary else NeonGray500
-
-                                    // Glass turn indicator
-                                    Box(
+                                    TurnStatusBanner(
+                                        turnPlayerName = currentTurnPlayer.name,
+                                        isMyTurn = gameState.turnPlayerId == myPlayerId,
+                                        timerSeconds = gameState.settings.turnTimerSeconds,
+                                        turnEndsAt = gameState.turnEndsAt,
+                                        turnKey = gameState.turnPlayerId?.value,
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clip(RoundedCornerShape(16.dp))
-                                            .background(
-                                                if (isMyTurn) NeonPrimary.copy(alpha = 0.09f) else GlassBase
-                                            )
-                                            .border(
-                                                width = if (isMyTurn) 1.5.dp else 1.dp,
-                                                brush = Brush.linearGradient(
-                                                    listOf(
-                                                        turnAccent.copy(alpha = if (isMyTurn) 0.7f else 0.25f),
-                                                        Color.Transparent
-                                                    )
-                                                ),
-                                                shape = RoundedCornerShape(16.dp)
-                                            )
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(
-                                                    Icons.Default.Person,
-                                                    contentDescription = null,
-                                                    tint = turnAccent,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(
-                                                    text = if (isMyTurn) "¡Tu turno!" else "Turno de ${currentTurnPlayer.name}",
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    fontWeight = if (isMyTurn) FontWeight.Bold else FontWeight.Normal,
-                                                    color = if (isMyTurn) NeonGray100 else NeonGray300
-                                                )
-                                            }
-                                            if (timerDuration > 0) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Icon(
-                                                        Icons.Default.Timer,
-                                                        contentDescription = null,
-                                                        tint = timerColor,
-                                                        modifier = Modifier.size(18.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text(
-                                                        text = "%d:%02d".format(remainingSeconds / 60, remainingSeconds % 60),
-                                                        style = MaterialTheme.typography.titleSmall,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = timerColor
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
+                                    )
                                     Spacer(modifier = Modifier.height(8.dp))
 
                                     // Waiting for disconnected player banner
