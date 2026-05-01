@@ -199,14 +199,12 @@ class MainActivity : ComponentActivity() {
                             Screen.LOBBY -> {
                                 val gameState = uiState.gameState
                                 val myPlayerId = uiState.myPlayerId
-                                val connectionInfo = uiState.connectionInfo
                                 
                                 if (gameState != null && myPlayerId != null) {
                                     LobbyScreen(
                                         gameState = gameState,
                                         myPlayerId = myPlayerId,
                                         isHost = uiState.isHost,
-                                        connectionInfo = connectionInfo,
                                         onStartGame = { viewModel.startGame() },
                                         onLeaveGame = { viewModel.leaveGame() },
                                         onDeleteGame = { viewModel.deleteGame() },

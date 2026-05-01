@@ -5,6 +5,7 @@ import os
 import websockets
 import ssl
 import sys
+import uuid
 
 # Configure logging
 logging.basicConfig(
@@ -14,6 +15,33 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 SERVER_URL = os.environ.get("MUNCHKIN_SERVER_URL", "ws://localhost:8765")
+
+async def recv_until(websocket, predicate, timeout=5):
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise TimeoutError("Timed out waiting for expected websocket message")
+        resp = await asyncio.wait_for(websocket.recv(), timeout=remaining)
+        data = json.loads(resp)
+        if predicate(data):
+            return data
+
+async def create_probe_game(name, requested_player_id=None):
+    websocket = await websockets.connect(SERVER_URL)
+    await websocket.send(json.dumps({
+        "type": "CreateGameMessage",
+        "playerMeta": {
+            "playerId": requested_player_id or f"requested-{uuid.uuid4().hex}",
+            "name": name,
+            "avatarId": 0,
+            "gender": "MALE"
+        },
+        "superMunchkin": False,
+        "turnTimerSeconds": 0
+    }))
+    welcome = await recv_until(websocket, lambda data: data.get("type") == "WELCOME")
+    return websocket, welcome
 
 async def test_connect():
     """Test basic connection"""
@@ -102,6 +130,154 @@ async def test_auth_token():
             else:
                 logger.error(f"❌ No token in auth response: {resp}")
 
+async def test_reconnect_requires_server_secret():
+    """Client-supplied playerId alone must not authorize reconnect."""
+    logger.info("Testing reconnect identity binding...")
+    requested_host_id = f"attacker-chosen-{uuid.uuid4().hex}"
+    host_ws, welcome = await create_probe_game("SecurityHost", requested_host_id)
+    join_code = welcome["gameState"]["joinCode"]
+    host_id = welcome["yourPlayerId"]
+    reconnect_token = welcome.get("reconnectToken")
+
+    if host_id == requested_host_id:
+        raise AssertionError("Server accepted client-supplied playerId during game creation")
+    if not reconnect_token:
+        raise AssertionError("Server did not return reconnect token")
+
+    async with websockets.connect(SERVER_URL) as attacker_ws:
+        await attacker_ws.send(json.dumps({
+            "type": "HELLO",
+            "joinCode": join_code,
+            "playerMeta": {
+                "playerId": host_id,
+                "name": "Hijacker",
+                "avatarId": 1,
+                "gender": "MALE"
+            }
+        }))
+        error = await recv_until(attacker_ws, lambda data: data.get("type") == "ERROR")
+        if error.get("code") != "UNAUTHORIZED":
+            raise AssertionError(f"Reconnect hijack was not rejected: {error}")
+
+    async with websockets.connect(SERVER_URL) as reconnect_ws:
+        await reconnect_ws.send(json.dumps({
+            "type": "HELLO",
+            "joinCode": join_code,
+            "reconnectToken": reconnect_token,
+            "playerMeta": {
+                "playerId": host_id,
+                "name": "SecurityHost",
+                "avatarId": 0,
+                "gender": "MALE"
+            }
+        }))
+        reconnect_welcome = await recv_until(reconnect_ws, lambda data: data.get("type") == "WELCOME")
+        if reconnect_welcome.get("yourPlayerId") != host_id:
+            raise AssertionError("Valid reconnect did not preserve host player id")
+
+    await host_ws.close()
+    logger.info("Reconnect identity binding passed")
+
+async def test_game_over_room_binding():
+    """GAME_OVER must apply only to the caller's current room."""
+    logger.info("Testing GAME_OVER room binding...")
+    target_ws, target_welcome = await create_probe_game("TargetHost")
+    target_game_id = target_welcome["gameState"]["gameId"]
+    target_host_id = target_welcome["yourPlayerId"]
+    target_join_code = target_welcome["gameState"]["joinCode"]
+    target_token = target_welcome["reconnectToken"]
+
+    other_ws, _ = await create_probe_game("OtherHost", target_host_id)
+    await other_ws.send(json.dumps({
+        "type": "GAME_OVER",
+        "gameId": target_game_id,
+        "winnerId": target_host_id
+    }))
+    error = await recv_until(other_ws, lambda data: data.get("type") == "ERROR")
+    if error.get("code") != "UNAUTHORIZED":
+        raise AssertionError(f"Cross-room GAME_OVER was not rejected: {error}")
+
+    async with websockets.connect(SERVER_URL) as reconnect_ws:
+        await reconnect_ws.send(json.dumps({
+            "type": "HELLO",
+            "joinCode": target_join_code,
+            "reconnectToken": target_token,
+            "playerMeta": {
+                "playerId": target_host_id,
+                "name": "TargetHost",
+                "avatarId": 0,
+                "gender": "MALE"
+            }
+        }))
+        await recv_until(reconnect_ws, lambda data: data.get("type") == "WELCOME")
+        await reconnect_ws.send(json.dumps({
+            "type": "GAME_OVER",
+            "gameId": target_game_id,
+            "winnerId": target_host_id
+        }))
+        finished = await recv_until(
+            reconnect_ws,
+            lambda data: data.get("type") == "STATE_SNAPSHOT"
+            and data.get("gameState", {}).get("phase") == "FINISHED"
+        )
+        if finished["gameState"].get("winnerId") != target_host_id:
+            raise AssertionError("Legitimate host GAME_OVER did not finish target game")
+
+    await target_ws.close()
+    await other_ws.close()
+    logger.info("GAME_OVER room binding passed")
+
+async def test_catalog_add_requires_authenticated_user():
+    """CATALOG_ADD attribution must come from ws.userId, not message.userId."""
+    logger.info("Testing catalog write authentication...")
+    async with websockets.connect(SERVER_URL) as unauth_ws:
+        await unauth_ws.send(json.dumps({
+            "type": "CATALOG_ADD",
+            "userId": "forged-user",
+            "monster": {
+                "name": "Forged Monster",
+                "level": 5,
+                "modifier": 0,
+                "treasures": 1,
+                "levels": 1,
+                "isUndead": False
+            }
+        }))
+        error = await recv_until(unauth_ws, lambda data: data.get("type") == "ERROR")
+        if error.get("code") != "UNAUTHORIZED":
+            raise AssertionError(f"Unauthenticated catalog add was not rejected: {error}")
+
+    async with websockets.connect(SERVER_URL) as auth_ws:
+        unique = uuid.uuid4().hex
+        await auth_ws.send(json.dumps({
+            "type": "REGISTER",
+            "username": f"cat{unique[:12]}",
+            "email": f"cat-{unique}@example.test",
+            "password": "password123",
+            "avatarId": 0
+        }))
+        auth = await recv_until(auth_ws, lambda data: data.get("type") == "AUTH_SUCCESS", timeout=10)
+        await auth_ws.send(json.dumps({
+            "type": "CATALOG_ADD",
+            "userId": "forged-user",
+            "monster": {
+                "name": "  Authenticated Probe Monster  ",
+                "level": 99,
+                "modifier": -99,
+                "treasures": 99,
+                "levels": 99,
+                "isUndead": True
+            }
+        }))
+        success = await recv_until(auth_ws, lambda data: data.get("type") == "CATALOG_ADD_SUCCESS", timeout=10)
+        monster = success.get("monster", {})
+        if monster.get("createdBy") != auth["user"]["id"]:
+            raise AssertionError(f"Catalog attribution did not use authenticated user: {success}")
+        if monster.get("name") != "Authenticated Probe Monster" or monster.get("level") != 20:
+            raise AssertionError(f"Catalog input was not normalized: {success}")
+
+    logger.info("Catalog write authentication passed")
+
 async def run_tests():
     logger.info("🛡️ Starting Security Verification 🛡️")
     
@@ -111,6 +287,9 @@ async def run_tests():
 
     await test_sql_injection()
     await test_auth_token()
+    await test_reconnect_requires_server_secret()
+    await test_game_over_room_binding()
+    await test_catalog_add_requires_authenticated_user()
     
     logger.info("🏁 Verification Complete")
 

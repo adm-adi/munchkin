@@ -49,7 +49,9 @@ fun CreateGameScreen(
     modifier: Modifier = Modifier
 ) {
     var name by remember { mutableStateOf(userProfile?.username ?: "") }
-    var selectedAvatarId by remember { mutableIntStateOf(userProfile?.avatarId ?: 0) }
+    var selectedAvatarId by remember {
+        mutableIntStateOf(AvatarResources.normalizeAvatarId(userProfile?.avatarId ?: 0))
+    }
     var selectedGender by remember { mutableStateOf(Gender.M) }  // Default to Male
     var selectedTimerSeconds by remember { mutableIntStateOf(0) }
     var isSuperMunchkin by remember { mutableStateOf(false) }

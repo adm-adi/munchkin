@@ -29,10 +29,9 @@ import com.munchkin.app.core.GameState
 import com.munchkin.app.core.PlayerId
 import com.munchkin.app.network.ConnectionState
 import com.munchkin.app.ui.components.AmbientOrb
-import com.munchkin.app.ui.components.ConnectionInfoCard
+import com.munchkin.app.ui.components.JoinCodeCard
 import com.munchkin.app.ui.components.GradientButton
 import com.munchkin.app.ui.components.PlayerCard
-import com.munchkin.app.viewmodel.ConnectionInfo
 import com.munchkin.app.ui.theme.*
 
 /**
@@ -44,7 +43,6 @@ fun LobbyScreen(
     gameState: GameState,
     myPlayerId: PlayerId,
     isHost: Boolean,
-    connectionInfo: ConnectionInfo?,
     onStartGame: () -> Unit,
     onLeaveGame: () -> Unit,
     onDeleteGame: () -> Unit = {},
@@ -198,14 +196,11 @@ fun LobbyScreen(
                     }
                 }
 
-                // Connection info for host
-                if (isHost && connectionInfo != null) {
+                // Join code for host
+                if (isHost) {
                     item {
-                        ConnectionInfoCard(
-                            wsUrl = connectionInfo.wsUrl,
-                            joinCode = connectionInfo.joinCode,
-                            localIp = connectionInfo.localIp,
-                            port = connectionInfo.port,
+                        JoinCodeCard(
+                            joinCode = gameState.joinCode,
                             modifier = Modifier.padding(vertical = 8.dp)
                         )
                     }

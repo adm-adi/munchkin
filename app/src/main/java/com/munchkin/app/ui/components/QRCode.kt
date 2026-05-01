@@ -56,14 +56,11 @@ fun QRCodeDisplay(
 }
 
 /**
- * Connection info card showing join code (without QR).
+ * Join code card for inviting players.
  */
 @Composable
-fun ConnectionInfoCard(
-    wsUrl: String,
+fun JoinCodeCard(
     joinCode: String,
-    localIp: String,
-    port: Int,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -91,38 +88,6 @@ fun ConnectionInfoCard(
                 letterSpacing = 8.sp
             ),
             color = MaterialTheme.colorScheme.primary
-        )
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        // Connection details (smaller, for advanced users)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            ConnectionDetail(label = "IP", value = localIp)
-            ConnectionDetail(label = "Puerto", value = port.toString())
-        }
-    }
-}
-
-@Composable
-private fun ConnectionDetail(
-    label: String,
-    value: String
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontFamily = FontFamily.Monospace
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }

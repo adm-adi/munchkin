@@ -1,35 +1,35 @@
 package com.munchkin.app.ui.theme
 
 /**
- * Avatar resource helper — maps avatarId + gender to the correct drawable.
+ * Avatar resource helper for the base-game class and race portraits.
  *
- * File numbering does not match slot order (the first 4 characters were
- * generated in a different order). The correct indirection is:
- *   slot 0 (Guerrero)  → file 0
- *   slot 1 (Mago)      → file 2
- *   slot 2 (Ladrón)    → file 3
- *   slot 3 (Clérigo)   → file 1
- *   slots 4-11         → file == slot (direct)
+ * Current resource files keep the historical image numbering so existing
+ * base portraits do not get shuffled before new art is generated.
  */
 object AvatarResources {
+
+    private const val WARRIOR = 0
+    private const val WIZARD = 1
+    private const val THIEF = 2
+    private const val CLERIC = 3
+    private const val HUMAN = 4
+    private const val ELF = 5
+    private const val DWARF = 6
+    private const val HALFLING = 7
 
     /**
      * Get avatar display name for the given slot.
      */
     fun getAvatarName(avatarId: Int): String {
-        return when (avatarId % 12) {
-            0 -> "Guerrero"
-            1 -> "Mago"
-            2 -> "Ladrón"
-            3 -> "Clérigo"
-            4 -> "Elfo"
-            5 -> "Enano"
-            6 -> "Bárbaro"
-            7 -> "Bardo"
-            8 -> "Druida"
-            9 -> "Monje"
-            10 -> "Paladín"
-            11 -> "Explorador"
+        return when (normalizeAvatarId(avatarId)) {
+            WARRIOR -> "Guerrero"
+            WIZARD -> "Mago"
+            THIEF -> "Ladrón"
+            CLERIC -> "Clérigo"
+            HUMAN -> "Humano"
+            ELF -> "Elfo"
+            DWARF -> "Enano"
+            HALFLING -> "Mediano"
             else -> "Aventurero"
         }
     }
@@ -42,43 +42,39 @@ object AvatarResources {
     }
 
     private fun getMaleDrawable(avatarId: Int): Int {
-        return when (avatarId % 12) {
-            0  -> com.munchkin.app.R.drawable.avatar_m_0   // Guerrero
-            1  -> com.munchkin.app.R.drawable.avatar_m_2   // Mago
-            2  -> com.munchkin.app.R.drawable.avatar_m_3   // Ladrón
-            3  -> com.munchkin.app.R.drawable.avatar_m_1   // Clérigo
-            4  -> com.munchkin.app.R.drawable.avatar_m_4   // Elfo
-            5  -> com.munchkin.app.R.drawable.avatar_m_5   // Enano
-            6  -> com.munchkin.app.R.drawable.avatar_m_6   // Bárbaro
-            7  -> com.munchkin.app.R.drawable.avatar_m_7   // Bardo
-            8  -> com.munchkin.app.R.drawable.avatar_m_8   // Druida
-            9  -> com.munchkin.app.R.drawable.avatar_m_9   // Monje
-            10 -> com.munchkin.app.R.drawable.avatar_m_10  // Paladín
-            11 -> com.munchkin.app.R.drawable.avatar_m_11  // Explorador
+        return when (normalizeAvatarId(avatarId)) {
+            WARRIOR -> com.munchkin.app.R.drawable.avatar_m_0
+            WIZARD -> com.munchkin.app.R.drawable.avatar_m_2
+            THIEF -> com.munchkin.app.R.drawable.avatar_m_3
+            CLERIC -> com.munchkin.app.R.drawable.avatar_m_1
+            HUMAN -> com.munchkin.app.R.drawable.avatar_m_6
+            ELF -> com.munchkin.app.R.drawable.avatar_m_4
+            DWARF -> com.munchkin.app.R.drawable.avatar_m_5
+            HALFLING -> com.munchkin.app.R.drawable.avatar_m_7
             else -> com.munchkin.app.R.drawable.avatar_m_0
         }
     }
 
     private fun getFemaleDrawable(avatarId: Int): Int {
-        return when (avatarId % 12) {
-            0  -> com.munchkin.app.R.drawable.avatar_f_0   // Guerrero
-            1  -> com.munchkin.app.R.drawable.avatar_f_2   // Mago
-            2  -> com.munchkin.app.R.drawable.avatar_f_3   // Ladrón
-            3  -> com.munchkin.app.R.drawable.avatar_f_1   // Clérigo
-            4  -> com.munchkin.app.R.drawable.avatar_f_4   // Elfo
-            5  -> com.munchkin.app.R.drawable.avatar_f_5   // Enano
-            6  -> com.munchkin.app.R.drawable.avatar_f_6   // Bárbaro
-            7  -> com.munchkin.app.R.drawable.avatar_f_7   // Bardo
-            8  -> com.munchkin.app.R.drawable.avatar_f_8   // Druida
-            9  -> com.munchkin.app.R.drawable.avatar_f_9   // Monje
-            10 -> com.munchkin.app.R.drawable.avatar_f_10  // Paladín
-            11 -> com.munchkin.app.R.drawable.avatar_f_11  // Explorador
+        return when (normalizeAvatarId(avatarId)) {
+            WARRIOR -> com.munchkin.app.R.drawable.avatar_f_0
+            WIZARD -> com.munchkin.app.R.drawable.avatar_f_2
+            THIEF -> com.munchkin.app.R.drawable.avatar_f_3
+            CLERIC -> com.munchkin.app.R.drawable.avatar_f_1
+            HUMAN -> com.munchkin.app.R.drawable.avatar_f_6
+            ELF -> com.munchkin.app.R.drawable.avatar_f_4
+            DWARF -> com.munchkin.app.R.drawable.avatar_f_5
+            HALFLING -> com.munchkin.app.R.drawable.avatar_f_7
             else -> com.munchkin.app.R.drawable.avatar_f_0
         }
+    }
+
+    fun normalizeAvatarId(avatarId: Int): Int {
+        return Math.floorMod(avatarId, AVATAR_COUNT)
     }
 
     /**
      * Total number of available avatars.
      */
-    const val AVATAR_COUNT = 12
+    const val AVATAR_COUNT = 8
 }

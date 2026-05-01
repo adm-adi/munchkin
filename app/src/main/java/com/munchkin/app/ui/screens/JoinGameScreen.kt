@@ -34,11 +34,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.munchkin.app.R
 import com.munchkin.app.core.Gender
+import com.munchkin.app.network.ServerConfig
 import com.munchkin.app.ui.components.AmbientOrb
 import com.munchkin.app.ui.theme.*
 import com.munchkin.app.network.UserProfile
 import com.munchkin.app.network.DiscoveredGame
-import kotlinx.coroutines.launch
 
 /**
  * Screen for joining an existing game.
@@ -63,7 +63,9 @@ fun JoinGameScreen(
     
     // Player info
     var name by remember { mutableStateOf(userProfile?.username ?: "") }
-    var selectedAvatarId by remember { mutableIntStateOf(userProfile?.avatarId ?: 0) }
+    var selectedAvatarId by remember {
+        mutableIntStateOf(AvatarResources.normalizeAvatarId(userProfile?.avatarId ?: 0))
+    }
     var selectedGender by remember { mutableStateOf(Gender.NA) }
     
     val isNameLocked = userProfile != null
@@ -84,8 +86,6 @@ fun JoinGameScreen(
         finishedListener = { shakeKey = 0 },
         label = "shake"
     )
-    
-    val scope = rememberCoroutineScope()
     
     // Validation function
     fun validateFields(): Boolean {
@@ -261,31 +261,38 @@ fun JoinGameScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Avatars
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            (0..5).forEach { avatarId ->
-                                val isSelected = selectedAvatarId == avatarId
-                                val avatarRes = com.munchkin.app.ui.theme.AvatarResources.getAvatarDrawable(avatarId)
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                                            else Color.Transparent
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            (0 until AvatarResources.AVATAR_COUNT).chunked(4).forEach { rowAvatarIds ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    rowAvatarIds.forEach { avatarId ->
+                                        val isSelected = selectedAvatarId == avatarId
+                                        val avatarRes = AvatarResources.getAvatarDrawable(
+                                            avatarId,
+                                            selectedGender == Gender.F
                                         )
-                                        .clickable { selectedAvatarId = avatarId }
-                                        .then(
-                                            if (isSelected) Modifier.padding(2.dp) else Modifier
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    androidx.compose.foundation.Image(
-                                        painter = androidx.compose.ui.res.painterResource(avatarRes),
-                                        contentDescription = com.munchkin.app.ui.theme.AvatarResources.getAvatarName(avatarId),
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .clip(CircleShape)
-                                    )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                                    else Color.Transparent
+                                                )
+                                                .clickable { selectedAvatarId = avatarId }
+                                                .then(
+                                                    if (isSelected) Modifier.padding(2.dp) else Modifier
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            androidx.compose.foundation.Image(
+                                                painter = androidx.compose.ui.res.painterResource(avatarRes),
+                                                contentDescription = AvatarResources.getAvatarName(avatarId),
+                                                modifier = Modifier
+                                                    .size(32.dp)
+                                                    .clip(CircleShape)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -363,7 +370,7 @@ fun JoinGameScreen(
                         onClick = {
                             if (validateFields()) {
                                 // Join using server URL with code
-                                val wsUrl = "wss://munchking-sirpepo.duckdns.org:8765"
+                                val wsUrl = ServerConfig.WS_URL
                                 onJoinGame(wsUrl, joinCode, name, selectedAvatarId, selectedGender)
                             }
                         },
@@ -377,7 +384,7 @@ fun JoinGameScreen(
                                 strokeWidth = 2.dp
                             )
                         } else {
-                            Icon(Icons.Default.Login, contentDescription = null)
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(stringResource(R.string.join))
                         }

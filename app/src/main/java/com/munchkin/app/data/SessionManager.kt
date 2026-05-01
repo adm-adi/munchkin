@@ -30,6 +30,7 @@ class SessionManager(context: Context) {
         private const val KEY_USER_PROFILE = "user_profile"
         private const val KEY_AUTH_TOKEN = "auth_token"
         private const val KEY_PLAYER_ID_PREFIX = "player_id_"
+        private const val KEY_RECONNECT_TOKEN_PREFIX = "reconnect_token_"
     }
 
     /**
@@ -103,6 +104,17 @@ class SessionManager(context: Context) {
     fun clearPlayerId(joinCode: String) {
         prefs.edit {
             remove(KEY_PLAYER_ID_PREFIX + joinCode.uppercase())
+            remove(KEY_RECONNECT_TOKEN_PREFIX + joinCode.uppercase())
         }
+    }
+
+    fun saveReconnectToken(joinCode: String, token: String) {
+        prefs.edit {
+            putString(KEY_RECONNECT_TOKEN_PREFIX + joinCode.uppercase(), token)
+        }
+    }
+
+    fun getReconnectToken(joinCode: String): String? {
+        return prefs.getString(KEY_RECONNECT_TOKEN_PREFIX + joinCode.uppercase(), null)
     }
 }

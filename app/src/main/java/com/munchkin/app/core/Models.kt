@@ -147,6 +147,7 @@ data class GameState(
     val phase: GamePhase = GamePhase.LOBBY,
     val winnerId: PlayerId? = null,
     val turnPlayerId: PlayerId? = null, // Current active player
+    val turnEndsAt: Long? = null, // Authoritative server deadline for the active turn
     val playerOrder: List<PlayerId> = emptyList(), // Custom Seat Order
     val createdAt: Long = System.currentTimeMillis(),
     val settings: GameSettings = GameSettings()

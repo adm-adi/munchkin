@@ -70,10 +70,13 @@ function initTables() {
             phase TEXT DEFAULT 'LOBBY',
             turn_player_id TEXT,
             players_json TEXT,
+            player_order_json TEXT,
             combat_json TEXT,
             created_at INTEGER,
             last_activity_at INTEGER,
-            seq INTEGER DEFAULT 0
+            seq INTEGER DEFAULT 0,
+            turn_timer_seconds INTEGER DEFAULT 0,
+            turn_ends_at INTEGER DEFAULT NULL
         )`);
 
         // Ensure columns exist (for existing databases)
@@ -112,6 +115,21 @@ function initTables() {
         db.run(`ALTER TABLE active_games ADD COLUMN original_host_id TEXT DEFAULT NULL`, (err) => {
             if (err && !err.message.includes("duplicate column name")) {
                 logger.error("Migration error (original_host_id):", err);
+            }
+        });
+        db.run(`ALTER TABLE active_games ADD COLUMN player_order_json TEXT DEFAULT NULL`, (err) => {
+            if (err && !err.message.includes("duplicate column name")) {
+                logger.error("Migration error (player_order_json):", err);
+            }
+        });
+        db.run(`ALTER TABLE active_games ADD COLUMN turn_timer_seconds INTEGER DEFAULT 0`, (err) => {
+            if (err && !err.message.includes("duplicate column name")) {
+                logger.error("Migration error (turn_timer_seconds):", err);
+            }
+        });
+        db.run(`ALTER TABLE active_games ADD COLUMN turn_ends_at INTEGER DEFAULT NULL`, (err) => {
+            if (err && !err.message.includes("duplicate column name")) {
+                logger.error("Migration error (turn_ends_at):", err);
             }
         });
 
@@ -368,7 +386,7 @@ function recordGame(gameId, winnerId, startTime, endTime, participants) {
 function getUserHistory(userId) {
     return new Promise((resolve, reject) => {
         const sql = `
-            SELECT 
+            SELECT
                 g.id, g.ended_at, g.winner_id,
                 (SELECT COUNT(*) FROM participants WHERE game_id = g.id) as player_count
             FROM games g
@@ -388,7 +406,7 @@ function getUserHistory(userId) {
 function getLeaderboard() {
     return new Promise((resolve, reject) => {
         const sql = `
-            SELECT 
+            SELECT
                 u.id, u.username, u.avatar_id,
                 COUNT(g.id) as wins
             FROM users u
@@ -420,6 +438,7 @@ function saveActiveGame(game) {
                 avatarId: player.avatarId,
                 gender: player.gender,
                 userId: player.userId,
+                reconnectTokenHash: player.reconnectTokenHash || null,
                 level: player.level,
                 gear: player.gear,
                 treasures: player.treasures || 0,
@@ -433,9 +452,9 @@ function saveActiveGame(game) {
         }
 
         const sql = `INSERT OR REPLACE INTO active_games
-            (id, join_code, host_id, host_name, phase, turn_player_id, players_json, combat_json,
-             created_at, last_activity_at, seq, max_level, winner_id, original_host_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+            (id, join_code, host_id, host_name, phase, turn_player_id, players_json, player_order_json, combat_json,
+             created_at, last_activity_at, seq, turn_timer_seconds, turn_ends_at, max_level, winner_id, original_host_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
         db.run(sql, [
             game.id,
@@ -445,10 +464,13 @@ function saveActiveGame(game) {
             game.phase || 'LOBBY',
             game.turnPlayerId || null,
             JSON.stringify(playersData),
+            JSON.stringify(game.playerOrder || Array.from(game.players.keys())),
             game.combat ? JSON.stringify(game.combat) : null,
             game.createdAt,
             Date.now(),
             game.seq || 0,
+            game.turnTimerSeconds || 0,
+            game.turnEndsAt || null,
             game.maxLevel || 10,
             game.winnerId || null,
             game.originalHostId || game.hostId
@@ -481,12 +503,20 @@ function loadActiveGames() {
             }
 
             const games = rows.reduce((acc, row) => {
-                let players, combat;
+                let players, playerOrder, combat;
                 try {
                     players = JSON.parse(row.players_json || '{}');
                 } catch (e) {
                     logger.error(`❌ Corrupted players_json for game ${row.id}, skipping:`, e);
                     return acc;
+                }
+                try {
+                    playerOrder = row.player_order_json
+                        ? JSON.parse(row.player_order_json)
+                        : Object.keys(players);
+                } catch (e) {
+                    logger.warn(`⚠️ Corrupted player_order_json for game ${row.id}, rebuilding order:`, e);
+                    playerOrder = Object.keys(players);
                 }
                 try {
                     combat = row.combat_json ? JSON.parse(row.combat_json) : null;
@@ -503,10 +533,13 @@ function loadActiveGames() {
                     phase: row.phase,
                     turnPlayerId: row.turn_player_id,
                     players,
+                    playerOrder,
                     combat,
                     createdAt: row.created_at,
                     lastActivityAt: row.last_activity_at,
                     seq: row.seq,
+                    turnTimerSeconds: row.turn_timer_seconds || 0,
+                    turnEndsAt: row.turn_ends_at || null,
                     maxLevel: row.max_level || 10,
                     winnerId: row.winner_id || null
                 });

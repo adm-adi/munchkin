@@ -1,7 +1,5 @@
 package com.munchkin.app.viewmodel
 
-import android.content.Context
-import android.net.wifi.WifiManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.munchkin.app.ui.components.DebugLogManager as DLog
@@ -30,89 +28,82 @@ import com.munchkin.app.R
  * Handles both host and client roles.
  */
 class GameViewModel : ViewModel() {
-    
+
     companion object {
-        // Hetzner VPS server
-        private const val SERVER_URL = "wss://munchking-sirpepo.duckdns.org:8765"
+        private const val SERVER_URL = ServerConfig.WS_URL
     }
-    
+
     // ============== State ==============
-    
+
     private val _uiState = MutableStateFlow(GameUiState())
     val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
-    
+
     private val _events = MutableSharedFlow<GameUiEvent>()
     val events: SharedFlow<GameUiEvent> = _events.asSharedFlow()
-    
-    private val _discoveredGames = MutableStateFlow<List<DiscoveredGame>>(emptyList())
-    val discoveredGames: StateFlow<List<DiscoveredGame>> = _discoveredGames.asStateFlow()
 
     private val _gameLog = MutableStateFlow<List<GameLogEntry>>(emptyList())
     val gameLog: StateFlow<List<GameLogEntry>> = _gameLog.asStateFlow()
 
 
-    
+
     private val _savedGame = MutableStateFlow<SavedGame?>(null)
     val savedGame: StateFlow<SavedGame?> = _savedGame.asStateFlow()
-    
+
     private val _latencyMs = MutableStateFlow(0L)
     val latencyMs: StateFlow<Long> = _latencyMs.asStateFlow()
-    
+
     // ============== Update State ==============
-    
+
     private val _updateInfo = MutableStateFlow<UpdateInfo?>(null)
     val updateInfo: StateFlow<UpdateInfo?> = _updateInfo.asStateFlow()
-    
+
     private val _isDownloading = MutableStateFlow(false)
     val isDownloading: StateFlow<Boolean> = _isDownloading.asStateFlow()
-    
+
     private var updateChecker: UpdateChecker? = null
-    
+
     // ============== Game Components ==============
-    
-    private var gameEngine: GameEngine? = null
-    private var gameServer: GameServer? = null
+
     private var gameClient: GameClient? = null
-    private var nsdHelper: NsdHelper? = null
     private var gameRepository: GameRepository? = null
     private var sessionManager: SessionManager? = null
-    
+
     private var myPlayerId: PlayerId? = null
     private var isHost: Boolean = false
-    
+
     // ============== Initialization ==============
-    
+
     init {
         initData()
         checkForUpdates()
     }
-    
+
     private fun initData() {
         try {
             val context = MunchkinApp.context
             gameRepository = GameRepository(context)
             sessionManager = SessionManager(context)
-            
+
             // Load Saved Game
             viewModelScope.launch {
                 gameRepository?.getLatestSavedGame()?.collect { saved ->
                     _savedGame.value = saved
                 }
             }
-            
+
             // Restore Session & Auto-Login
             val savedProfile = sessionManager?.getSession()
             val savedToken = sessionManager?.getAuthToken()
-            
+
             if (savedProfile != null) {
                 _uiState.update { it.copy(userProfile = savedProfile) }
-                
+
                 // If we have a token, try to validate it / auto-login
                 if (savedToken != null) {
                     performAutoLogin(savedToken)
                 }
             }
-            
+
         } catch (e: Exception) {
             android.util.Log.e("GameViewModel", "Failed to init data", e)
         }
@@ -124,7 +115,7 @@ class GameViewModel : ViewModel() {
                 // We use a temp client to validate the token
                 val client = GameClient()
                 val result = client.loginWithToken(SERVER_URL, token)
-                
+
                 if (result.isSuccess) {
                     val authData = result.getOrNull()
                     if (authData != null) {
@@ -133,9 +124,9 @@ class GameViewModel : ViewModel() {
                         sessionManager?.saveSession(authData.user)
                         // If server rotated token, save it (authData.token)
                         authData.token?.let { sessionManager?.saveAuthToken(it) }
-                        
+
                         android.util.Log.i("GameViewModel", "✅ Auto-login success for ${authData.user.username}")
-                        
+
                         // Fetch hosted games
                         fetchHostedGames()
                     }
@@ -150,7 +141,7 @@ class GameViewModel : ViewModel() {
             }
         }
     }
-    
+
     /**
      * Resume a saved game.
      */
@@ -163,10 +154,10 @@ class GameViewModel : ViewModel() {
                     error = null
                 )
             }
-            
+
             myPlayerId = saved.myPlayerId
             isHost = saved.isHost
-            
+
             // Reconnect to remote server (both host and client use remote server)
             try {
                 val player = saved.gameState.players[saved.myPlayerId]
@@ -177,10 +168,16 @@ class GameViewModel : ViewModel() {
                     gender = player?.gender ?: Gender.M,
                     userId = _uiState.value.userProfile?.id
                 )
-                
+
                 val client = GameClient()
-                val result = client.connect(SERVER_URL, saved.gameState.joinCode, playerMeta)
-                
+                val result = client.connect(
+                    SERVER_URL,
+                    saved.gameState.joinCode,
+                    playerMeta,
+                    reconnectToken = sessionManager?.getReconnectToken(saved.gameState.joinCode),
+                    authToken = sessionManager?.getAuthToken()
+                )
+
                 if (result.isFailure) {
                     val friendlyError = getFriendlyErrorMessage(result.exceptionOrNull())
                     _uiState.update {
@@ -191,15 +188,17 @@ class GameViewModel : ViewModel() {
                     }
                     return@launch
                 }
-                
+
                 gameClient = client
                 val gameState = result.getOrNull()
-                
-                // Initialize local engine for state tracking
-                val engine = GameEngine()
-                gameState?.let { engine.loadState(it) }
-                gameEngine = engine
-                
+                val actualPlayerId = client.currentPlayerId ?: saved.myPlayerId
+                val actualIsHost = (gameState?.hostId ?: saved.gameState.hostId) == actualPlayerId
+                myPlayerId = actualPlayerId
+                isHost = actualIsHost
+                client.currentReconnectToken?.let {
+                    sessionManager?.saveReconnectToken((gameState ?: saved.gameState).joinCode, it)
+                }
+
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -212,14 +211,14 @@ class GameViewModel : ViewModel() {
                             Screen.BOARD
                         },
                         gameState = gameState ?: saved.gameState,
-                        myPlayerId = saved.myPlayerId,
-                        isHost = saved.isHost
+                        myPlayerId = actualPlayerId,
+                        isHost = actualIsHost
                     )
                 }
-                
+
                 // Observe game state changes from client
                 observeClientState()
-                
+
             } catch (e: Exception) {
                 val friendlyError = getFriendlyErrorMessage(e)
                 _uiState.update {
@@ -231,7 +230,7 @@ class GameViewModel : ViewModel() {
             }
         }
     }
-    
+
     /**
      * Check connection and reconnect if needed (e.g. on app resume).
      */
@@ -253,13 +252,13 @@ class GameViewModel : ViewModel() {
         _uiState.update { it.copy(isReconnectFailed = false) }
         resumeSavedGame()
     }
-    
+
     /**
      * Delete saved game.
      */
     fun deleteSavedGame() {
         val saved = _savedGame.value ?: return
-        
+
         viewModelScope.launch {
             // If host, try to tell server to delete
             if (saved.isHost) {
@@ -267,7 +266,7 @@ class GameViewModel : ViewModel() {
                 try {
                     // Temporary connection to delete
                     val client = GameClient()
-                    
+
                     val playerMeta = PlayerMeta(
                         playerId = saved.myPlayerId,
                         name = "Host", // Name doesn't matter for this op validation
@@ -275,8 +274,14 @@ class GameViewModel : ViewModel() {
                         gender = Gender.M,
                         userId = _uiState.value.userProfile?.id
                     )
-                    
-                    val connectResult = client.connect(SERVER_URL, saved.gameState.joinCode, playerMeta)
+
+                    val connectResult = client.connect(
+                        SERVER_URL,
+                        saved.gameState.joinCode,
+                        playerMeta,
+                        reconnectToken = sessionManager?.getReconnectToken(saved.gameState.joinCode),
+                        authToken = sessionManager?.getAuthToken()
+                    )
                     if (connectResult.isSuccess) {
                         client.sendDeleteGame()
                         // Wait a bit for server to process broadcast
@@ -287,23 +292,23 @@ class GameViewModel : ViewModel() {
                     DLog.e("GameVM", "Failed to delete on server: ${e.message}")
                 }
             }
-            
+
             // Delete locally
             gameRepository?.deleteAllSavedGames()
             _savedGame.value = null
             _uiState.update { it.copy(isLoading = false, error = null) }
         }
     }
-    
+
     /**
      * Clear error state.
      */
     fun clearError() {
         _uiState.update { it.copy(error = null) }
     }
-    
+
     // ============== Update Methods ==============
-    
+
     /**
      * Check GitHub for available updates.
      */
@@ -326,7 +331,7 @@ class GameViewModel : ViewModel() {
             }
         }
     }
-    
+
     /**
      * Force check for updates from Settings screen.
      */
@@ -334,9 +339,9 @@ class GameViewModel : ViewModel() {
         if (updateChecker == null) {
             updateChecker = UpdateChecker(MunchkinApp.context)
         }
-        
+
         _uiState.update { it.copy(isCheckingUpdate = true) }
-        
+
         viewModelScope.launch {
             try {
                 when (val result = updateChecker?.checkForUpdate()) {
@@ -358,21 +363,21 @@ class GameViewModel : ViewModel() {
             }
         }
     }
-    
+
     /**
      * Dismiss update dialog.
      */
     fun dismissUpdate() {
         _updateInfo.value = null
     }
-    
+
     /**
      * Download and install update.
      */
     fun downloadUpdate() {
         val info = _updateInfo.value ?: return
         _isDownloading.value = true
-        
+
         updateChecker?.downloadAndInstall(
             updateInfo = info,
             onProgress = { /* Could update progress here */ },
@@ -381,7 +386,7 @@ class GameViewModel : ViewModel() {
             }
         )
     }
-    
+
     /**
      * Create a new game as host.
      */
@@ -391,13 +396,13 @@ class GameViewModel : ViewModel() {
             try {
                 android.util.Log.d("GameViewModel", "Setting loading state...")
                 _uiState.update { it.copy(isLoading = true, error = null) }
-                
+
                 // Generate player ID
                 val playerId = PlayerId(UUID.randomUUID().toString())
                 myPlayerId = playerId
                 isHost = true
                 android.util.Log.d("GameViewModel", "Generated playerId: ${playerId.value}")
-                
+
                 // Create player meta
                 val user = _uiState.value.userProfile
                 val playerMeta = PlayerMeta(
@@ -407,16 +412,22 @@ class GameViewModel : ViewModel() {
                     gender = gender,
                     userId = user?.id
                 )
-                
+
                 DLog.i("GameVM", "🎮 Creating game on Hetzner...")
                 DLog.i("GameVM", "📡 Server: $SERVER_URL")
-                
+
                 // Connect to remote server and create game
                 val client = GameClient()
                 gameClient = client
-                
-                val result = client.createGame(SERVER_URL, playerMeta, superMunchkin)
-                
+
+                val result = client.createGame(
+                    SERVER_URL,
+                    playerMeta,
+                    superMunchkin,
+                    timerSeconds,
+                    authToken = sessionManager?.getAuthToken()
+                )
+
                 if (result.isFailure) {
                     val error = result.exceptionOrNull()?.message ?: "Error desconocido"
                     DLog.e("GameVM", "❌ Create failed: $error")
@@ -428,59 +439,53 @@ class GameViewModel : ViewModel() {
                     }
                     return@launch
                 }
-                
+
                 val gameState = result.getOrNull() ?: return@launch
-                myPlayerId = playerId
-                
+                val actualPlayerId = client.currentPlayerId ?: playerId
+                myPlayerId = actualPlayerId
+                client.currentReconnectToken?.let {
+                    sessionManager?.saveReconnectToken(gameState.joinCode, it)
+                }
+                sessionManager?.savePlayerId(gameState.joinCode, actualPlayerId.value)
+
                 DLog.i("GameVM", "✅ Game created!")
                 DLog.i("GameVM", "🔑 Code: ${gameState.joinCode}")
-                
+
                 android.util.Log.d("GameViewModel", "Game created with joinCode: ${gameState.joinCode}")
-                
+
                 // Save game state
-                gameRepository?.saveGame(gameState, playerId, true)
-                
-                // Initialize local engine for state tracking
-                val engine = GameEngine()
-                engine.loadState(gameState)
-                gameEngine = engine
-                
+                gameRepository?.saveGame(gameState, actualPlayerId, true)
+
                 // Update state and go to lobby
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         screen = Screen.LOBBY,
                         gameState = gameState,
-                        myPlayerId = playerId,
-                        isHost = true,
-                        connectionInfo = ConnectionInfo(
-                            wsUrl = SERVER_URL,
-                            joinCode = gameState.joinCode,
-                            localIp = "munchking-sirpepo.duckdns.org",
-                            port = 8765
-                        )
+                        myPlayerId = actualPlayerId,
+                        isHost = true
                     )
                 }
                 android.util.Log.d("GameViewModel", "State updated, navigating to LOBBY")
-                
+
                 // Observe game state changes from client (since we are using server)
                 observeClientState()
-                
+
             } catch (e: Exception) {
                 android.util.Log.e("GameViewModel", "createGame exception", e)
-                _uiState.update { 
-                    it.copy(isLoading = false, error = "Error: ${e.message}") 
+                _uiState.update {
+                    it.copy(isLoading = false, error = "Error: ${e.message}")
                 }
             }
         }
     }
-    
+
     /**
      * Start the game (host only).
      */
     fun startGame() {
         if (!isHost) return
-        
+
         sendPlayerEvent { playerId ->
             GameStart(
                 eventId = UUID.randomUUID().toString(),
@@ -489,13 +494,13 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
     /**
      * Swap two players' positions in the lobby (host only).
      */
     fun swapPlayers(player1: PlayerId, player2: PlayerId) {
         if (!isHost) return
-        
+
         viewModelScope.launch {
             try {
                 gameClient?.sendSwapPlayers(player1, player2)
@@ -504,22 +509,22 @@ class GameViewModel : ViewModel() {
             }
         }
     }
-    
+
     // ============== Client Actions ==============
-    
+
     /**
      * Select a player to view details.
      */
     fun selectPlayer(playerId: PlayerId) {
-        _uiState.update { 
+        _uiState.update {
             it.copy(
-                selectedPlayerId = playerId, 
+                selectedPlayerId = playerId,
                 screen = Screen.PLAYER_DETAIL
-            ) 
+            )
         }
     }
-    
-    
+
+
     /**
      * Join an existing game as client.
      */
@@ -533,21 +538,18 @@ class GameViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 _uiState.update { it.copy(isLoading = true, error = null) }
-                
+
                 // Check for existing playerId for this joinCode (for reconnection)
                 val existingPlayerIdStr = sessionManager?.getPlayerId(joinCode)
                 val playerId = if (existingPlayerIdStr != null) {
                     // Reconnecting with same identity
                     PlayerId(existingPlayerIdStr)
                 } else {
-                    // First time joining - generate new ID and save
-                    val newId = PlayerId(UUID.randomUUID().toString())
-                    sessionManager?.savePlayerId(joinCode, newId.value)
-                    newId
+                    PlayerId(UUID.randomUUID().toString())
                 }
                 myPlayerId = playerId
                 isHost = false
-                
+
                 // Create player meta
                 val user = _uiState.value.userProfile
                 val playerMeta = PlayerMeta(
@@ -557,31 +559,38 @@ class GameViewModel : ViewModel() {
                     gender = gender,
                     userId = user?.id
                 )
-                
+
                 // Connect to server
                 val client = GameClient()
-                val result = client.connect(wsUrl, joinCode, playerMeta)
-                
+                val result = client.connect(
+                    wsUrl,
+                    joinCode,
+                    playerMeta,
+                    reconnectToken = sessionManager?.getReconnectToken(joinCode),
+                    authToken = sessionManager?.getAuthToken()
+                )
+
                 if (result.isFailure) {
-                    _uiState.update { 
+                    _uiState.update {
                         it.copy(
-                            isLoading = false, 
+                            isLoading = false,
                             error = "Error al conectar: ${result.exceptionOrNull()?.message}"
-                        ) 
+                        )
                     }
                     return@launch
                 }
-                
+
                 gameClient = client
-                
+
                 // Update state with received game state
                 val gameState = result.getOrNull()
-                
-                // Initialize local engine for state tracking
-                val engine = GameEngine()
-                gameState?.let { engine.loadState(it) }
-                gameEngine = engine
-                
+                val actualPlayerId = client.currentPlayerId ?: playerId
+                myPlayerId = actualPlayerId
+                client.currentReconnectToken?.let {
+                    sessionManager?.saveReconnectToken(gameState?.joinCode ?: joinCode, it)
+                }
+                sessionManager?.savePlayerId(gameState?.joinCode ?: joinCode, actualPlayerId.value)
+
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -594,56 +603,56 @@ class GameViewModel : ViewModel() {
                              Screen.BOARD
                         },
                         gameState = gameState,
-                        myPlayerId = playerId,
+                        myPlayerId = actualPlayerId,
                         isHost = false
                     )
                 }
-                
+
                 // Save game immediately for reconnection
                 gameState?.let { state ->
-                    gameRepository?.saveGame(state, playerId, isHost = false)
+                    gameRepository?.saveGame(state, actualPlayerId, isHost = false)
                 }
-                
+
                 // Observe client state changes
                 observeClientState()
-                
+
             } catch (e: Exception) {
-                _uiState.update { 
-                    it.copy(isLoading = false, error = "Error: ${e.message}") 
+                _uiState.update {
+                    it.copy(isLoading = false, error = "Error: ${e.message}")
                 }
             }
         }
     }
-    
+
     // ============== Discovery Methods ==============
-    
+
     /**
      * Start discovering games from the server.
      */
     fun startDiscovery() {
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.update { it.copy(isDiscovering = true, discoveredGames = emptyList()) }
-            
+
             try {
                 // Connect to server and request games list
                 val client = HttpClient(CIO) {
                     install(WebSockets)
                 }
-                
+
                 client.webSocket(SERVER_URL) {
                     // Send list games request
                     send("{\"type\": \"LIST_GAMES\"}")
-                    
+
                     // Wait for response
                     val frame = incoming.receive()
                     if (frame is io.ktor.websocket.Frame.Text) {
                         val text = frame.readText()
                         DLog.i("GameViewModel", "Games list response: $text")
-                        
+
                         // Parse response
                         val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
                         val response = json.decodeFromString<GamesListResponse>(text)
-                        
+
                         val discovered = response.games.map { game ->
                             DiscoveredGame(
                                 hostName = game.hostName,
@@ -653,13 +662,13 @@ class GameViewModel : ViewModel() {
                                 wsUrl = SERVER_URL
                             )
                         }
-                        
+
                         _uiState.update { it.copy(discoveredGames = discovered) }
                     }
                 }
-                
+
                 client.close()
-                
+
             } catch (e: Exception) {
                 DLog.e("GameViewModel", "Discovery failed: ${e.message}")
             } finally {
@@ -667,7 +676,7 @@ class GameViewModel : ViewModel() {
             }
         }
     }
-    
+
     /**
      * Join a discovered game from server.
      */
@@ -679,16 +688,11 @@ class GameViewModel : ViewModel() {
     ) {
         joinGame(SERVER_URL, game.joinCode, name, avatarId, gender)
     }
-    
 
-    
-    fun stopDiscovery() {
-        nsdHelper?.stopDiscovery()
-        _uiState.update { it.copy(isDiscovering = false) }
-    }
+
 
     // ============== Auth Methods ==============
-    
+
     fun register(username: String, email: String, pass: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
@@ -697,24 +701,24 @@ class GameViewModel : ViewModel() {
                 // Or just use GameClient helper
                 val client = GameClient() // Temp instance
                 val result = client.register(SERVER_URL, username, email, pass)
-                
+
                 if (result.isSuccess) {
                     val authData = result.getOrNull()
                     if (authData != null) {
                         sessionManager?.saveSession(authData.user)
                         authData.token?.let { sessionManager?.saveAuthToken(it) }
                     }
-                    _uiState.update { 
+                    _uiState.update {
                         it.copy(
                             isLoading = false,
                             userProfile = authData?.user,
                             screen = Screen.HOME // Go back to home after login/reg
-                        ) 
+                        )
                     }
                     _events.emit(GameUiEvent.ShowSuccess("Bienvenido, ${authData?.user?.username}!"))
                     fetchHostedGames()
                 } else {
-                    _uiState.update { 
+                    _uiState.update {
                         it.copy(isLoading = false, error = result.exceptionOrNull()?.message)
                     }
                 }
@@ -723,31 +727,31 @@ class GameViewModel : ViewModel() {
             }
         }
     }
-    
+
     fun login(email: String, pass: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
                 val client = GameClient()
                 val result = client.login(SERVER_URL, email, pass)
-                
+
                 if (result.isSuccess) {
                     val authData = result.getOrNull()
                     if (authData != null) {
                         sessionManager?.saveSession(authData.user)
                         authData.token?.let { sessionManager?.saveAuthToken(it) }
                     }
-                    _uiState.update { 
+                    _uiState.update {
                         it.copy(
                             isLoading = false,
                             userProfile = authData?.user,
                             screen = Screen.HOME
-                        ) 
+                        )
                     }
                     _events.emit(GameUiEvent.ShowSuccess("Hola de nuevo, ${authData?.user?.username}!"))
                     fetchHostedGames()
                 } else {
-                    _uiState.update { 
+                    _uiState.update {
                         it.copy(isLoading = false, error = result.exceptionOrNull()?.message)
                     }
                 }
@@ -760,7 +764,7 @@ class GameViewModel : ViewModel() {
         sessionManager?.clearSession()
         _uiState.update { it.copy(userProfile = null) }
     }
-    
+
     /**
      * Increment player level.
      */
@@ -774,7 +778,7 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
     /**
      * Decrement player level.
      */
@@ -788,7 +792,7 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
     /**
      * Increment gear bonus.
      */
@@ -803,14 +807,14 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
     private val _hostedGames = MutableStateFlow<List<HostedGame>>(emptyList())
     val hostedGames: StateFlow<List<HostedGame>> = _hostedGames.asStateFlow()
 
     fun fetchHostedGames() {
-        val user = _uiState.value.userProfile ?: return
+        _uiState.value.userProfile ?: return
         val token = sessionManager?.getAuthToken() ?: return
-        
+
         viewModelScope.launch {
             try {
                 // Use temp client or reuse existing?
@@ -818,11 +822,11 @@ class GameViewModel : ViewModel() {
                 // We can just create a new GameClient for these one-off requests.
                 val client = GameClient()
                 val result = client.getHostedGames(SERVER_URL, token)
-                
+
                 if (result.isSuccess) {
                     val games = result.getOrNull() ?: emptyList()
                     _hostedGames.value = games
-                    
+
                     // If we have any games, we can log it
                     if (games.isNotEmpty()) {
                          android.util.Log.d("GameViewModel", "Fetched ${games.size} hosted games")
@@ -836,13 +840,13 @@ class GameViewModel : ViewModel() {
 
     fun deleteHostedGame(gameId: String) {
         val token = sessionManager?.getAuthToken() ?: return
-        
+
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             try {
                 val client = GameClient()
                 val result = client.deleteHostedGame(SERVER_URL, token, gameId)
-                
+
                 if (result.isSuccess) {
                     // Remove from list locally
                     _hostedGames.update { list -> list.filter { it.gameId != gameId } }
@@ -872,7 +876,7 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
     /**
      * Set half-breed status.
      */
@@ -887,7 +891,7 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
     /**
      * Set super munchkin status.
      */
@@ -902,7 +906,7 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
     /**
      * Add a race to player.
      */
@@ -917,7 +921,7 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
     /**
      * Remove a race from player.
      */
@@ -932,7 +936,7 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
     /**
      * Add a class to player.
      */
@@ -947,7 +951,7 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
     /**
      * Remove a class from player.
      */
@@ -962,7 +966,7 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
     /**
      * Add a new race to the catalog.
      */
@@ -976,7 +980,7 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
     /**
      * Add a new class to the catalog.
      */
@@ -990,19 +994,19 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
     // ============== Combat Actions ==============
-    
+
     fun toggleGender() {
         val playerId = myPlayerId ?: return
         val currentPlayer = _uiState.value.gameState?.players?.get(playerId) ?: return
-        
+
         val newGender = when (currentPlayer.gender) {
             Gender.M -> Gender.F
             Gender.F -> Gender.NA
             Gender.NA -> Gender.M
         }
-        
+
         sendPlayerEvent { pid ->
             SetGender(
                 eventId = UUID.randomUUID().toString(),
@@ -1066,7 +1070,7 @@ class GameViewModel : ViewModel() {
     fun modifyCombatModifier(target: BonusTarget, delta: Int) {
         val currentState = _uiState.value.gameState ?: return
         val currentCombat = currentState.combat ?: return
-        
+
         // Calculate the absolute new value locally
         val currentValue = when (target) {
             BonusTarget.HEROES -> currentCombat.heroModifier
@@ -1099,12 +1103,12 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
     /**
      * Add a monster to combat.
      */
 
-    
+
     // ============== Catalog Actions ==============
 
     fun searchMonsters(query: String) {
@@ -1113,15 +1117,15 @@ class GameViewModel : ViewModel() {
                 _uiState.update { it.copy(monsterSearchResults = emptyList()) }
                 return@launch
             }
-            
+
             try {
                 // Use temp client or existing game client
                 val client = GameClient()
                 val result = client.searchMonsters(SERVER_URL, query)
-                
+
                 if (result.isSuccess) {
-                    _uiState.update { 
-                        it.copy(monsterSearchResults = result.getOrElse { emptyList() }) 
+                    _uiState.update {
+                        it.copy(monsterSearchResults = result.getOrElse { emptyList() })
                     }
                 }
             } catch (e: Exception) {
@@ -1131,9 +1135,15 @@ class GameViewModel : ViewModel() {
     }
 
     fun requestCreateGlobalMonster(name: String, level: Int, modifier: Int, isUndead: Boolean) {
+        val token = sessionManager?.getAuthToken()
+        if (token == null) {
+            _uiState.update {
+                it.copy(error = MunchkinApp.context.getString(R.string.error_session_expired))
+            }
+            return
+        }
         val user = _uiState.value.userProfile
-        val userId = user?.id ?: myPlayerId?.value ?: "anon"
-        
+
         val monster = CatalogMonster(
             name = name,
             level = level,
@@ -1145,15 +1155,15 @@ class GameViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 val client = GameClient()
-                val result = client.addMonsterToCatalog(SERVER_URL, monster, userId)
-                
+                val result = client.addMonsterToCatalog(SERVER_URL, monster, token)
+
                 if (result.isSuccess) {
                     val created = result.getOrNull()
                     if (created != null) {
                         // Auto-add to combat if in combat?
                         addMonster(created.name, created.level, created.modifier, created.isUndead)
                         _events.emit(GameUiEvent.ShowSuccess("Monstruo creado: ${created.name}"))
-                        
+
                         // Also trigger a search to show it?
                     }
                 } else {
@@ -1186,14 +1196,14 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
     fun endCombat() {
         val currentGameState = _uiState.value.gameState ?: return
         val currentCombat = currentGameState.combat ?: return
-        
+
         // Calculate result locally to get rewards
         val result = CombatCalculator.calculateResult(currentCombat, currentGameState)
-        
+
         sendPlayerEvent { playerId ->
             CombatEnd(
                 eventId = UUID.randomUUID().toString(),
@@ -1206,7 +1216,7 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
 
 
     fun rollDiceForStart() {
@@ -1222,7 +1232,7 @@ class GameViewModel : ViewModel() {
             )
         }
     }
-    
+
     /**
      * Resolve a run-away attempt after the dice has been rolled.
      * Success → end combat with ESCAPE (no rewards, no penalty).
@@ -1264,7 +1274,7 @@ class GameViewModel : ViewModel() {
     ) {
         // Roll 1-6 if manualResult is null (auto-roll)
         val result = manualResult ?: (1..6).random()
-        
+
         sendPlayerEvent { playerId ->
             PlayerRoll(
                 eventId = UUID.randomUUID().toString(),
@@ -1279,11 +1289,11 @@ class GameViewModel : ViewModel() {
     }
 
     // ============== Navigation ==============
-    
+
     fun navigateTo(screen: Screen) {
         _uiState.update { it.copy(screen = screen) }
     }
-    
+
     fun goBack() {
         val currentScreen = _uiState.value.screen
         val newScreen = when (currentScreen) {
@@ -1295,9 +1305,9 @@ class GameViewModel : ViewModel() {
         }
         _uiState.update { it.copy(screen = newScreen) }
     }
-    
+
     // ============== Cleanup ==============
-    
+
     /**
      * Leave current game.
      */
@@ -1319,7 +1329,7 @@ class GameViewModel : ViewModel() {
      */
     fun deleteGame() {
         if (!isHost) return
-        
+
         viewModelScope.launch {
              try {
                  gameClient?.sendDeleteGame()
@@ -1356,48 +1366,37 @@ class GameViewModel : ViewModel() {
                     // Ignore error on leave
                 }
             }
-            
-            // Stop NSD publishing/discovery
-            nsdHelper?.cleanup()
-            nsdHelper = null
-            
-            gameServer?.stop()
-            gameServer = null
+
             gameClient?.disconnect()
             gameClient = null
-            gameEngine = null
-            
+
             _uiState.update {
                 GameUiState(screen = Screen.HOME, userProfile = it.userProfile)
             }
         }
     }
-    
 
-    
+
+
 
 
     override fun onCleared() {
         super.onCleared()
-        nsdHelper?.cleanup()
-        // Use runBlocking to ensure cleanup completes before scope is cancelled
         val client = gameClient
-        val server = gameServer
-        if (client != null || server != null) {
+        if (client != null) {
             kotlinx.coroutines.runBlocking {
-                client?.disconnect()
-                server?.stop()
+                client.disconnect()
             }
         }
     }
-    
+
     // ============== Private Helpers ==============
-    
+
     private fun sendPlayerEvent(eventBuilder: (PlayerId) -> GameEvent) {
         viewModelScope.launch {
             val playerId = myPlayerId ?: return@launch
             val event = eventBuilder(playerId)
-            
+
             val client = gameClient
             if (client != null && client.isConnected()) {
                 // Network mode: send to server (the server will broadcast)
@@ -1405,37 +1404,10 @@ class GameViewModel : ViewModel() {
                 if (result.isFailure) {
                     _events.emit(GameUiEvent.ShowError("Error de conexión"))
                 }
-            } else if (isHost) {
-                // Local mode (offline/host): process locally
-                val engine = gameEngine ?: return@launch
-                val result = engine.processEvent(event)
-                if (result is ValidationResult.Error) {
-                    _events.emit(GameUiEvent.ShowError(result.message))
-                }
             }
         }
     }
-    
-    private fun observeGameState() {
-        viewModelScope.launch {
-            gameEngine?.gameState?.collect { state ->
-                state?.let { s ->
-                    _uiState.update { it.copy(gameState = s) }
-                    
-                    // Check for phase change
-                    if (s.phase == GamePhase.IN_GAME && _uiState.value.screen == Screen.LOBBY) {
-                        _uiState.update { it.copy(screen = Screen.BOARD) }
-                    }
-                    
-                    // Auto-save state
-                    myPlayerId?.let { pid ->
-                        gameRepository?.saveGame(s, pid, isHost)
-                    }
-                }
-            }
-        }
-    }
-    
+
     private var hasRecordedGame = false
 
     private fun observeClientState() {
@@ -1457,7 +1429,7 @@ class GameViewModel : ViewModel() {
                                 }
                             }
                         }
-                        
+
                         // Log Combat Result (Combat property cleared)
                         if (prev.combat != null && s.combat == null) {
                             addLogEntry("Combate finalizado", LogType.combat)
@@ -1466,7 +1438,7 @@ class GameViewModel : ViewModel() {
                     previousState = s
 
                     _uiState.update { it.copy(gameState = s) }
-                    
+
                     // HOST CHECK: Did someone reach max level?
                     if (isHost && s.phase == GamePhase.IN_GAME && !hasRecordedGame) {
                         val winner = s.players.values.find { it.level >= s.settings.maxLevel }
@@ -1482,7 +1454,7 @@ class GameViewModel : ViewModel() {
                     // Check for Game Over (Server confirmed)
                     if (s.phase == GamePhase.FINISHED && s.winnerId != null) {
                          // Ensure we don't record twice if server sent it back
-                         hasRecordedGame = true 
+                         hasRecordedGame = true
                     }
 
                     // Check for phase change
@@ -1492,7 +1464,7 @@ class GameViewModel : ViewModel() {
                 }
             }
         }
-        
+
         viewModelScope.launch {
             var prevConnState: ConnectionState? = null
             gameClient?.connectionState?.collect { connState ->
@@ -1515,7 +1487,7 @@ class GameViewModel : ViewModel() {
                 _uiState.update { it.copy(reconnectAttempt = attempt) }
             }
         }
-        
+
         viewModelScope.launch {
             gameClient?.errors?.collect { error ->
                 if (error == "La partida ha sido eliminada por el anfitrión") {
@@ -1554,10 +1526,10 @@ class GameViewModel : ViewModel() {
     private fun recordGameOver(gameId: String, winnerId: String) {
         if (hasRecordedGame) return
         hasRecordedGame = true
-        
+
         viewModelScope.launch {
             try {
-                gameClient?.sendGameOver(SERVER_URL, gameId, winnerId)
+                gameClient?.sendGameOver(gameId, winnerId)
                 DLog.i("GameVM", "🏆 Game Over recorded!")
             } catch (e: Exception) {
                 DLog.e("GameVM", "Failed to record game over: ${e.message}")
@@ -1574,11 +1546,11 @@ class GameViewModel : ViewModel() {
                 val client = GameClient()
                 val result = client.getHistory(SERVER_URL, user.id)
                 if (result.isSuccess) {
-                    _uiState.update { 
+                    _uiState.update {
                         it.copy(
                             isLoading = false,
                             gameHistory = result.getOrElse { emptyList() }
-                        ) 
+                        )
                     }
                 } else {
                     _uiState.update { it.copy(isLoading = false) }
@@ -1589,37 +1561,15 @@ class GameViewModel : ViewModel() {
         }
     }
 
-    private fun getLocalIpAddress(): String {
-        try {
-            val wifiManager = MunchkinApp.context.applicationContext
-                .getSystemService(Context.WIFI_SERVICE) as WifiManager
-            val ipInt = wifiManager.connectionInfo.ipAddress
-            
-            if (ipInt != 0) {
-                return String.format(
-                    "%d.%d.%d.%d",
-                    ipInt and 0xff,
-                    ipInt shr 8 and 0xff,
-                    ipInt shr 16 and 0xff,
-                    ipInt shr 24 and 0xff
-                )
-            }
-        } catch (e: Exception) {
-            // Ignore
-        }
-        
-        return ""  // Fallback: no IP available
-    }
     // ============== Game Log ==============
 
     fun loadLeaderboard() {
         if (_uiState.value.isLoading) return
-        val client = gameClient ?: return
-        
+
         _uiState.update { it.copy(isLoading = true) }
-        
+
         viewModelScope.launch {
-            client.getLeaderboard(SERVER_URL)
+            GameClient().getLeaderboard(SERVER_URL)
                 .onSuccess { leaderboard ->
                     _uiState.update { it.copy(leaderboard = leaderboard, isLoading = false) }
                 }
@@ -1628,10 +1578,9 @@ class GameViewModel : ViewModel() {
                 }
         }
     }
-    
+
     fun updateProfile(username: String?, pass: String?) {
         val currentUser = _uiState.value.userProfile ?: return
-        val client = gameClient ?: return
         val token = sessionManager?.getAuthToken() ?: run {
             _uiState.update { it.copy(error = MunchkinApp.context.getString(R.string.error_session_expired)) }
             return
@@ -1641,7 +1590,7 @@ class GameViewModel : ViewModel() {
         _uiState.update { it.copy(isLoading = true, error = null) }
 
         viewModelScope.launch {
-            val result = client.updateProfile(SERVER_URL, currentUser.id, username, pass, token)
+            val result = GameClient().updateProfile(SERVER_URL, currentUser.id, username, pass, token)
             if (result.isSuccess) {
                 val updatedUser = result.getOrThrow()
                 _uiState.update { it.copy(userProfile = updatedUser, isLoading = false, error = null) }
@@ -1672,7 +1621,6 @@ data class GameUiState(
     val gameState: GameState? = null,
     val myPlayerId: PlayerId? = null,
     val isHost: Boolean = false,
-    val connectionInfo: ConnectionInfo? = null,
     val connectionState: ConnectionState = ConnectionState.DISCONNECTED,
     val reconnectAttempt: Int = 0,          // 0 = not reconnecting; >0 = current attempt number
     val isReconnectFailed: Boolean = false, // true when FAILED_PERMANENTLY
@@ -1690,17 +1638,10 @@ data class GameUiState(
 ) {
     val myPlayer: PlayerState?
         get() = myPlayerId?.let { gameState?.players?.get(it) }
-        
+
     val selectedPlayer: PlayerState?
         get() = (selectedPlayerId ?: myPlayerId)?.let { gameState?.players?.get(it) }
 }
-
-data class ConnectionInfo(
-    val wsUrl: String,
-    val joinCode: String,
-    val localIp: String,
-    val port: Int
-)
 
 enum class Screen {
     HOME,

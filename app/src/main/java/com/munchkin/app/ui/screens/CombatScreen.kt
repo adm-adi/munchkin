@@ -185,8 +185,10 @@ fun CombatScreen(
                             )
                         }
                     }
-                    val isParticipant = combatState != null && (myPlayerId == combatState.mainPlayerId || myPlayerId == combatState.helperPlayerId)
-                    if (combatState != null && combatState.monsters.isNotEmpty() && isParticipant) {
+                    val canRunAway = combatState != null &&
+                        combatState.monsters.isNotEmpty() &&
+                        myPlayerId == combatState.mainPlayerId
+                    if (canRunAway) {
                         IconButton(onClick = { showRunAwayDialog = true }) {
                             Icon(
                                 Icons.Default.DirectionsRun,
@@ -522,8 +524,10 @@ fun CombatScreen(
                 when (type) {
                     com.munchkin.app.ui.components.CombatAnimationType.VICTORY,
                     com.munchkin.app.ui.components.CombatAnimationType.DEFEAT -> onEndCombat()
-                    com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_SUCCESS -> onResolveRunAway(true)
-                    com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_FAIL -> onResolveRunAway(false)
+                    com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_SUCCESS ->
+                        if (myPlayerId == combatState?.mainPlayerId) onResolveRunAway(true)
+                    com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_FAIL ->
+                        if (myPlayerId == combatState?.mainPlayerId) onResolveRunAway(false)
                     else -> Unit
                 }
             }

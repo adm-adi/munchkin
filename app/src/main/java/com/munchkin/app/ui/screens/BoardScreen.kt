@@ -254,7 +254,7 @@ fun BoardScreen(
                         val canEndTurn = gameState.turnPlayerId == myPlayerId &&
                                 gameState.phase == com.munchkin.app.core.GamePhase.IN_GAME
                         TableScreen(
-                            players = gameState.players.values.toList(),
+                            players = gameState.playerList,
                             currentUser = myPlayerId,
                             turnPlayerId = gameState.turnPlayerId,
                             onPlayerClick = onPlayerClick,
@@ -274,31 +274,48 @@ fun BoardScreen(
 
                                 val currentTurnPlayer = gameState.turnPlayerId?.let { gameState.players[it] }
                                 val timerDuration = gameState.settings.turnTimerSeconds
+                                val turnEndsAt = gameState.turnEndsAt
 
-                                var remainingSeconds by remember(gameState.turnPlayerId) {
-                                    mutableIntStateOf(timerDuration)
+                                var currentTimeMs by remember(turnEndsAt, gameState.turnPlayerId) {
+                                    mutableLongStateOf(System.currentTimeMillis())
+                                }
+                                val remainingSeconds = if (timerDuration > 0 && currentTurnPlayer != null && turnEndsAt != null) {
+                                    (((turnEndsAt - currentTimeMs).coerceAtLeast(0L) + 999L) / 1000L).toInt()
+                                } else {
+                                    0
                                 }
 
-                                if (timerDuration > 0 && currentTurnPlayer != null) {
-                                    LaunchedEffect(gameState.turnPlayerId, timerDuration) {
-                                        remainingSeconds = timerDuration
-                                        while (isActive && remainingSeconds > 0) {
-                                            kotlinx.coroutines.delay(1000)
-                                            remainingSeconds--
-                                            if (remainingSeconds == 10) {
-                                                com.munchkin.app.ui.components.SoundManager.playTurnStart()
+                                if (timerDuration > 0 && currentTurnPlayer != null && turnEndsAt != null) {
+                                    LaunchedEffect(turnEndsAt, gameState.turnPlayerId, timerDuration) {
+                                        var lastAnnouncedSecond: Int? = null
+                                        while (isActive) {
+                                            currentTimeMs = System.currentTimeMillis()
+                                            val secondsLeft = (((turnEndsAt - currentTimeMs).coerceAtLeast(0L) + 999L) / 1000L).toInt()
+
+                                            if (secondsLeft != lastAnnouncedSecond) {
+                                                if (secondsLeft == 10) {
+                                                    com.munchkin.app.ui.components.SoundManager.playTurnStart()
+                                                }
+                                                if (secondsLeft in 1..5) {
+                                                    com.munchkin.app.ui.components.SoundManager.playButtonClick()
+                                                }
+                                                lastAnnouncedSecond = secondsLeft
                                             }
-                                            if (remainingSeconds <= 5 && remainingSeconds > 0) {
-                                                com.munchkin.app.ui.components.SoundManager.playButtonClick()
+
+                                            if (secondsLeft <= 0) {
+                                                break
                                             }
+
+                                            kotlinx.coroutines.delay(250)
                                         }
+                                        currentTimeMs = System.currentTimeMillis()
                                     }
                                 }
 
                                 if (currentTurnPlayer != null) {
                                     val isMyTurn = gameState.turnPlayerId == myPlayerId
                                     val timerColor = when {
-                                        timerDuration == 0 -> NeonGray400
+                                        turnEndsAt == null -> NeonGray400
                                         remainingSeconds <= 10 -> NeonError
                                         remainingSeconds <= 30 -> NeonWarning
                                         else -> NeonPrimary
@@ -346,7 +363,7 @@ fun BoardScreen(
                                                     color = if (isMyTurn) NeonGray100 else NeonGray300
                                                 )
                                             }
-                                            if (timerDuration > 0) {
+                                            if (timerDuration > 0 && turnEndsAt != null) {
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                                     Icon(
                                                         Icons.Default.Timer,
@@ -507,6 +524,33 @@ fun BoardScreen(
         )
     }
 
+    val pendingWinner = pendingWinnerId?.let { gameState.players[it] }
+    if (pendingWinner != null && isHost) {
+        AlertDialog(
+            onDismissRequest = onDismissWin,
+            containerColor = NeonSurface,
+            title = {
+                Text("Confirmar victoria", color = NeonGray100)
+            },
+            text = {
+                Text(
+                    "${pendingWinner.name} ha alcanzado el nivel máximo. ¿Quieres cerrar la partida y registrar la victoria?",
+                    color = NeonGray300
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { onConfirmWin(pendingWinner.playerId) }) {
+                    Text("Confirmar", color = NeonPrimary)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissWin) {
+                    Text(stringResource(R.string.cancel), color = NeonGray400)
+                }
+            }
+        )
+    }
+
     // Leave/Delete Confirmation Dialog
     if (showLeaveDialog) {
         AlertDialog(
@@ -546,4 +590,3 @@ fun BoardScreen(
         )
     }
 }
-

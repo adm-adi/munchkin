@@ -1,6 +1,6 @@
 /**
  * Munchkin Tracker - WebSocket Server
- * 
+ *
  * IMPORTANT: This server must send JSON that matches the kotlinx.serialization
  * format expected by the Android client (Protocol.kt / Models.kt)
  */
@@ -9,9 +9,15 @@ const WebSocket = require('ws');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
-const url = require('url');
+const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
+const { createAuthManager } = require('./authManager');
+const { createCatalogManager } = require('./catalogManager');
+const { createCombatManager } = require('./combatManager');
+const { createGameAdminManager } = require('./gameAdminManager');
+const { createHistoryManager } = require('./historyManager');
+const { createTurnManager } = require('./turnManager');
 
 const helmet = require('helmet');
 const logger = require('./logger');
@@ -23,9 +29,6 @@ const logger = require('./logger');
 
 const PORT = 8765;
 
-// JWT configuration
-const crypto = require('crypto');
-
 if (!process.env.JWT_SECRET) {
     logger.error('❌ FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
     process.exit(1);
@@ -33,37 +36,6 @@ if (!process.env.JWT_SECRET) {
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRY_SECONDS = 48 * 60 * 60; // 48 hours
 
-function signToken(payload) {
-    const header = { alg: 'HS256', typ: 'JWT' };
-    const now = Math.floor(Date.now() / 1000);
-    const fullPayload = { ...payload, iat: now, exp: now + JWT_EXPIRY_SECONDS };
-    const h = Buffer.from(JSON.stringify(header)).toString('base64url');
-    const p = Buffer.from(JSON.stringify(fullPayload)).toString('base64url');
-    const signature = crypto.createHmac('sha256', JWT_SECRET).update(`${h}.${p}`).digest('base64url');
-    return `${h}.${p}.${signature}`;
-}
-
-function verifyToken(token) {
-    try {
-        const [h, p, s] = token.split('.');
-        if (!h || !p || !s) return null;
-
-        const signature = crypto.createHmac('sha256', JWT_SECRET).update(`${h}.${p}`).digest('base64url');
-        if (signature !== s) return null;
-
-        const payload = JSON.parse(Buffer.from(p, 'base64url').toString());
-
-        // Check expiration
-        if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp) {
-            logger.info('⏰ Token expired');
-            return null;
-        }
-
-        return payload;
-    } catch (e) {
-        return null;
-    }
-}
 
 // SSL Configuration
 let server;
@@ -85,36 +57,6 @@ try {
 } catch (e) {
     logger.error('Failed to load SSL certs, falling back to HTTP:', e);
     server = http.createServer(handleRequest);
-}
-
-// Rate limiting for authentication endpoints
-const authRateLimits = new Map(); // IP -> { attempts: number, lastAttempt: timestamp }
-const RATE_LIMIT_MAX_ATTEMPTS = 5;
-const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-
-function isRateLimited(ip) {
-    const record = authRateLimits.get(ip);
-    if (!record) return false;
-
-    // Reset if window expired
-    if (Date.now() - record.lastAttempt > RATE_LIMIT_WINDOW_MS) {
-        authRateLimits.delete(ip);
-        return false;
-    }
-
-    return record.attempts >= RATE_LIMIT_MAX_ATTEMPTS;
-}
-
-function recordAuthAttempt(ip, success) {
-    if (success) {
-        authRateLimits.delete(ip);
-        return;
-    }
-
-    const record = authRateLimits.get(ip) || { attempts: 0, lastAttempt: 0 };
-    record.attempts++;
-    record.lastAttempt = Date.now();
-    authRateLimits.set(ip, record);
 }
 
 // HTTP/HTTPS Request Handler
@@ -143,25 +85,29 @@ function processRequest(req, res) {
         return;
     }
 
-    const parsedUrl = url.parse(req.url, true);
+    let parsedUrl;
+    try {
+        parsedUrl = new URL(req.url || '/', 'http://localhost');
+    } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid URL' }));
+        return;
+    }
 
     // API: Search Monsters
     if (req.method === 'GET' && parsedUrl.pathname === '/api/monsters') {
-        const query = (parsedUrl.query.q || '').slice(0, 50); // hard cap at 50 chars
+        const query = (parsedUrl.searchParams.get('q') || '').slice(0, 50); // hard cap at 50 chars
         logger.info(`🔍 Search Monsters: "${query}"`);
 
-        const sql = `SELECT * FROM monsters WHERE name LIKE ? ORDER BY level ASC LIMIT 50`;
-        const params = [`%${query}%`];
-
-        db.all(sql, params, (err, rows) => {
-            if (err) {
+        db.searchMonsters(query)
+            .then(rows => {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(rows));
+            })
+            .catch(err => {
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: err.message }));
-                return;
-            }
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(rows));
-        });
+            });
         return;
     }
 
@@ -194,6 +140,41 @@ const games = new Map();
 // Store client -> gameId mapping
 const clientGames = new Map();
 
+const {
+    getNextTurnPlayerId,
+    clearRoomLifecycleTimers,
+    syncTurnTimer,
+    closeGame
+} = createTurnManager({ games, db, logger });
+
+const {
+    calculateCombatResult,
+    handleCombatDiceRoll
+} = createCombatManager({ games, clientGames, sendError, logger });
+
+const {
+    handleCatalogSearch,
+    handleCatalogAdd
+} = createCatalogManager({ db, sendError, logger });
+
+const {
+    handleRegister,
+    handleLogin,
+    handleLoginWithToken,
+    handleUpdateProfile
+} = createAuthManager({
+    db,
+    logger,
+    sendError,
+    jwtSecret: JWT_SECRET,
+    jwtExpirySeconds: JWT_EXPIRY_SECONDS
+});
+
+const {
+    handleGetHistory,
+    handleGetLeaderboard
+} = createHistoryManager({ db, logger });
+
 // Debounced save: coalesces rapid successive saves (e.g. 6 players leveling at once)
 // into a single DB write per game after 500ms of inactivity.
 const pendingSaves = new Map(); // gameId -> timeoutHandle
@@ -209,6 +190,35 @@ function debouncedSaveGame(game, delayMs = 500) {
     pendingSaves.set(game.id, handle);
 }
 
+function cancelPendingSave(gameId) {
+    const handle = pendingSaves.get(gameId);
+    if (!handle) return;
+    clearTimeout(handle);
+    pendingSaves.delete(gameId);
+}
+
+const {
+    handleGameOver,
+    handleEndTurn,
+    handleDisconnect,
+    handleDeleteGame,
+    handleKickPlayer,
+    handleSwapPlayers,
+    handleGetHostedGames,
+    handleDeleteHostedGame
+} = createGameAdminManager({
+    games,
+    clientGames,
+    db,
+    logger,
+    WebSocket,
+    sendError,
+    getNextTurnPlayerId,
+    syncTurnTimer,
+    clearRoomLifecycleTimers,
+    cancelPendingSave
+});
+
 // Load persisted games on startup
 async function loadGamesFromDatabase() {
     try {
@@ -217,13 +227,19 @@ async function loadGamesFromDatabase() {
             const game = new GameRoom(saved.hostId, saved.joinCode, saved.hostName, 0, 'MALE');
             game.id = saved.id;
             game.phase = saved.phase;
+            game.ended = saved.phase === "FINISHED";
             game.turnPlayerId = saved.turnPlayerId;
             game.combat = saved.combat;
             game.createdAt = saved.createdAt;
             game.seq = saved.seq;
             game.maxLevel = saved.maxLevel || 10;
+            game.turnTimerSeconds = saved.turnTimerSeconds || 0;
+            game.turnEndsAt = saved.turnEndsAt || null;
             game.winnerId = saved.winnerId || null;
             game.originalHostId = saved.originalHostId || saved.hostId; // Fallback for old DB records
+            game.playerOrder = Array.isArray(saved.playerOrder) && saved.playerOrder.length > 0
+                ? saved.playerOrder
+                : Object.keys(saved.players || {});
 
             // Restore players (without ws connections - they'll reconnect)
             for (const [playerId, playerData] of Object.entries(saved.players)) {
@@ -233,6 +249,7 @@ async function loadGamesFromDatabase() {
                     avatarId: playerData.avatarId || 0,
                     gender: playerData.gender || 'MALE',
                     userId: playerData.userId,
+                    reconnectTokenHash: playerData.reconnectTokenHash || null,
                     level: playerData.level || 1,
                     gear: playerData.gear || 0,
                     treasures: playerData.treasures || 0,
@@ -246,6 +263,7 @@ async function loadGamesFromDatabase() {
             }
 
             games.set(game.id, game);
+            syncTurnTimer(game, 'restored game');
             logger.info(`🔄 Restored game ${game.joinCode} with ${game.players.size} players`);
         }
     } catch (err) {
@@ -272,10 +290,17 @@ class GameRoom {
         this.epoch = 0;
         this.createdAt = Date.now();
         this.phase = "LOBBY";
+        this.ended = false;
         this.winnerId = null;
         this.turnPlayerId = hostId; // Start with host's turn
+        this.playerOrder = [hostId];
         this.combat = null;
         this.maxLevel = 10; // Default; set to 20 for Super Munchkin mode
+        this.turnTimerSeconds = 0;
+        this.turnEndsAt = null;
+        this.turnTimerHandle = null;
+        this.turnTimerKey = null;
+        this.turnTimerNonce = 0;
     }
 
     broadcast(message, excludePlayerId = null) {
@@ -340,9 +365,14 @@ class GameRoom {
             phase: this.phase,
             winnerId: this.winnerId,
             turnPlayerId: this.turnPlayerId,
+            turnEndsAt: this.turnEndsAt,
+            playerOrder: Array.isArray(this.playerOrder) && this.playerOrder.length > 0
+                ? this.playerOrder
+                : Array.from(this.players.keys()),
             createdAt: this.createdAt,
             settings: {
                 maxLevel: this.maxLevel,
+                turnTimerSeconds: this.turnTimerSeconds || 0,
                 allowNegativeGear: true,
                 autoNextTurn: false
             }
@@ -355,9 +385,50 @@ function generateJoinCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let code = '';
     for (let i = 0; i < 8; i++) {
-        code += chars.charAt(Math.floor(Math.random() * chars.length));
+        code += chars.charAt(crypto.randomInt(chars.length));
     }
     return code;
+}
+
+function generateReconnectToken() {
+    return crypto.randomBytes(32).toString('base64url');
+}
+
+function hashReconnectToken(token) {
+    return crypto.createHash('sha256').update(token, 'utf8').digest('base64url');
+}
+
+function timingSafeEqualString(a, b) {
+    const left = Buffer.from(a || '', 'utf8');
+    const right = Buffer.from(b || '', 'utf8');
+    return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function rotateReconnectToken(player) {
+    const token = generateReconnectToken();
+    player.reconnectTokenHash = hashReconnectToken(token);
+    return token;
+}
+
+function canReconnectPlayer(ws, player, reconnectToken) {
+    if (player.userId && ws.userId && player.userId === ws.userId) {
+        return true;
+    }
+
+    if (!reconnectToken || !player.reconnectTokenHash) {
+        return false;
+    }
+
+    return timingSafeEqualString(hashReconnectToken(reconnectToken), player.reconnectTokenHash);
+}
+
+function buildWelcome(game, playerId, reconnectToken) {
+    return {
+        type: "WELCOME",
+        gameState: game.buildGameState(),
+        yourPlayerId: playerId,
+        reconnectToken
+    };
 }
 
 // Find game by join code
@@ -369,6 +440,24 @@ function findGameByCode(joinCode) {
     }
     return null;
 }
+
+const SNAPSHOT_FIRST_EVENT_TYPES = new Set([
+    'GAME_START',
+    'GAME_END',
+    'END_TURN',
+    'PLAYER_ROLL',
+    'COMBAT_START',
+    'COMBAT_END',
+    'COMBAT_ADD_MONSTER',
+    'COMBAT_REMOVE_MONSTER',
+    'COMBAT_UPDATE_MONSTER',
+    'COMBAT_ADD_HELPER',
+    'COMBAT_REMOVE_HELPER',
+    'COMBAT_MODIFY_MODIFIER',
+    'COMBAT_SET_MODIFIER',
+    'COMBAT_ADD_BONUS',
+    'COMBAT_REMOVE_BONUS'
+]);
 
 // WSS already initialized above using http server
 
@@ -511,7 +600,8 @@ function createPlayerState(ws, meta) {
         name: meta.name,
         avatarId: meta.avatarId || 0,
         gender: meta.gender || "MALE",
-        userId: meta.userId || null,
+        userId: ws.userId || null,
+        reconnectTokenHash: null,
         level: 1,
         gear: 0,
         treasures: 0,
@@ -525,9 +615,14 @@ function createPlayerState(ws, meta) {
 }
 
 function handleCreateGame(ws, message) {
-    const { playerMeta, superMunchkin } = message;
+    const { playerMeta, superMunchkin, turnTimerSeconds } = message;
+    if (!playerMeta || typeof playerMeta.name !== 'string') {
+        sendError(ws, 'INVALID_DATA', 'Datos de jugador invalidos');
+        return;
+    }
+
     const joinCode = generateJoinCode();
-    const playerId = playerMeta.playerId || uuidv4();
+    const playerId = uuidv4();
 
     logger.info(`🎲 Creating game for ${playerMeta.name} with playerId: ${playerId}, superMunchkin: ${!!superMunchkin}`);
 
@@ -535,7 +630,10 @@ function handleCreateGame(ws, message) {
     if (superMunchkin === true) {
         game.maxLevel = 20;
     }
-    game.players.set(playerId, createPlayerState(ws, playerMeta));
+    game.turnTimerSeconds = Math.max(0, Number(turnTimerSeconds) || 0);
+    const player = createPlayerState(ws, playerMeta);
+    const reconnectToken = rotateReconnectToken(player);
+    game.players.set(playerId, player);
 
     games.set(game.id, game);
     clientGames.set(ws, { gameId: game.id, playerId });
@@ -543,11 +641,7 @@ function handleCreateGame(ws, message) {
     logger.info(`✅ Game created: ${joinCode} by ${playerMeta.name}`);
 
     // Send welcome with game state - use "WELCOME" type to match @SerialName
-    const response = {
-        type: "WELCOME",
-        gameState: game.buildGameState(),
-        yourPlayerId: playerId
-    };
+    const response = buildWelcome(game, playerId, reconnectToken);
 
     logger.info('📤 Sending WELCOME:', JSON.stringify(response, null, 2));
     ws.send(JSON.stringify(response));
@@ -595,7 +689,17 @@ function handleHello(ws, message) {
     // Record attempt
     recordJoinAttempt(clientIp);
 
-    const { joinCode, playerMeta } = message;
+    const { joinCode, playerMeta, reconnectToken } = message;
+    if (!joinCode || typeof joinCode !== 'string') {
+        sendError(ws, 'INVALID_JOIN_CODE', 'Codigo de partida invalido');
+        return;
+    }
+
+    if (!playerMeta || typeof playerMeta.name !== 'string') {
+        sendError(ws, 'INVALID_DATA', 'Datos de jugador invalidos');
+        return;
+    }
+
     const game = findGameByCode(joinCode);
 
     if (!game) {
@@ -604,7 +708,7 @@ function handleHello(ws, message) {
         return;
     }
 
-    let playerId = playerMeta.playerId?.value || playerMeta.playerId || uuidv4();
+    let playerId = playerMeta.playerId?.value || playerMeta.playerId || null;
 
     // Check if this user is already in the game under a different playerId (e.g. reinstall, different device)
     if (ws.userId) {
@@ -623,6 +727,17 @@ function handleHello(ws, message) {
     if (game.players.has(playerId)) {
         // Reconnection - mark as connected again
         const player = game.players.get(playerId);
+        if (!canReconnectPlayer(ws, player, reconnectToken)) {
+            logger.warn(`⚠️ Reconnect rejected for ${joinCode}: invalid token/user binding for ${playerId}`);
+            sendError(ws, 'UNAUTHORIZED', 'Reconnect token invalid or expired');
+            return;
+        }
+
+        if (player.ws && player.ws !== ws && player.ws.readyState === WebSocket.OPEN) {
+            player.ws.close(1000, 'Reconnected from another device');
+        }
+
+        const nextReconnectToken = rotateReconnectToken(player);
         player.ws = ws;
         player.isConnected = true;
         clientGames.set(ws, { gameId: game.id, playerId });
@@ -648,12 +763,10 @@ function handleHello(ws, message) {
             logger.info(`👑 Original host ${player.name} reclaimed host status`);
         }
 
+        syncTurnTimer(game, 'player reconnected');
+
         // Send WELCOME with playerId so client can properly navigate
-        ws.send(JSON.stringify({
-            type: "WELCOME",
-            yourPlayerId: playerId,
-            gameState: game.buildGameState()
-        }));
+        ws.send(JSON.stringify(buildWelcome(game, playerId, nextReconnectToken)));
 
         // Broadcast full STATE_SNAPSHOT to all — ensures every client sees consistent
         // hostId, isConnected flags, and turnPlayerId after any reconnect
@@ -671,19 +784,30 @@ function handleHello(ws, message) {
     }
 
     // New player joining
-    game.players.set(playerId, createPlayerState(ws, playerMeta));
+    if (game.players.size >= 6) {
+        sendError(ws, 'GAME_FULL', 'Partida llena');
+        return;
+    }
+
+    playerId = uuidv4();
+    const player = createPlayerState(ws, playerMeta);
+    const nextReconnectToken = rotateReconnectToken(player);
+    game.players.set(playerId, player);
+    if (!Array.isArray(game.playerOrder)) {
+        game.playerOrder = [];
+    }
+    if (!game.playerOrder.includes(playerId)) {
+        game.playerOrder.push(playerId);
+    }
 
     clientGames.set(ws, { gameId: game.id, playerId });
     game.seq++;
 
     logger.info(`✅ Player ${playerMeta.name} joined ${joinCode}`);
+    syncTurnTimer(game, 'player joined');
 
     // Send welcome to new player
-    ws.send(JSON.stringify({
-        type: "WELCOME",
-        yourPlayerId: playerId,
-        gameState: game.buildGameState()
-    }));
+    ws.send(JSON.stringify(buildWelcome(game, playerId, nextReconnectToken)));
 
     // Broadcast player joined to others
     game.broadcast({
@@ -721,20 +845,40 @@ function handleEvent(ws, message) {
         return;
     }
 
+    if (event.targetPlayerId && event.targetPlayerId !== playerId) {
+        sendError(ws, 'FORBIDDEN', 'Action not authorized');
+        return;
+    }
+
     // Apply event to game state
-    applyEvent(game, event, playerId);
+    const applied = applyEvent(game, event, playerId, ws);
+    if (!applied) {
+        return;
+    }
 
     game.seq++;
+    const timerStateChanged = syncTurnTimer(game, `event ${event.type}`);
+    const snapshotFirstEvent = SNAPSHOT_FIRST_EVENT_TYPES.has(event.type);
 
-    // Broadcast event to all players
-    game.broadcast({
-        type: "EVENT_BROADCAST",
-        gameId: game.id,
-        epoch: game.epoch,
-        event,
-        fromPlayerId: playerId,
-        seq: game.seq
-    });
+    if (!snapshotFirstEvent) {
+        // Lightweight events can still be replayed locally by clients.
+        game.broadcast({
+            type: "EVENT_BROADCAST",
+            gameId: game.id,
+            epoch: game.epoch,
+            event,
+            fromPlayerId: playerId,
+            seq: game.seq
+        });
+    }
+
+    if (snapshotFirstEvent || timerStateChanged) {
+        game.broadcast({
+            type: "STATE_SNAPSHOT",
+            gameState: game.buildGameState(),
+            seq: game.seq
+        });
+    }
 
     // Persist game state after significant events
     const saveableEvents = [
@@ -754,9 +898,9 @@ function handleEvent(ws, message) {
     }
 }
 
-function applyEvent(game, event, playerId) {
+function applyEvent(game, event, playerId, ws) {
     const player = game.players.get(playerId);
-    if (!player) return;
+    if (!player) return false;
 
     switch (event.type) {
         case 'INC_LEVEL':
@@ -798,7 +942,7 @@ function applyEvent(game, event, playerId) {
         case 'COMBAT_START':
             if (game.combat) {
                 sendError(ws, 'COMBAT_ALREADY_ACTIVE', 'Ya hay un combate activo');
-                return;
+                return false;
             }
             game.combat = {
                 mainPlayerId: event.mainPlayerId,
@@ -818,8 +962,12 @@ function applyEvent(game, event, playerId) {
             }
             break;
         case 'COMBAT_ADD_MONSTER': {
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
             if (game.combat.monsters.length >= 6) { sendError(ws, 'COMBAT_MONSTER_LIMIT', 'Máximo 6 monstruos por combate'); return; }
+            if (game.combat.monsters.length >= 6) {
+                sendError(ws, 'COMBAT_MONSTER_LIMIT', 'Maximo 6 monstruos por combate');
+                return false;
+            }
             const m = event.monster || {};
             m.baseLevel = Math.max(1, Math.min(20, m.baseLevel || 1));
             m.flatModifier = Math.max(-10, Math.min(10, m.flatModifier || 0));
@@ -827,33 +975,45 @@ function applyEvent(game, event, playerId) {
             break;
         }
         case 'COMBAT_REMOVE_MONSTER':
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
             game.combat.monsters = game.combat.monsters.filter(m => m.id !== event.monsterId);
             break;
         case 'COMBAT_ADD_HELPER': {
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
             if (event.helperId === game.combat.mainPlayerId) { sendError(ws, 'INVALID_HELPER', 'No puedes ayudarte a ti mismo'); return; }
             if (!game.players.has(event.helperId)) { sendError(ws, 'PLAYER_NOT_FOUND', 'Jugador no encontrado'); return; }
+            if (event.helperId === game.combat.mainPlayerId) {
+                sendError(ws, 'INVALID_HELPER', 'No puedes ayudarte a ti mismo');
+                return false;
+            }
+            if (!game.players.has(event.helperId)) {
+                sendError(ws, 'PLAYER_NOT_FOUND', 'Jugador no encontrado');
+                return false;
+            }
             game.combat.helperPlayerId = event.helperId;
             break;
         }
         case 'COMBAT_REMOVE_HELPER':
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
             game.combat.helperPlayerId = null;
             break;
         case 'COMBAT_MODIFY_MODIFIER':
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
             if (event.target === 'HEROES') game.combat.heroModifier = (game.combat.heroModifier || 0) + (event.delta || 0);
             else game.combat.monsterModifier = (game.combat.monsterModifier || 0) + (event.delta || 0);
             break;
         case 'COMBAT_SET_MODIFIER':
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
             if (event.target === 'HEROES') game.combat.heroModifier = (event.value || 0);
             else game.combat.monsterModifier = (event.value || 0);
             break;
         case 'COMBAT_ADD_BONUS': {
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
             if (game.combat.tempBonuses.length >= 20) { sendError(ws, 'COMBAT_BONUS_LIMIT', 'Máximo 20 bonificaciones por combate'); return; }
+            if (game.combat.tempBonuses.length >= 20) {
+                sendError(ws, 'COMBAT_BONUS_LIMIT', 'Maximo 20 bonificaciones por combate');
+                return false;
+            }
             const bonus = event.bonus || {};
             bonus.amount = Math.max(-50, Math.min(50, bonus.amount || 0));
             game.combat.tempBonuses.push(bonus);
@@ -866,7 +1026,7 @@ function applyEvent(game, event, playerId) {
         case 'COMBAT_END': {
             if (!game.combat || event.actorId !== game.combat.mainPlayerId) {
                 sendError(ws, 'UNAUTHORIZED', 'Solo el jugador principal puede terminar el combate');
-                return;
+                return false;
             }
             const helperPlayerId = game.combat.helperPlayerId ?? null;
 
@@ -921,90 +1081,12 @@ function applyEvent(game, event, playerId) {
             break;
     }
 
-    // Check Win Condition
     if (player.level >= game.maxLevel && !game.winnerId) {
-        logger.info(`🏆 Player ${player.name} reached Level ${game.maxLevel}!`);
-        closeGame(game, player.id);
-    }
-}
-
-function getNextTurnPlayerId(game) {
-    if (!game.turnPlayerId) return game.hostId;
-
-    // Sort players by ID to ensure deterministic order (matching client logic)
-    // In future, support game.playerOrder if added
-    const playerIds = Array.from(game.players.keys()).sort();
-
-    let currentIndex = playerIds.indexOf(game.turnPlayerId);
-    if (currentIndex === -1) currentIndex = 0;
-
-    // Loop to find next connected
-    // We check length + 1 times to handle wrap around and specific case where only 1 player remains
-    for (let i = 1; i <= playerIds.length; i++) {
-        const nextIndex = (currentIndex + i) % playerIds.length;
-        const nextId = playerIds[nextIndex];
-        const player = game.players.get(nextId);
-
-        // Skip disconnected players
-        if (player && (player.isConnected !== false)) {
-            return nextId;
-        }
+        logger.info(`Player ${player.name} reached Level ${game.maxLevel}; awaiting host confirmation`);
+        return true;
     }
 
-    return game.turnPlayerId; // Fallback: keep same player if everyone else disconnected
-}
-
-
-function closeGame(game, winnerId) {
-    if (game.ended) return; // Already closed
-    game.ended = true;
-    game.winnerId = winnerId;
-    game.phase = "FINISHED";
-
-    // Helper to get real userId or null
-    const participants = [];
-    for (const [pid, p] of game.players) {
-        participants.push({
-            playerId: pid,
-            userId: p.userId, // Can be null if guest
-            joinedAt: p.joinedAt
-        });
-    }
-
-    // Determine stored winner ID (User ID preferred, else Player ID)
-    let winnerUserId = null;
-    if (winnerId) {
-        const winner = game.players.get(winnerId);
-        if (winner) winnerUserId = winner.userId || winnerId; // If guest, use PlayerID as placeholder
-    }
-
-    db.recordGame(game.id, winnerUserId || "aborted", game.createdAt, Date.now(), participants)
-        .then(() => logger.info(`💾 Game ${game.id} recorded in history`))
-        .catch(err => logger.error(`❌ Failed to record game ${game.id}`, err));
-}
-
-// Rate limiting for catalog add (per userId)
-const catalogAddRateLimits = new Map(); // userId -> { count: number, windowStart: timestamp }
-const CATALOG_ADD_MAX_PER_MINUTE = 10;
-const CATALOG_ADD_WINDOW_MS = 60 * 1000;
-
-function isCatalogAddRateLimited(userId) {
-    const record = catalogAddRateLimits.get(userId);
-    if (!record) return false;
-    if (Date.now() - record.windowStart > CATALOG_ADD_WINDOW_MS) {
-        catalogAddRateLimits.delete(userId);
-        return false;
-    }
-    return record.count >= CATALOG_ADD_MAX_PER_MINUTE;
-}
-
-function recordCatalogAdd(userId) {
-    const record = catalogAddRateLimits.get(userId);
-    if (!record || Date.now() - record.windowStart > CATALOG_ADD_WINDOW_MS) {
-        catalogAddRateLimits.set(userId, { count: 1, windowStart: Date.now() });
-    } else {
-        record.count++;
-    }
+    return true;
 }
 
 // Rate limiting for join game
@@ -1032,641 +1114,6 @@ function recordJoinAttempt(ip) {
     joinRateLimits.set(ip, record);
 }
 
-function isValidInput(text, maxLength) {
-    return text && typeof text === 'string' && text.length > 0 && text.length <= maxLength;
-}
-
-function handleGetHistory(ws, message) {
-    const { userId } = message;
-    if (!userId) return;
-
-    db.getUserHistory(userId)
-        .then(games => {
-            ws.send(JSON.stringify({
-                type: "HISTORY_RESULT",
-                games: games.map(g => ({
-                    id: g.id,
-                    endedAt: g.ended_at,
-                    winnerId: g.winner_id,
-                    playerCount: g.player_count
-                }))
-            }));
-        })
-        .catch(err => {
-            logger.error("History error:", err);
-            // Optionally send error, but usually UI just shows empty
-        });
-
-}
-
-function handleGetLeaderboard(ws) {
-    db.getLeaderboard()
-        .then(leaderboard => {
-            ws.send(JSON.stringify({
-                type: "LEADERBOARD_RESULT",
-                leaderboard: leaderboard
-            }));
-        })
-        .catch(err => logger.error("Leaderboard error:", err));
-}
-
-function handleRegister(ws, message) {
-    let { username, email, password, avatarId } = message;
-
-    if (!isValidInput(username, 20) || !isValidInput(password, 100)) {
-        sendError(ws, 'INVALID_DATA', 'Invalid or too long username/password');
-        return;
-    }
-
-    // Auto-generate email if not provided (User just wants username)
-    if (!email) {
-        const sanitizedParams = username.toLowerCase().replace(/[^a-z0-9]/g, '');
-        email = `${sanitizedParams}@munchkin.local`;
-    } else if (!isValidInput(email, 100)) {
-        sendError(ws, 'INVALID_DATA', 'Email too long');
-        return;
-    }
-
-    db.createUser(username, email, password, avatarId || 0)
-        .then(user => {
-            logger.info(`✅ User registered: ${user.username} (${user.id})`);
-
-            // Generate Token
-            const token = signToken({ id: user.id, username: user.username, email: user.email });
-
-            // SECURITY: Bind userId to WebSocket session
-            ws.userId = user.id;
-
-            ws.send(JSON.stringify({
-                type: 'AUTH_SUCCESS',
-                user: {
-                    id: user.id,
-                    username: user.username,
-                    email: user.email,
-                    avatarId: user.avatarId
-                },
-                token: token
-            }));
-        })
-        .catch(err => {
-            logger.error("Register failed:", err.message);
-            if (err.message === "EMAIL_EXISTS") {
-                sendError(ws, 'EMAIL_EXISTS', 'El email ya está registrado');
-            } else {
-                sendError(ws, 'REGISTER_FAILED', 'Error al registrar usuario');
-            }
-        });
-}
-
-function handleLogin(ws, message) {
-    const clientIp = ws.clientIp || 'unknown';
-
-    // Rate limiting check
-    if (isRateLimited(clientIp)) {
-        sendError(ws, 'RATE_LIMITED', 'Demasiados intentos. Espera 15 minutos.');
-        return;
-    }
-
-    const { email, password } = message;
-
-    if (!isValidInput(email, 100) || !isValidInput(password, 100)) {
-        sendError(ws, 'INVALID_DATA', 'Invalid input format');
-        return;
-    }
-
-    db.verifyUser(email, password)
-        .then(user => {
-            if (user) {
-                recordAuthAttempt(clientIp, true); // Clear rate limit on success
-                logger.info(`✅ User logged in: ${user.username}`);
-
-                // Generate Token
-                const token = signToken({ id: user.id, username: user.username, email: user.email });
-
-                // SECURITY: Bind userId to WebSocket session
-                ws.userId = user.id;
-
-                ws.send(JSON.stringify({
-                    type: 'AUTH_SUCCESS',
-                    user: {
-                        id: user.id,
-                        username: user.username,
-                        email: user.email,
-                        avatarId: user.avatarId
-                    },
-                    token: token
-                }));
-            } else {
-                recordAuthAttempt(clientIp, false); // Record failed attempt
-                logger.info(`❌ Login failed for ${email}`);
-                sendError(ws, 'AUTH_FAILED', 'Email o contraseña incorrectos');
-            }
-        })
-        .catch(err => {
-            logger.error("Login error:", err);
-            sendError(ws, 'LOGIN_ERROR', 'Error interno al iniciar sesión');
-        });
-}
-
-function handleLoginWithToken(ws, message) {
-    const { token } = message;
-
-    if (!token) {
-        sendError(ws, 'AUTH_FAILED', 'Missing token');
-        return;
-    }
-
-    const payload = verifyToken(token);
-
-    if (!payload) {
-        logger.info("❌ Invalid or expired token presented");
-        sendError(ws, 'AUTH_FAILED', 'Session expired');
-        return;
-    }
-
-    // Token is valid, get user details to ensure they still exist
-    db.getUserById(payload.id)
-        .then(user => {
-            if (user) {
-                logger.info(`✅ User logged in via TOKEN: ${user.username}`);
-
-                // SECURITY: Bind userId to WebSocket session
-                ws.userId = user.id;
-
-                ws.send(JSON.stringify({
-                    type: 'AUTH_SUCCESS',
-                    token: token,
-                    user: {
-                        id: user.id,
-                        username: user.username,
-                        email: user.email,
-                        avatarId: user.avatarId
-                    }
-                }));
-            } else {
-                sendError(ws, 'AUTH_FAILED', 'User not found');
-            }
-        })
-        .catch(err => {
-            logger.error("Token login error:", err);
-            sendError(ws, 'LOGIN_ERROR', 'Internal error');
-        });
-}
-
-
-function handleUpdateProfile(ws, message) {
-    const { userId, username, password } = message;
-
-    // Security check: Verify session matches requested update
-    if (!ws.userId || ws.userId !== userId) {
-        logger.warn(`⚠️ SECURITY: Unauthorized profile update attempt. Session: ${ws.userId}, Target: ${userId}`);
-        sendError(ws, 'FORBIDDEN', 'No tienes permiso para editar este perfil');
-        return;
-    }
-
-    if (username && !isValidInput(username, 20)) {
-        sendError(ws, 'INVALID_DATA', 'Username too long');
-        return;
-    }
-
-    if (password && !isValidInput(password, 100)) {
-        sendError(ws, 'INVALID_DATA', 'Password too long');
-        return;
-    }
-
-    db.updateUser(userId, username, password)
-        .then(user => {
-            logger.info(`✅ Profile updated for user: ${user.username}`);
-            ws.send(JSON.stringify({
-                type: "PROFILE_UPDATED",
-                user: {
-                    id: user.id,
-                    username: user.username,
-                    email: user.email,
-                    avatarId: user.avatarId
-                }
-            }));
-        })
-        .catch(err => {
-            logger.error("Update profile error:", err);
-            sendError(ws, 'UPDATE_FAILED', 'Error al actualizar perfil');
-        });
-}
-
-
-function handleGameOver(ws, message) {
-    const { gameId, winnerId } = message;
-
-    // Validate host? Ideally yes.
-    const clientData = clientGames.get(ws);
-    if (!clientData) return;
-
-    const game = games.get(gameId);
-    if (!game) return;
-
-    if (game.hostId !== clientData.playerId) {
-        // Only host can end game
-        return;
-    }
-
-    // Update game state
-    game.phase = "FINISHED";
-    game.winnerId = winnerId;
-    game.seq++;
-
-    logger.info(`🏁 Game Over: ${game.joinCode}, Winner: ${winnerId}`);
-
-    // Broadcast update so clients see FINISHED phase
-    game.broadcast({
-        type: "STATE_SNAPSHOT",
-        gameState: game.buildGameState(),
-        seq: game.seq
-    });
-
-    // Prepare participants list
-    const participants = [];
-    for (const [pid, p] of game.players) {
-        participants.push({
-            userId: p.userId, // Real user ID if logged in
-            playerId: pid
-            // could add final level here
-        });
-    }
-
-    db.recordGame(gameId, winnerId, game.createdAt, Date.now(), participants)
-        .then(() => {
-            logger.info("💾 Game recorded successfully");
-        })
-        .catch(err => logger.error("Error recording game:", err));
-
-    // Cleanup game immediately or let it linger?
-    // Usually keep it briefly for "Game Over" screen sync.
-}
-
-// ============== Turn Management ==============
-
-function handleEndTurn(ws) {
-    const clientInfo = clientGames.get(ws);
-    if (!clientInfo) {
-        return sendError(ws, "GENERAL_ERROR", "No estás en ninguna partida");
-    }
-
-    const game = games.get(clientInfo.gameId);
-    if (!game) {
-        return sendError(ws, "GENERAL_ERROR", "Partida no encontrada");
-    }
-
-    // Only current turn player can end their turn
-    if (game.turnPlayerId && game.turnPlayerId !== clientInfo.playerId) {
-        return sendError(ws, "GENERAL_ERROR", "No es tu turno");
-    }
-
-    // Get player order (array of player IDs)
-    const playerIds = Array.from(game.players.keys());
-    if (playerIds.length === 0) return;
-
-    // Find current player index
-    const currentIndex = playerIds.indexOf(game.turnPlayerId);
-
-    // Advance to next player (wrap around)
-    const nextIndex = (currentIndex + 1) % playerIds.length;
-    game.turnPlayerId = playerIds[nextIndex];
-    game.seq++;
-
-    const nextPlayer = game.players.get(game.turnPlayerId);
-    logger.info(`🔄 Turn advanced to: ${nextPlayer?.name || game.turnPlayerId}`);
-
-    // Broadcast updated state
-    game.broadcast({
-        type: "STATE_SNAPSHOT",
-        gameState: game.buildGameState(),
-        seq: game.seq
-    });
-}
-
-/**
- * Server-side combat result calculation.
- * Mirrors CombatCalculator.kt logic to validate/override client-claimed outcomes.
- */
-function calculateCombatResult(game) {
-    const combat = game.combat;
-    if (!combat) return null;
-
-    const mainPlayer = game.players.get(combat.mainPlayerId);
-    if (!mainPlayer) return null;
-    const helperPlayer = combat.helperPlayerId ? game.players.get(combat.helperPlayerId) : null;
-
-    // Hero power
-    let heroesPower = (mainPlayer.level || 1) + (mainPlayer.gear || 0);
-    if (helperPlayer) heroesPower += (helperPlayer.level || 1) + (helperPlayer.gear || 0);
-    heroesPower += (combat.heroModifier || 0);
-
-    // Temp bonuses for heroes
-    for (const bonus of (combat.tempBonuses || [])) {
-        if (bonus.appliesTo === 'HEROES') heroesPower += (bonus.amount || 0);
-    }
-
-    // Intrinsic: Cleric +3 vs any Undead monster
-    const hasUndead = (combat.monsters || []).some(m => m.isUndead);
-    if (hasUndead) {
-        if (mainPlayer.characterClass === 'CLERIC') heroesPower += 3;
-        if (helperPlayer && helperPlayer.characterClass === 'CLERIC') heroesPower += 3;
-    }
-
-    // Monster power + total rewards
-    let monstersPower = 0;
-    let totalLevels = 0;
-    let totalTreasures = 0;
-    for (const m of (combat.monsters || [])) {
-        monstersPower += (m.baseLevel || 0) + (m.flatModifier || 0);
-        totalLevels += (m.levels || 1);
-        totalTreasures += (m.treasures || 1);
-    }
-    monstersPower += (combat.monsterModifier || 0);
-
-    // Temp bonuses for monsters
-    for (const bonus of (combat.tempBonuses || [])) {
-        if (bonus.appliesTo === 'MONSTER') monstersPower += (bonus.amount || 0);
-    }
-
-    // Outcome: Warrior wins ties
-    const isWarrior = mainPlayer.characterClass === 'WARRIOR';
-    const outcome = (heroesPower > monstersPower || (heroesPower === monstersPower && isWarrior)) ? 'WIN' : 'LOSE';
-
-    // Elf helper bonus
-    const helperLevelsGained = (outcome === 'WIN' && helperPlayer && helperPlayer.characterRace === 'ELF') ? 1 : 0;
-
-    return { outcome, heroesPower, monstersPower, totalLevels, totalTreasures, helperLevelsGained };
-}
-
-function handleCombatDiceRoll(ws, message) {
-    const clientInfo = clientGames.get(ws);
-    if (!clientInfo) {
-        return sendError(ws, "GENERAL_ERROR", "No estás en ninguna partida");
-    }
-
-    const game = games.get(clientInfo.gameId);
-    if (!game) {
-        return sendError(ws, "GENERAL_ERROR", "Partida no encontrada");
-    }
-
-    const player = game.players.get(clientInfo.playerId);
-    if (!player) {
-        return sendError(ws, "GENERAL_ERROR", "Jugador no encontrado");
-    }
-
-    // Store dice roll in combat state (if combat active)
-    const { result, purpose, success } = message;
-
-    // Validate dice result is in range [1, 6]
-    const validResult = Math.max(1, Math.min(6, Math.round(Number(result) || 1)));
-
-    const diceRollInfo = {
-        playerId: clientInfo.playerId,
-        playerName: player.name,
-        result: validResult,
-        purpose: purpose || "RANDOM",
-        success: success || false,
-        timestamp: Date.now()
-    };
-
-    // Store in game for buildGameState to include
-    game.lastCombatDiceRoll = diceRollInfo;
-
-    logger.info(`🎲 ${player.name} rolled ${result} for ${purpose} - ${success ? 'SUCCESS' : 'FAIL'}`);
-
-    // Broadcast the dice roll event to all players
-    game.broadcast({
-        type: "COMBAT_DICE_ROLL_RESULT",
-        diceRoll: diceRollInfo
-    });
-}
-
-// ============== Catalog Handlers ==============
-
-function handleCatalogSearch(ws, message) {
-    const { query } = message;
-
-    if (!query || query.length < 2) {
-        ws.send(JSON.stringify({ type: "CATALOG_SEARCH_RESULT", results: [] }));
-        return;
-    }
-
-    if (query.length > 50) {
-        sendError(ws, 'INVALID_DATA', 'Query too long');
-        return;
-    }
-
-    db.searchMonsters(query)
-        .then(results => {
-            logger.info(`🔍 Search '${query}' returned ${results.length} monsters`);
-            ws.send(JSON.stringify({
-                type: "CATALOG_SEARCH_RESULT",
-                results: results
-            }));
-        })
-        .catch(err => {
-            logger.error("Search error:", err);
-            sendError(ws, "SEARCH_ERROR", "Error al buscar monstruos");
-        });
-}
-
-function handleCatalogAdd(ws, message) {
-    const { monster, userId } = message;
-
-    if (!monster || !monster.name || !monster.level) {
-        sendError(ws, "INVALID_DATA", "Datos de monstruo inválidos");
-        return;
-    }
-
-    const rateLimitKey = userId || ws.clientIp || 'anonymous';
-    if (isCatalogAddRateLimited(rateLimitKey)) {
-        sendError(ws, "RATE_LIMITED", "Demasiados monstruos añadidos. Espera un momento.");
-        return;
-    }
-    recordCatalogAdd(rateLimitKey);
-
-    db.addMonster(monster, userId)
-        .then(id => {
-            logger.info(`🆕 Added monster: ${monster.name} (${id})`);
-            ws.send(JSON.stringify({
-                type: "CATALOG_ADD_SUCCESS",
-                monster: { ...monster, id }
-            }));
-        })
-        .catch(err => {
-            logger.error("Add monster error:", err);
-            sendError(ws, "ADD_MONSTER_ERROR", "Error al guardar monstruo");
-        });
-}
-
-function handleDisconnect(ws) {
-    const clientData = clientGames.get(ws);
-    if (!clientData) return;
-
-    const game = games.get(clientData.gameId);
-    if (game) {
-        logger.info(`👋 Player ${clientData.playerId} disconnected from ${game.joinCode}`);
-
-        // Mark player as disconnected but KEEP in game for reconnection
-        const player = game.players.get(clientData.playerId);
-        if (player) {
-            player.ws = null;
-            player.isConnected = false;
-        }
-
-        // Broadcast disconnect status
-        game.broadcast({
-            type: "PLAYER_STATUS",
-            playerId: clientData.playerId,
-            isConnected: false
-        });
-
-        // Count connected players
-        let connectedCount = 0;
-        for (const p of game.players.values()) {
-            if (p.isConnected !== false && p.ws) {
-                connectedCount++;
-            }
-        }
-
-        // Only delete game if ALL players are disconnected
-        if (connectedCount === 0) {
-            // Give players 5 minutes to reconnect before deleting the game
-            logger.info(`⏳ All players disconnected from ${game.joinCode}, starting 5-minute cleanup timer`);
-            game.cleanupTimer = setTimeout(() => {
-                // Check again if still empty
-                let stillEmpty = true;
-                for (const p of game.players.values()) {
-                    if (p.isConnected !== false && p.ws) {
-                        stillEmpty = false;
-                        break;
-                    }
-                }
-                if (stillEmpty && games.has(clientData.gameId)) {
-                    games.delete(clientData.gameId);
-                    db.deleteActiveGame(clientData.gameId).catch(err => logger.error('Failed to delete game from DB:', err));
-                    logger.info(`🗑️ Game ${game.joinCode} deleted (all players disconnected for 5 min)`);
-                }
-            }, 5 * 60 * 1000); // 5 minutes
-        } else {
-            // Delayed host migration: give host 90s to reconnect before transferring control.
-            // If the host returns within 90s, the migration is cancelled and they reclaim host status.
-            if (game.hostId === clientData.playerId) {
-                if (game.pendingHostMigration) clearTimeout(game.pendingHostMigration);
-                game.pendingHostMigration = setTimeout(() => {
-                    game.pendingHostMigration = null;
-                    const hostPlayer = game.players.get(clientData.playerId);
-                    if (hostPlayer && !hostPlayer.isConnected) {
-                        for (const [pid, p] of game.players.entries()) {
-                            if (p.isConnected && p.ws && p.ws.readyState === WebSocket.OPEN) {
-                                game.hostId = pid;
-                                game.hostName = p.name;
-                                logger.info(`👑 Host migrated to ${p.name} after 90s timeout`);
-                                game.broadcast({
-                                    type: "STATE_SNAPSHOT",
-                                    gameState: game.buildGameState(),
-                                    seq: game.seq
-                                });
-                                db.saveActiveGame(game).catch(err => logger.error('Failed to save after migration:', err));
-                                break;
-                            }
-                        }
-                    }
-                }, 90 * 1000);
-                logger.info(`⏳ Host ${game.hostName} disconnected — migration pending for 90s`);
-            }
-
-            // NOTE: We do NOT auto-advance the turn when a player disconnects.
-            // The turn is held for the disconnected player until they reconnect or the host kicks them.
-            // This prevents state desync and keeps the game fair.
-
-            // Persist changes
-            db.saveActiveGame(game).catch(err => logger.error('Failed to save game:', err));
-        }
-    }
-
-    clientGames.delete(ws);
-}
-
-function handleDeleteGame(ws, message) {
-    const clientInfo = clientGames.get(ws);
-    if (!clientInfo) return;
-
-    const game = games.get(clientInfo.gameId);
-    if (!game) return;
-
-    if (game.hostId !== clientInfo.playerId) {
-        sendError(ws, "PERMISSION_DENIED", "Solo el anfitrión puede borrar la partida");
-        return;
-    }
-
-    logger.info(`🛑 Game ${game.joinCode} deleted by host ${clientInfo.playerId}`);
-
-    // Notify all players
-    game.broadcast({
-        type: "GAME_DELETED",
-        reason: "El anfitrión ha borrado la partida"
-    });
-
-    // Close all connections for this game? Or just let them disconnect?
-    // Better to let client handle GAME_DELETED event and disconnect.
-
-    games.delete(game.id);
-    db.deleteActiveGame(game.id).catch(err => logger.error('Failed to delete game from DB:', err));
-}
-
-function handleKickPlayer(ws, message) {
-    const clientInfo = clientGames.get(ws);
-    if (!clientInfo) return;
-    const game = games.get(clientInfo.gameId);
-    if (!game) return;
-
-    // Only host can kick
-    if (game.hostId !== clientInfo.playerId) {
-        sendError(ws, "PERMISSION_DENIED", "Solo el anfitrión puede expulsar jugadores");
-        return;
-    }
-
-    const { targetPlayerId } = message;
-    if (!targetPlayerId || !game.players.has(targetPlayerId)) {
-        sendError(ws, "PLAYER_NOT_FOUND", "Jugador no encontrado");
-        return;
-    }
-
-    const kickedPlayer = game.players.get(targetPlayerId);
-
-    // If it was the kicked player's turn, advance to next BEFORE deleting
-    if (game.turnPlayerId === targetPlayerId) {
-        const nextId = getNextTurnPlayerId(game);
-        game.turnPlayerId = (nextId !== targetPlayerId) ? nextId : null;
-        game.combat = null; // Clear any active combat
-    }
-
-    // Remove player from game
-    game.players.delete(targetPlayerId);
-    if (Array.isArray(game.playerOrder)) {
-        game.playerOrder = game.playerOrder.filter(id => id !== targetPlayerId);
-    }
-
-    // Close the kicked player's WebSocket if they're still connected
-    for (const [clientWs, info] of clientGames.entries()) {
-        if (info.gameId === clientInfo.gameId && info.playerId === targetPlayerId) {
-            clientWs.close(1000, 'Kicked by host');
-            clientGames.delete(clientWs);
-            break;
-        }
-    }
-
-    logger.info(`👢 Player ${kickedPlayer?.name} kicked from ${game.joinCode} by host`);
-    game.seq++;
-    game.broadcast({
-        type: "STATE_SNAPSHOT",
-        gameState: game.buildGameState(),
-        seq: game.seq
-    });
-    db.saveActiveGame(game).catch(err => logger.error('Failed to save after kick:', err));
-}
 
 function sendError(ws, code, message) {
     if (ws.readyState !== WebSocket.OPEN) return;
@@ -1684,6 +1131,8 @@ setInterval(() => {
 
     for (const [gameId, game] of games) {
         if (now - game.createdAt > maxAge) {
+            clearRoomLifecycleTimers(game, 'cleaning up old game');
+            cancelPendingSave(gameId);
             games.delete(gameId);
             db.deleteActiveGame(gameId).catch(err => logger.error('Failed to delete game from DB:', err));
             logger.info(`🧹 Cleaned up old game ${game.joinCode}`);
@@ -1705,6 +1154,7 @@ async function gracefulShutdown(signal) {
         }
         const savePromises = [];
         for (const game of games.values()) {
+            clearRoomLifecycleTimers(game, 'graceful shutdown');
             savePromises.push(db.saveActiveGame(game).catch(err => logger.error(`Failed to save game ${game.joinCode}:`, err)));
         }
         await Promise.all(savePromises);
@@ -1728,114 +1178,3 @@ process.on('unhandledRejection', (reason) => {
 });
 
 logger.info('✅ Server ready to accept connections');
-
-function handleSwapPlayers(ws, message) {
-    const { player1, player2 } = message;
-    const clientInfo = clientGames.get(ws);
-    if (!clientInfo) return;
-
-    const game = games.get(clientInfo.gameId);
-    if (!game) return;
-
-    // Host check
-    if (game.hostId !== clientInfo.playerId) {
-        console.warn(`⚠️ Non-host ${clientInfo.playerId} tried to swap players`);
-        return;
-    }
-
-    if (!game.players.has(player1) || !game.players.has(player2)) {
-        console.warn('⚠️ Swap failed: player not found');
-        return;
-    }
-
-    // Convert map to array entry list to preserve order
-    const entries = Array.from(game.players.entries());
-    const idx1 = entries.findIndex(([pid]) => pid === player1);
-    const idx2 = entries.findIndex(([pid]) => pid === player2);
-
-    if (idx1 === -1 || idx2 === -1) return;
-
-    // Swap
-    [entries[idx1], entries[idx2]] = [entries[idx2], entries[idx1]];
-
-    // Rebuild map with new order
-    game.players = new Map(entries);
-
-    logger.info(`🔄 Swapped players ${player1} and ${player2}`);
-
-    // Broadcast update
-    game.broadcast({
-        type: "STATE_UPDATE",
-        gameState: game.buildGameState()
-    });
-}
-
-function handleGetHostedGames(ws) {
-    if (!ws.userId) {
-        // Not logged in, can't track games
-        ws.send(JSON.stringify({
-            type: "HOSTED_GAMES_RESULT",
-            games: []
-        }));
-        return;
-    }
-
-    const hostedGames = [];
-    for (const game of games.values()) {
-        if (game.hostUserId === ws.userId) {
-            hostedGames.push({
-                gameId: game.id,
-                joinCode: game.joinCode,
-                playerCount: game.players.size,
-                phase: game.phase,
-                createdAt: game.createdAt
-            });
-        }
-    }
-
-    ws.send(JSON.stringify({
-        type: "HOSTED_GAMES_RESULT",
-        games: hostedGames
-    }));
-}
-
-function handleDeleteHostedGame(ws, message) {
-    const { gameId } = message;
-
-    // Auth check
-    if (!ws.userId) {
-        sendError(ws, 'UNAUTHORIZED', 'Debes iniciar sesión');
-        return;
-    }
-
-    const game = games.get(gameId);
-    if (!game) {
-        sendError(ws, 'GAME_NOT_FOUND', 'Partida no encontrada');
-        return;
-    }
-
-    // Authorization check
-    if (game.hostUserId !== ws.userId) {
-        logger.warn(`⚠️ Unauthorized delete attempt by ${ws.userId} on game ${gameId}`);
-        sendError(ws, 'PERMISSION_DENIED', 'No eres el anfitrión de esta partida');
-        return;
-    }
-
-    logger.info(`🗑️ Host ${ws.userId} deleting game ${game.joinCode} from menu`);
-
-    // Notify players
-    game.broadcast({
-        type: "GAME_DELETED",
-        reason: "La partida ha sido borrada por el anfitrión"
-    });
-
-    // Delete
-    games.delete(gameId);
-    db.deleteActiveGame(gameId).catch(err => logger.error('Failed to delete game from DB:', err));
-
-    // Confirm to host so UI updates
-    ws.send(JSON.stringify({
-        type: "HOSTED_GAME_DELETED",
-        gameId: gameId
-    }));
-}

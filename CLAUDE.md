@@ -2,148 +2,97 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
----
-
 ## Project Overview
 
-**Munchkin Mesa Tracker** is an Android app for local multiplayer Munchkin board game sessions over LAN. It uses a client-server architecture: an embedded Node.js server handles game state over WebSockets, and an Android Kotlin client connects to it.
-
----
+**Munchkin Mesa Tracker** is an Android client plus a Node.js backend for synchronized Munchkin sessions. The current product uses a remote authoritative WebSocket server; the old LAN/embedded-host path is no longer part of the active codebase.
 
 ## Build Commands
 
 ### Android Client
 
 ```bash
-# Build debug APK
 ./gradlew assembleDebug
-# Output: app/build/outputs/apk/debug/app-debug.apk
-
-# Build release APK (requires keystore credentials in local.properties)
 ./gradlew assembleRelease
-
-# Run unit tests
 ./gradlew :app:test
-
-# Run a specific test class
 ./gradlew :app:test --tests "*.CombatCalculatorTest"
 ```
-
-Signing credentials (`KEYSTORE_STORE_PASSWORD`, `KEYSTORE_KEY_ALIAS`, `KEYSTORE_KEY_PASSWORD`) are read from `local.properties` (gitignored) or environment variables. Keystore file: `munchkin.keystore` in the repo root.
 
 ### Node.js Server
 
 ```bash
 cd server
 npm install
-npm start          # node server.js — runs on port 8765
+npm start
 ```
 
 ### Security Verification
 
 ```bash
-python scripts/security_verify.py   # Run before pushing
+python scripts/security_verify.py
 ```
-
----
-
-## Testing on Emulators (Two-Device Setup)
-
-```bash
-# Terminal 1 — Host emulator
-emulator -avd Pixel_6_API_30 -port 5554
-
-# Terminal 2 — Client emulator
-emulator -avd Pixel_6_API_30_copy -port 5556
-
-# Allow client emulator to reach host emulator's server
-adb -s emulator-5556 reverse tcp:8765 tcp:8765
-# Client connects to: 10.0.2.2:8765
-```
-
----
 
 ## Architecture
 
 ### The Golden Rule
 
-**Clients never mutate UI state directly.** Every action flows:
-1. UI calls `GameViewModel.someAction()`
-2. ViewModel emits a `GameEvent` wrapped in `EventRequestMessage` via WebSocket
-3. `server.js` validates, mutates in-memory `GameRoom`, broadcasts back
-4. All clients receive `EventBroadcastMessage` and rebuild their `GameState`
+Clients do not authoritatively mutate gameplay state. Every action flows:
+
+1. UI calls a `GameViewModel` action
+2. `GameViewModel` sends a `WsMessage` through `GameClient`
+3. `server.js` validates and mutates the room state
+4. The server sends snapshots and events back to clients
+5. The app renders the returned state
 
 ### Key Data Flow
 
+```text
+UI -> GameViewModel -> GameClient -> server.js
+UI <- GameViewModel <- GameClient <- authoritative server state
 ```
-UI (Compose) → GameViewModel → GameClient (Ktor WS) → server.js
-                                                           ↓
-UI ← GameViewModel ← GameClient ←────────────── broadcast to all clients
-```
-
-### Critical Serialization Constraint
-
-The client uses `kotlinx.serialization`; the server uses plain `JSON.parse`. When modifying `Models.kt`, `Events.kt`, or `Protocol.kt`:
-- `@JvmInline value class` serializes as its primitive type (not a wrapper object)
-- Enum names must match exactly what JavaScript expects
-- `@SerialName` annotations control the JSON field names
 
 ### Core Modules
 
 | Module | Purpose |
-|--------|---------|
-| `core/Models.kt` | `GameState`, `PlayerState`, `CatalogEntry` — the data model |
-| `core/Events.kt` | Sealed `GameEvent` hierarchy — every player action |
-| `core/Combat.kt` | `CombatState`, `MonsterInstance`, `CombatResult` |
-| `core/CombatCalculator.kt` | Pure logic: evaluates combat outcome (warrior tie-break, conditional modifiers) |
-| `core/GameEngine.kt` | Client-side state reducer (server is authoritative) |
-| `network/Protocol.kt` | WebSocket message types (`WsMessage` sealed class) |
-| `network/GameClient.kt` | Ktor WS client, emits to `SharedFlow` for ViewModel |
-| `viewmodel/GameViewModel.kt` | ~60KB central ViewModel; owns `uiState: StateFlow<GameState?>` |
-| `server/server.js` | Node.js: auth, room management, event routing, state broadcast |
-| `server/db.js` | SQLite: users, hashed passwords (bcrypt), monster catalog, game history |
+| --- | --- |
+| `core/Models.kt` | Shared game model |
+| `core/Events.kt` | Player/game events |
+| `core/Combat.kt` | Combat state types |
+| `core/CombatCalculator.kt` | Client-side combat math helpers |
+| `core/GameEngine.kt` | Client reducer for snapshots/events |
+| `network/Protocol.kt` | WebSocket message types |
+| `network/GameClient.kt` | WebSocket client and one-off API requests |
+| `network/ServerConfig.kt` | Active backend host/port/url |
+| `viewmodel/GameViewModel.kt` | Main app orchestration |
+| `server/server.js` | Main WebSocket server |
+| `server/db.js` | SQLite persistence |
+| `server/turnManager.js` | Turn order and timer lifecycle |
+| `server/combatManager.js` | Combat-specific server logic |
+| `server/catalogManager.js` | Monster catalog handlers |
+| `server/authManager.js` | Login/register/profile handlers |
+| `server/historyManager.js` | History and leaderboard handlers |
+| `server/gameAdminManager.js` | Game-over/delete/kick/swap/admin handlers |
 
-### Navigation / Screen Flow
+### Serialization Constraints
 
-```
-HomeScreen → CreateGameScreen ─┐
-           → JoinGameScreen   ─┴→ LobbyScreen → TableScreen
-                                                → BoardScreen (own player)
-                                                → CombatScreen
-```
+The Android client uses `kotlinx.serialization`; the Node server parses raw JSON. When changing `Models.kt`, `Events.kt`, or `Protocol.kt`:
 
-### Server Architecture
+- `@JvmInline value class` serializes as its primitive value
+- Enum names must match the server expectations exactly
+- `@SerialName` controls the wire field names
 
-`server.js` uses a `handleMessage` switch-case routing raw WebSocket JSON to handlers (`handleHello`, `handleEvent`, `handleCombat…`). Active game rooms live in `const games = new Map()` (in-memory). Auth uses simple JWTs; passwords are bcrypt-hashed in SQLite.
+## Current Product Assumptions
 
----
+- The backend is authoritative
+- Turn timers are enforced on the server
+- Critical turn/combat/win transitions are snapshot-first
+- Home/profile/history/leaderboard calls use one-off network requests instead of requiring an active game socket
 
-## Development Rules
+## Validation
 
-- **Localization**: All user-facing strings go in `strings.xml`. English and Spanish are required. `LocaleManager.kt` handles switching. No hardcoded strings in Compose.
-- **UI style**: Material 3 with custom styling. Avoid default/unstyled components. See `ui/theme/` and `ui/components/ModernComponents.kt`.
-- **WebSocket safety**: Always wrap raw WebSocket data parsing in `try-catch` (DoS protection). The server enforces a 50KB max payload.
-- **Player limits**: Max 6 players per room. Level is clamped 1–10. Race/class limits enforced server-side.
-- **`CODEBASE.md`**: A map of file dependencies lives in `CODEBASE.md` — check it before modifying shared files to identify what else needs updating.
-
----
-
-## Production Server
-
-The server runs as a `systemd` service on a Hetzner VPS:
+Use these before closing backend/client refactors:
 
 ```bash
-# Deploy
-cd /opt/munchkin-server && git pull && systemctl restart munchkin
-
-# Logs
-journalctl -u munchkin -f
+node --check server/server.js
+node --check server/db.js
+./gradlew :app:test
 ```
-
-WebSocket endpoint: `ws://23.88.48.58:8765`
-
----
-
-## Versioning & Releases
-
-Versions are set in `app/build.gradle.kts` (`versionName`, `versionCode`) and mirrored in `server/package.json`. The GitHub Actions workflow at `.github/workflows/release.yml` builds and publishes releases. Use `scripts/bump_version.py` to increment versions consistently.

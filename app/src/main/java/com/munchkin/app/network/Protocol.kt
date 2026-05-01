@@ -13,6 +13,14 @@ sealed class WsMessage
 
 // ============== Client → Host Messages ==============
 
+@Serializable
+@SerialName("CreateGameMessage")
+data class CreateGameRequest(
+    val playerMeta: PlayerMeta,
+    val superMunchkin: Boolean = false,
+    val turnTimerSeconds: Int = 0
+) : WsMessage()
+
 /**
  * Initial handshake when client connects.
  */
@@ -22,6 +30,7 @@ data class HelloMessage(
     val gameId: String,
     val joinCode: String,
     val playerMeta: PlayerMeta,
+    val reconnectToken: String? = null,
     val lastKnownIp: String? = null
 ) : WsMessage()
 
@@ -52,7 +61,8 @@ data class PingMessage(
 @SerialName("WELCOME")
 data class WelcomeMessage(
     val gameState: GameState,
-    val yourPlayerId: PlayerId
+    val yourPlayerId: PlayerId,
+    val reconnectToken: String? = null
 ) : WsMessage()
 
 /**
@@ -263,6 +273,11 @@ enum class ErrorCode {
     REGISTER_FAILED,
     LOGIN_ERROR,
     INVALID_DATA,
+    RATE_LIMITED,
+    FORBIDDEN,
+    PERMISSION_DENIED,
+    GENERAL_ERROR,
+    SERVER_ERROR,
     // Catalog Errors
     SEARCH_ERROR,
     ADD_MONSTER_ERROR
@@ -300,7 +315,7 @@ data class CatalogSearchResult(
 @SerialName("CATALOG_ADD")
 data class CatalogAddRequest(
     val monster: CatalogMonster,
-    val userId: String
+    val userId: String? = null
 ) : WsMessage()
 
 @Serializable

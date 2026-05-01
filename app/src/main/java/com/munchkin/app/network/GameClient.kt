@@ -31,6 +31,8 @@ class GameClient {
     private var lastUrl: String? = null
     private var lastJoinCode: String? = null
     private var lastPlayerMeta: PlayerMeta? = null
+    private var lastReconnectToken: String? = null
+    private var lastAuthToken: String? = null
 
     // Persistent engine — reused across events to avoid allocating a new instance per message
     private var gameEngine: GameEngine? = null
@@ -55,6 +57,12 @@ class GameClient {
         encodeDefaults = true
         classDiscriminator = "type"
     }
+
+    val currentPlayerId: PlayerId?
+        get() = _myPlayerId.value
+
+    val currentReconnectToken: String?
+        get() = lastReconnectToken
     
     fun isConnected(): Boolean = _connectionState.value == ConnectionState.CONNECTED
     
@@ -64,7 +72,9 @@ class GameClient {
     suspend fun createGame(
         serverUrl: String,
         playerMeta: PlayerMeta,
-        superMunchkin: Boolean = false
+        superMunchkin: Boolean = false,
+        turnTimerSeconds: Int = 0,
+        authToken: String? = null
     ): Result<GameState> = withContext(Dispatchers.IO) {
         try {
             DLog.i(TAG, "Creating game on $serverUrl")
@@ -73,6 +83,7 @@ class GameClient {
             // Store for reconnection
             lastUrl = serverUrl
             lastPlayerMeta = playerMeta
+            lastAuthToken = authToken
             
             // Create HTTP client
             client = HttpClient(CIO) {
@@ -101,25 +112,23 @@ class GameClient {
             // Launch the WebSocket session in background - it will stay open
             scope?.launch {
                 try {
-                    client!!.webSocket(urlString = "${"wss".takeIf { serverUrl.startsWith("wss://") } ?: "ws"}://$host:$port${path ?: "/"}") {
+                    client!!.webSocket(urlString = "${"wss".takeIf { serverUrl.startsWith("wss://") } ?: "ws"}://$host:$port$path") {
                         session = this
                         DLog.i(TAG, "Connected, sending CreateGame...")
-                        
-                        // Build JSON manually to avoid serialization issues
-                        val createMsgJson = """
-                            {
-                                "type": "CreateGameMessage",
-                                "playerMeta": {
-                                    "playerId": "${playerMeta.playerId.value}",
-                                    "name": "${playerMeta.name}",
-                                    "avatarId": ${playerMeta.avatarId},
-                                    "gender": "${playerMeta.gender.name}",
-                                    "userId": ${if (playerMeta.userId != null) "\"${playerMeta.userId}\"" else "null"}
-                                },
-                                "superMunchkin": $superMunchkin
-                            }
-                        """.trimIndent()
-                        send(createMsgJson)
+
+                        val authResult = authenticateIfNeeded(authToken)
+                        if (authResult.isFailure) {
+                            _connectionState.value = ConnectionState.DISCONNECTED
+                            resultDeferred.complete(Result.failure(authResult.exceptionOrNull() ?: Exception("Auth failed")))
+                            return@webSocket
+                        }
+
+                        val createRequest = CreateGameRequest(
+                            playerMeta = playerMeta,
+                            superMunchkin = superMunchkin,
+                            turnTimerSeconds = turnTimerSeconds
+                        )
+                        send(json.encodeToString<WsMessage>(createRequest))
                         DLog.i(TAG, "Waiting for welcome...")
                         
                         // Wait for welcome
@@ -167,7 +176,9 @@ class GameClient {
     suspend fun connect(
         wsUrl: String,
         joinCode: String,
-        playerMeta: PlayerMeta
+        playerMeta: PlayerMeta,
+        reconnectToken: String? = null,
+        authToken: String? = null
     ): Result<GameState> = withContext(Dispatchers.IO) {
         try {
             DLog.i(TAG, "Connecting to $wsUrl with code $joinCode")
@@ -178,6 +189,8 @@ class GameClient {
             lastUrl = wsUrl
             lastJoinCode = joinCode
             lastPlayerMeta = playerMeta
+            lastReconnectToken = reconnectToken
+            lastAuthToken = authToken
             
             // Create HTTP client with WebSocket support
             client = HttpClient(CIO) {
@@ -215,12 +228,20 @@ class GameClient {
                         session = this
                         DLog.i(TAG, "WS connected, sending hello")
                         Log.i(TAG, "WebSocket connected, sending hello...")
+
+                        val authResult = authenticateIfNeeded(authToken)
+                        if (authResult.isFailure) {
+                            _connectionState.value = ConnectionState.DISCONNECTED
+                            resultDeferred.complete(Result.failure(authResult.exceptionOrNull() ?: Exception("Auth failed")))
+                            return@webSocket
+                        }
                         
                         // Send hello
                         val hello = HelloMessage(
                             gameId = "",  // Will be validated by join code
                             joinCode = joinCode,
-                            playerMeta = playerMeta
+                            playerMeta = playerMeta,
+                            reconnectToken = reconnectToken
                         )
                         send(json.encodeToString<WsMessage>(hello))
                         Log.i(TAG, "Hello sent, waiting for welcome...")
@@ -270,6 +291,26 @@ class GameClient {
         }
     }
     
+    private suspend fun WebSocketSession.authenticateIfNeeded(token: String?): Result<Unit> {
+        if (token.isNullOrBlank()) return Result.success(Unit)
+
+        return try {
+            send(json.encodeToString<WsMessage>(LoginWithTokenMessage(token)))
+            val frame = incoming.receive()
+            if (frame !is Frame.Text) {
+                return Result.failure(Exception("Respuesta de autenticacion inesperada"))
+            }
+
+            when (val message = json.decodeFromString<WsMessage>(frame.readText())) {
+                is AuthSuccessMessage -> Result.success(Unit)
+                is ErrorMessage -> Result.failure(Exception(message.message))
+                else -> Result.failure(Exception("Respuesta de autenticacion inesperada"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     /**
      * Wait for welcome message after hello.
      */
@@ -290,6 +331,7 @@ class GameClient {
             is WelcomeMessage -> {
                 _gameState.value = message.gameState
                 _myPlayerId.value = message.yourPlayerId
+                lastReconnectToken = message.reconnectToken
                 // (Re-)initialize the persistent engine on every welcome/reconnect
                 val engine = GameEngine()
                 engine.loadState(message.gameState)
@@ -442,7 +484,7 @@ class GameClient {
         val code = lastJoinCode ?: return
         val meta = lastPlayerMeta ?: return
 
-        reconnectJob = scope?.launch {
+        reconnectJob = CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             var attempts = 0
 
             while (attempts < MAX_RECONNECT_ATTEMPTS && isActive) {
@@ -452,7 +494,7 @@ class GameClient {
                 Log.i(TAG, "Reconnect attempt ${attempts + 1}/$MAX_RECONNECT_ATTEMPTS (delay: ${delayMs}ms)")
                 delay(delayMs)
 
-                val result = connect(url, code, meta)
+                val result = connect(url, code, meta, lastReconnectToken, lastAuthToken)
                 if (result.isSuccess) {
                     Log.i(TAG, "✅ Reconnected successfully on attempt ${attempts + 1}")
                     _reconnectAttempt.value = 0
@@ -481,7 +523,7 @@ class GameClient {
         lastUrl = message.wsUrl
         lastPlayerMeta?.let { meta ->
             lastJoinCode?.let { code ->
-                connect(message.wsUrl, code, meta)
+                connect(message.wsUrl, code, meta, lastReconnectToken, lastAuthToken)
             }
         }
     }
@@ -656,10 +698,10 @@ class GameClient {
     suspend fun addMonsterToCatalog(
         serverUrl: String,
         monster: CatalogMonster,
-        userId: String
+        authToken: String
     ): Result<CatalogMonster> = withContext(Dispatchers.IO) {
-        val msg = CatalogAddRequest(monster, userId)
-        val response = sendOneOffRequest(serverUrl, msg)
+        val msg = CatalogAddRequest(monster)
+        val response = authenticatedRequest(serverUrl, authToken, msg)
 
         response.map {
             if (it is CatalogAddSuccess) it.monster else monster
@@ -727,22 +769,14 @@ class GameClient {
 
     // ============== History Methods ==============
 
-    suspend fun sendGameOver(
-        serverUrl: String,
-        gameId: String,
-        winnerId: String
-    ): Result<Unit> = withContext(Dispatchers.IO) {
-        val msg = GameOverMessage(gameId, winnerId)
-        // Use temp connection or active session?
-        // Since host is likely connected, use session if available?
-        // But session logic is tied to connect() flow.
-        // It's safer to use the dedicated "sendCatalogRequest" style temp connection for these "one-off" events if we want reliable ack,
-        // OR reuse session if we are sure we are connected.
-        // However, GAME_OVER usually happens when still connected.
-        // Let's use sendCatalogRequest style for robustness or if connection drops.
-        // Actually, if we use temp connection, server handles it fine (stateless handler).
-        
-        sendOneOffRequest(serverUrl, msg).map { }
+    suspend fun sendGameOver(gameId: String, winnerId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val currentSession = session ?: return@withContext Result.failure(Exception("No conectado"))
+        return@withContext try {
+            currentSession.send(json.encodeToString<WsMessage>(GameOverMessage(gameId, winnerId)))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     suspend fun sendSwapPlayers(player1: PlayerId, player2: PlayerId): Result<Unit> = withContext(Dispatchers.IO) {

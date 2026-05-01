@@ -56,7 +56,10 @@ class CombatCalculatorTest {
     @Test
     fun `test warrior wins ties`() {
         val warriorClassId = EntryId("class_warrior")
-        val p1 = createPlayer("p1", 5, 0).copy(classIds = listOf(warriorClassId))
+        val p1 = createPlayer("p1", 5, 0).copy(
+            characterClass = CharacterClass.WARRIOR,
+            classIds = listOf(warriorClassId)
+        )
         val monster = createMonster(5, 0)
         
         val gameState = GameState(
