@@ -921,7 +921,7 @@ class GameClient {
 
         val host = match.groupValues[1]
         val port = match.groupValues[2].toIntOrNull() ?: return null
-        val path = match.groupValues.getOrNull(3)?.ifEmpty { "/game" } ?: "/game"
+        val path = match.groupValues.getOrNull(3)?.ifEmpty { "/" } ?: "/"
 
         return Triple(host, port, path)
     }
