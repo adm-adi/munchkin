@@ -179,8 +179,8 @@ fun TableScreen(
         if (onEndTurn != null) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 32.dp, start = 16.dp)
+                    .align(Alignment.BottomStart)
+                    .padding(bottom = 32.dp, start = 32.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Brush.linearGradient(GradientViridian))
                     .border(1.dp, GlassBorder, RoundedCornerShape(16.dp))
