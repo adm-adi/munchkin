@@ -471,6 +471,7 @@ fun BoardScreen(
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
+                                            .padding(end = 150.dp)
                                             .height(52.dp)
                                             .clip(RoundedCornerShape(16.dp))
                                             .background(Brush.linearGradient(GradientViridian))
