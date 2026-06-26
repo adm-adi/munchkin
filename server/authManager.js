@@ -88,7 +88,7 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
                 id: user.id,
                 username: user.username,
                 email: user.email,
-                avatarId: user.avatarId
+                avatarId: user.avatarId !== undefined ? user.avatarId : (user.avatar_id || 0)
             },
             token
         };
@@ -221,7 +221,7 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
                         id: user.id,
                         username: user.username,
                         email: user.email,
-                        avatarId: user.avatarId
+                        avatarId: user.avatarId !== undefined ? user.avatarId : (user.avatar_id || 0)
                     }
                 }));
             })
