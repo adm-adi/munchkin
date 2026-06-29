@@ -18,7 +18,7 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
         return `${encodedHeader}.${encodedPayload}.${signature}`;
     }
 
-    function verifyToken(token) {
+    function verifyToken(token, ip = 'unknown') {
         try {
             const [encodedHeader, encodedPayload, providedSignature] = token.split('.');
             if (!encodedHeader || !encodedPayload || !providedSignature) {
@@ -41,7 +41,7 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
 
             const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString());
             if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp) {
-                logger.info('Token expired');
+                logger.warn(`[IP: ${ip}] Token expired`);
                 return null;
             }
 
@@ -144,7 +144,7 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
             .then(user => {
                 if (!user) {
                     recordAuthAttempt(clientIp, false);
-                    logger.info(`Login failed for ${email}`);
+                    logger.warn(`[IP: ${clientIp}] Login failed for ${email}`);
                     sendError(ws, 'AUTH_FAILED', 'Email o contrasena incorrectos');
                     return;
                 }
@@ -169,9 +169,10 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
             return;
         }
 
-        const payload = verifyToken(token);
+        const clientIp = ws.clientIp || 'unknown';
+        const payload = verifyToken(token, clientIp);
         if (!payload) {
-            logger.info('Invalid or expired token presented');
+            logger.warn(`[IP: ${clientIp}] Invalid or expired token presented`);
             sendError(ws, 'AUTH_FAILED', 'Session expired');
             return;
         }

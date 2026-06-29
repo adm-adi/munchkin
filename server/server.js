@@ -466,7 +466,8 @@ const SNAPSHOT_FIRST_EVENT_TYPES = new Set([
 wss.on('connection', (ws, req) => {
     const clientIp = req.socket.remoteAddress;
     ws.clientIp = clientIp; // Store for rate limiting
-    logger.info(`📱 Client connected from ${clientIp}`);
+    ws.connectionId = 'conn_' + uuidv4().substring(0, 8);
+    logger.info(`[${ws.connectionId}] 📱 Client connected from ${clientIp}`);
 
     ws.on('message', (messageStr) => {
         let message;
@@ -479,26 +480,27 @@ wss.on('connection', (ws, req) => {
         try {
             handleMessage(ws, message);
         } catch (e) {
-            logger.error('Error handling message:', e); // Changed from 'Error parsing message'
+            logger.error(`[${ws.connectionId}] Error handling message:`, e); // Changed from 'Error parsing message'
             sendError(ws, 'SERVER_ERROR', 'An internal server error occurred while processing your message.'); // Changed error type and message
         }
     });
 
     ws.on('close', () => {
         try {
+            logger.info(`[${ws.connectionId}] 🔌 Client disconnected`);
             handleDisconnect(ws);
         } catch (e) {
-            logger.error('Error in handleDisconnect:', e);
+            logger.error(`[${ws.connectionId}] Error in handleDisconnect:`, e);
         }
     });
 
     ws.on('error', (err) => {
-        logger.error('WebSocket error:', err);
+        logger.error(`[${ws.connectionId}] WebSocket error:`, err);
     });
 });
 
 function handleMessage(ws, message) {
-    logger.info('📨 Received:', message.type);
+    logger.info(`[${ws.connectionId}] 📨 Received: ${message.type}`);
 
     switch (message.type) {
         case 'HELLO':
