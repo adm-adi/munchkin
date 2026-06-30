@@ -13,6 +13,11 @@ import kotlinx.serialization.json.Json
 import com.munchkin.app.ui.components.DebugLogManager as DLog
 
 /**
+ * Custom exception representing a backend error code.
+ */
+class ServerErrorException(val code: ErrorCode, message: String) : Exception(message)
+
+/**
  * WebSocket client for joining a game as a non-host player.
  */
 class GameClient {
@@ -303,7 +308,7 @@ class GameClient {
 
             when (val message = json.decodeFromString<WsMessage>(frame.readText())) {
                 is AuthSuccessMessage -> Result.success(Unit)
-                is ErrorMessage -> Result.failure(Exception(message.message))
+                is ErrorMessage -> Result.failure(ServerErrorException(message.code, message.message))
                 else -> Result.failure(Exception("Respuesta de autenticacion inesperada"))
             }
         } catch (e: Exception) {
@@ -344,13 +349,13 @@ class GameClient {
                 gameEngine?.loadState(message.gameState) ?: run {
                     val engine = GameEngine()
                     engine.loadState(message.gameState)
-                    gameEngine = engine
+                        gameEngine = engine
                 }
                 Result.success(Unit)
             }
             is ErrorMessage -> {
                 _errors.emit(message.message)
-                Result.failure(Exception(message.message))
+                Result.failure(ServerErrorException(message.code, message.message))
             }
             else -> Result.failure(Exception("Respuesta inesperada"))
         }
@@ -662,7 +667,7 @@ class GameClient {
                         if (response is AuthSuccessMessage) {
                             result = Result.success(response)
                         } else if (response is ErrorMessage) {
-                            result = Result.failure(Exception(response.message))
+                            result = Result.failure(ServerErrorException(response.code, response.message))
                         }
                     }
                 } catch (e: Exception) {
@@ -748,7 +753,7 @@ class GameClient {
                         val response = json.decodeFromString<WsMessage>(text)
                         
                         if (response is ErrorMessage) {
-                            result = Result.failure(Exception(response.message))
+                            result = Result.failure(ServerErrorException(response.code, response.message))
                         } else {
                             result = Result.success(response)
                         }
@@ -873,7 +878,7 @@ class GameClient {
                         if (response is AuthSuccessMessage) {
                             authenticated = true
                         } else if (response is ErrorMessage) {
-                            result = Result.failure(Exception("Auth failed: ${response.message}"))
+                            result = Result.failure(ServerErrorException(response.code, response.message))
                         }
                     }
                 } catch (e: Exception) {
@@ -890,7 +895,9 @@ class GameClient {
                         if (frame is Frame.Text) {
                             val response = json.decodeFromString<WsMessage>(frame.readText())
                             if (response is ErrorMessage) {
-                                result = Result.failure(Exception(response.message))
+                                Log.e(TAG, "Error emitted: ${response.message}")
+                                _errors.emit(response.message)
+                                // We don't fail the job for async errors, but we emit them.
                             } else {
                                 result = Result.success(response)
                             }

@@ -36,3 +36,4 @@ output.json
 # Keystore (security)
 *.keystore
 *.jks
+server/node_modules/
