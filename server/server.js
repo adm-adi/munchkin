@@ -289,6 +289,7 @@ class GameRoom {
         this.seq = 0;
         this.epoch = 0;
         this.createdAt = Date.now();
+        this.lastActivity = Date.now();
         this.phase = "LOBBY";
         this.ended = false;
         this.winnerId = null;
@@ -501,6 +502,11 @@ wss.on('connection', (ws, req) => {
 
 function handleMessage(ws, message) {
     logger.info(`[${ws.connectionId}] 📨 Received: ${message.type}`);
+
+    const clientData = clientGames.get(ws);
+    if (clientData && games.has(clientData.gameId)) {
+        games.get(clientData.gameId).lastActivity = Date.now();
+    }
 
     switch (message.type) {
         case 'HELLO':
@@ -1132,18 +1138,30 @@ setInterval(() => {
     const maxAge = 4 * 60 * 60 * 1000; // 4 hours
 
     for (const [gameId, game] of games) {
-        if (now - game.createdAt > maxAge) {
+        const lastActivity = game.lastActivity || game.createdAt;
+        if (now - lastActivity > maxAge) {
             clearRoomLifecycleTimers(game, 'cleaning up old game');
             cancelPendingSave(gameId);
             games.delete(gameId);
             db.deleteActiveGame(gameId).catch(err => logger.error('Failed to delete game from DB:', err));
-            logger.info(`🧹 Cleaned up old game ${game.joinCode}`);
+            logger.info(`🧹 Cleaned up old game ${game.joinCode} due to inactivity`);
         }
     }
 
     // Cleanup database orphans
     db.cleanupOldGames().catch(err => logger.error('Failed to cleanup DB:', err));
 }, 60 * 60 * 1000);
+
+// Log server health metrics every 30 minutes
+setInterval(() => {
+    let totalPlayers = 0;
+    for (const game of games.values()) {
+        totalPlayers += game.players.size;
+    }
+    const memUsage = process.memoryUsage();
+    logger.info(`📊 Metrics | Active Games: ${games.size} | Total Players: ${totalPlayers} | RAM (Heap Used): ${(memUsage.heapUsed / 1024 / 1024).toFixed(2)} MB | Uptime: ${(process.uptime() / 60).toFixed(2)} mins`);
+}, 30 * 60 * 1000);
+
 
 // Graceful shutdown: persist all active games before exiting
 async function gracefulShutdown(signal) {
