@@ -283,7 +283,7 @@ enum class ErrorCode {
     NO_ACTIVE_COMBAT,
     COMBAT_MONSTER_LIMIT,
     INVALID_HELPER,
-    COMBAT_BONUS_LIMIT
+    COMBAT_BONUS_LIMIT,
 
     // Catalog Errors
     SEARCH_ERROR,
