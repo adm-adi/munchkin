@@ -8,7 +8,9 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
     // Registration gets its own, stricter budget: login attempts are cheap to
     // retry legitimately, creating accounts is not.
     const registerRateLimits = new Map(); // IP -> { count, windowStart }
-    const REGISTER_MAX_PER_WINDOW = 3;
+    // Configurable so the integration suite can register many accounts from one IP
+    // without either disabling the limit in production or asserting against it here.
+    const REGISTER_MAX_PER_WINDOW = Number(process.env.MUNCHKIN_REGISTER_LIMIT) || 3;
     const REGISTER_WINDOW_MS = 60 * 60 * 1000;
 
     const MIN_PASSWORD_LENGTH = 8;
