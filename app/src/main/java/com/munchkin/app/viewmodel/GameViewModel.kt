@@ -525,6 +525,7 @@ data class GameUiState(
     val monsterSearchResults: List<CatalogMonster> = emptyList(),
     val gameHistory: List<GameHistoryItem> = emptyList(),
     val leaderboard: List<LeaderboardEntry> = emptyList(),
+    val leaderboardSelf: LeaderboardSelf? = null,
     val pendingWinnerId: PlayerId? = null, // For host to confirm win
     val selectedPlayerId: PlayerId? = null // For viewing player details
 ) {

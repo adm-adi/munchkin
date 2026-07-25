@@ -767,32 +767,32 @@ function handleListGames(ws) {
 function handleHello(ws, message) {
     const clientIp = ws.clientIp || 'unknown';
 
-    // Rate limiting for joining games
+    // Rate limiting for joining games. Only failed attempts are charged against
+    // the budget — see recordJoinAttempt.
     if (isJoinRateLimited(clientIp)) {
         logger.warn(`⚠️ Rate check: Join limit exceeded for ${clientIp}`);
-        // We don't send an error to avoid confirming existence, just ignore or delay
-        // But for UX, let's send a generic error
-        sendError(ws, 'RATE_LIMITED', 'Too many join attempts. Please wait.');
+        sendError(ws, 'RATE_LIMITED', 'Demasiados intentos. Espera un momento.');
         return;
     }
 
-    // Record attempt
-    recordJoinAttempt(clientIp);
-
     const { joinCode, playerMeta, reconnectToken } = message;
     if (!joinCode || typeof joinCode !== 'string') {
-        sendError(ws, 'INVALID_JOIN_CODE', 'Codigo de partida invalido');
+        recordJoinAttempt(clientIp, false);
+        sendError(ws, 'INVALID_JOIN_CODE', 'Código de partida inválido');
         return;
     }
 
     if (!playerMeta || typeof playerMeta.name !== 'string') {
-        sendError(ws, 'INVALID_DATA', 'Datos de jugador invalidos');
+        recordJoinAttempt(clientIp, false);
+        sendError(ws, 'INVALID_DATA', 'Datos de jugador inválidos');
         return;
     }
 
     const game = findGameByCode(joinCode);
 
     if (!game) {
+        // The signal that matters: someone guessing codes.
+        recordJoinAttempt(clientIp, false);
         logger.info(`❌ Invalid join code: ${joinCode}`);
         sendError(ws, 'INVALID_JOIN_CODE', 'Código de partida inválido');
         return;
@@ -818,6 +818,7 @@ function handleHello(ws, message) {
         // Reconnection - mark as connected again
         const player = game.players.get(playerId);
         if (!canReconnectPlayer(ws, player, reconnectToken)) {
+            recordJoinAttempt(clientIp, false);
             logger.warn(`⚠️ Reconnect rejected for ${joinCode}: invalid token/user binding for ${playerId}`);
             sendError(ws, 'UNAUTHORIZED', 'Reconnect token invalid or expired');
             return;
@@ -827,6 +828,7 @@ function handleHello(ws, message) {
             player.ws.close(1000, 'Reconnected from another device');
         }
 
+        recordJoinAttempt(clientIp, true);
         const nextReconnectToken = rotateReconnectToken(player);
         player.ws = ws;
         player.isConnected = true;
@@ -879,6 +881,7 @@ function handleHello(ws, message) {
         return;
     }
 
+    recordJoinAttempt(clientIp, true);
     playerId = uuidv4();
     const player = createPlayerState(ws, playerMeta);
     const nextReconnectToken = rotateReconnectToken(player);
@@ -1240,7 +1243,22 @@ function isJoinRateLimited(ip) {
     return record.attempts >= JOIN_RATE_LIMIT_MAX_ATTEMPTS;
 }
 
-function recordJoinAttempt(ip) {
+/**
+ * Records the outcome of a join attempt.
+ *
+ * Only failures count. This limit exists to stop join-code guessing, and a guess
+ * is by definition a failure — charging successful joins and reconnects against
+ * the same budget punished legitimate play instead. Two ways that used to bite:
+ * several players behind one NAT (a household shares a public IP) burned six
+ * attempts just sitting down, and the client retries a dropped connection up to
+ * MAX_RECONNECT_ATTEMPTS (15) times, so one flaky link could blow a 10-attempt
+ * budget by itself and lock out everyone on that address.
+ */
+function recordJoinAttempt(ip, success) {
+    if (success) {
+        joinRateLimits.delete(ip);
+        return;
+    }
     const record = joinRateLimits.get(ip) || { attempts: 0, lastAttempt: 0 };
     record.attempts++;
     record.lastAttempt = Date.now();

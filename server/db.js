@@ -159,6 +159,8 @@ function initTables() {
 
         // Performance indexes
         db.run(`CREATE INDEX IF NOT EXISTS idx_participants_user ON participants(user_id)`);
+        // The leaderboard joins participants -> games on game_id.
+        db.run(`CREATE INDEX IF NOT EXISTS idx_participants_game ON participants(game_id)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_games_winner ON games(winner_id)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_monsters_name ON monsters(name)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_active_games_activity ON active_games(last_activity_at)`);
@@ -474,23 +476,64 @@ function getUserHistory(userId) {
 
 }
 
-function getLeaderboard() {
+/**
+ * Ranking of registered accounts by wins, with games played so the client can
+ * show a win rate.
+ *
+ * Joins through `participants`, not `games.winner_id`, for two reasons:
+ *  - It counts games played, which counting winners alone cannot do.
+ *  - It includes accounts that have played but never won. The previous query
+ *    joined on winner_id, so a player did not exist in the ranking until their
+ *    first victory.
+ *
+ * Guests are excluded for free: their participant rows carry a NULL user_id, so
+ * they never match a user. Only completed games reach `games` at all, which is
+ * the intended definition of a "played" game here — abandoned rooms count for
+ * nobody.
+ *
+ * Ordering is wins first, then fewer games played, which for an equal number of
+ * wins is the same as a higher win rate without comparing floats.
+ */
+function getLeaderboard(limit = 20) {
     return new Promise((resolve, reject) => {
         const sql = `
             SELECT
                 u.id,
                 u.username,
                 u.avatar_id,
-                COUNT(DISTINCT g.id) as wins
+                COUNT(DISTINCT p.game_id) AS games_played,
+                COUNT(DISTINCT CASE WHEN g.winner_id = u.id THEN g.id END) AS wins
             FROM users u
-            JOIN games g ON g.winner_id = u.id
+            JOIN participants p ON p.user_id = u.id
+            JOIN games g ON g.id = p.game_id
             GROUP BY u.id, u.username, u.avatar_id
-            ORDER BY wins DESC, u.username ASC
-            LIMIT 20
+            ORDER BY wins DESC, games_played ASC, u.username ASC
+            LIMIT ?
         `;
-        db.all(sql, [], (err, rows) => {
+        db.all(sql, [limit], (err, rows) => {
             if (err) reject(err);
             else resolve(rows);
+        });
+    });
+}
+
+/**
+ * Aggregate stats for a single account, so a player can see their own totals even
+ * when they fall outside the top of the ranking.
+ */
+function getUserStats(userId) {
+    return new Promise((resolve, reject) => {
+        const sql = `
+            SELECT
+                COUNT(DISTINCT p.game_id) AS games_played,
+                COUNT(DISTINCT CASE WHEN g.winner_id = ? THEN g.id END) AS wins
+            FROM participants p
+            JOIN games g ON g.id = p.game_id
+            WHERE p.user_id = ?
+        `;
+        db.get(sql, [userId, userId], (err, row) => {
+            if (err) reject(err);
+            else resolve(row || { games_played: 0, wins: 0 });
         });
     });
 }
@@ -677,6 +720,7 @@ module.exports = {
     recordGame,
     getUserHistory,
     getLeaderboard,
+    getUserStats,
     updateUser,
     // Game persistence
     saveActiveGame,

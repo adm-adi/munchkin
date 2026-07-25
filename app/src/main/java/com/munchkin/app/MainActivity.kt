@@ -388,7 +388,9 @@ class MainActivity : ComponentActivity() {
                                     leaderboard = uiState.leaderboard,
                                     isLoading = uiState.isLoading,
                                     onBack = { viewModel.navigateTo(Screen.HOME) },
-                                    onRefresh = { viewModel.loadLeaderboard() }
+                                    onRefresh = { viewModel.loadLeaderboard() },
+                                    self = uiState.leaderboardSelf,
+                                    currentUserId = uiState.userProfile?.id
                                 )
                             }
                         } // when

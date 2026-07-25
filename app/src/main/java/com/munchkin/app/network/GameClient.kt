@@ -816,15 +816,24 @@ class GameClient {
 
 
 
+    /**
+     * Fetches the ranking. Anyone may read it; passing [authToken] additionally
+     * returns the caller's own totals, which the server only knows for a signed-in
+     * session.
+     */
     suspend fun getLeaderboard(
-        serverUrl: String
-    ): Result<List<LeaderboardEntry>> = withContext(Dispatchers.IO) {
-        sendOneOffRequest(serverUrl, GetLeaderboardRequest).map { response ->
-            if (response is LeaderboardResult) {
-                response.leaderboard
-            } else {
-                emptyList()
-            }
+        serverUrl: String,
+        authToken: String? = null
+    ): Result<LeaderboardResult> = withContext(Dispatchers.IO) {
+        val response = if (authToken.isNullOrBlank()) {
+            sendOneOffRequest(serverUrl, GetLeaderboardRequest)
+        } else {
+            authenticatedRequest(serverUrl, authToken, GetLeaderboardRequest)
+        }
+
+        response.mapCatching { message ->
+            message as? LeaderboardResult
+                ?: throw Exception("Respuesta inesperada del servidor")
         }
     }
     

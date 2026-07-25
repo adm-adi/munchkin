@@ -39,18 +39,44 @@ function createHistoryManager({ db, logger, sendError }) {
      * Rows come back in SQLite snake_case; the Android client's LeaderboardEntry
      * requires camelCase `avatarId` with no default, so an unmapped row makes
      * kotlinx.serialization throw and the leaderboard never renders.
+     *
+     * When the caller is signed in, their own totals are attached separately so the
+     * app can show them even if they fall outside the top of the ranking.
      */
     function handleGetLeaderboard(ws) {
-        db.getLeaderboard()
-            .then(rows => {
+        const statsFor = ws.userId
+            ? db.getUserStats(ws.userId).catch(err => {
+                logger.error('Own-stats lookup failed:', err);
+                return null;
+            })
+            : Promise.resolve(null);
+
+        Promise.all([db.getLeaderboard(), statsFor])
+            .then(([rows, own]) => {
+                const leaderboard = rows.map(row => ({
+                    id: row.id,
+                    username: row.username,
+                    avatarId: row.avatar_id || 0,
+                    wins: row.wins || 0,
+                    gamesPlayed: row.games_played || 0
+                }));
+
+                // Only meaningful once they have actually played something.
+                let me = null;
+                if (own && (own.games_played || 0) > 0) {
+                    const rank = rows.findIndex(row => row.id === ws.userId);
+                    me = {
+                        wins: own.wins || 0,
+                        gamesPlayed: own.games_played || 0,
+                        // 1-based rank within the returned page, or 0 when outside it.
+                        rank: rank >= 0 ? rank + 1 : 0
+                    };
+                }
+
                 ws.send(JSON.stringify({
                     type: 'LEADERBOARD_RESULT',
-                    leaderboard: rows.map(row => ({
-                        id: row.id,
-                        username: row.username,
-                        avatarId: row.avatar_id || 0,
-                        wins: row.wins || 0
-                    }))
+                    leaderboard,
+                    me
                 }));
             })
             .catch(err => {
