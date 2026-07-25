@@ -825,7 +825,8 @@ fun AbilityReminders(participants: List<PlayerState>) {
                         )
                         Column {
                             Text(
-                                text = "${ability.source}: ${ability.description}",
+                                text = stringResource(ability.sourceRes) + ": " +
+                                    stringResource(ability.descriptionRes),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = NeonGray300
                             )

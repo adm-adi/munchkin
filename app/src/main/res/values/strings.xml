@@ -301,4 +301,20 @@
     <string name="abilities_collapsed_hint">%1$d habilidades — toca para ver</string>
     <string name="ability_automatic">La app ya lo aplica</string>
     <string name="ability_manual">Aplícalo tú con el modificador</string>
+
+    <!-- Class and race ability reminders -->
+    <string name="ability_warrior_ties">Ganas los empates en combate.</string>
+    <string name="ability_warrior_berserk">Berserk: descarta hasta 3 cartas para +1 al combate cada una.</string>
+    <string name="ability_wizard_charm">Hechizo de encanto: descarta toda tu mano para encantar un monstruo. Lo retiras del combate y te llevas su tesoro, sin subir nivel.</string>
+    <string name="ability_wizard_flight">Hechizo de vuelo: descarta hasta 3 cartas para +1 a la tirada de huida cada una.</string>
+    <string name="ability_thief_backstab">Puñalada por la espalda: descarta una carta para dar -2 al combate de otro jugador.</string>
+    <string name="ability_thief_steal">Robar: descarta una carta y tira el dado para robar un objeto a otro jugador.</string>
+    <string name="ability_cleric_undead">+3 al combate contra No-Muertos.</string>
+    <string name="ability_cleric_resurrect">Resurrección: al descartar, puedes descartar 2 cartas más y robar otras 2.</string>
+    <string name="ability_elf_help_level">Subes un nivel cada vez que ayudas a matar un monstruo.</string>
+    <string name="ability_elf_run_away">+1 a la tirada de huida.</string>
+    <string name="ability_dwarf_big_items">Puedes llevar cualquier número de objetos Grandes.</string>
+    <string name="ability_dwarf_hand_size">Puedes tener 6 cartas en la mano.</string>
+    <string name="ability_halfling_sell">Puedes vender un objeto por el doble de su valor.</string>
+    <string name="ability_halfling_hand_size">Puedes tener 6 cartas en la mano.</string>
 </resources>

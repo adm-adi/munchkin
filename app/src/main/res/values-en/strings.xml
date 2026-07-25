@@ -267,4 +267,50 @@
     <string name="abilities_collapsed_hint">%1$d abilities — tap to view</string>
     <string name="ability_automatic">Applied automatically</string>
     <string name="ability_manual">Apply it yourself with the modifier</string>
+
+    <!-- Class and race ability reminders -->
+    <string name="ability_warrior_ties">You win ties in combat.</string>
+    <string name="ability_warrior_berserk">Berserking: discard up to 3 cards for +1 to combat each.</string>
+    <string name="ability_wizard_charm">Charm Spell: discard your whole hand to charm a monster. It leaves the combat and you take its treasure, without gaining a level.</string>
+    <string name="ability_wizard_flight">Flight Spell: discard up to 3 cards for +1 to your run-away roll each.</string>
+    <string name="ability_thief_backstab">Backstab: discard a card to give another player -2 in combat.</string>
+    <string name="ability_thief_steal">Steal: discard a card and roll the die to steal an item from another player.</string>
+    <string name="ability_cleric_undead">+3 in combat against Undead.</string>
+    <string name="ability_cleric_resurrect">Resurrection: when discarding, you may discard 2 more cards and draw 2 others.</string>
+    <string name="ability_elf_help_level">You gain a level each time you help kill a monster.</string>
+    <string name="ability_elf_run_away">+1 to your run-away roll.</string>
+    <string name="ability_dwarf_big_items">You may carry any number of Big items.</string>
+    <string name="ability_dwarf_hand_size">You may hold 6 cards in your hand.</string>
+    <string name="ability_halfling_sell">You may sell one item for double its value.</string>
+    <string name="ability_halfling_hand_size">You may hold 6 cards in your hand.</string>
+
+    <!-- Combat, class and race names -->
+    <string name="combat_is_undead">Undead</string>
+    <string name="combat_cancel">Cancel Combat</string>
+    <string name="combat_run_away">Run Away</string>
+    <string name="combat_no_monsters">No monsters</string>
+    <string name="combat_bad_stuff_label">Bad Stuff</string>
+    <string name="combat_victory_end">VICTORY! (End)</string>
+    <string name="combat_accept_defeat">ACCEPT DEFEAT</string>
+    <string name="combat_rolled">rolled a</string>
+    <string name="combat_escaped">Escaped!</string>
+    <string name="combat_failed_escape">Failed!</string>
+    <string name="combat_remove_helper">Remove helper</string>
+    <string name="combat_start_prompt">Start a combat</string>
+    <string name="combat_helper_suffix">helper</string>
+    <string name="combat_cleric_vs_undead">Cleric vs Undead</string>
+    <string name="combat_card_modifiers">Card modifiers</string>
+    <string name="class_none">No class</string>
+    <string name="class_warrior">Warrior</string>
+    <string name="class_wizard">Wizard</string>
+    <string name="class_thief">Thief</string>
+    <string name="class_cleric">Cleric</string>
+    <string name="class_ranger">Ranger</string>
+    <string name="class_bard">Bard</string>
+    <string name="race_human">Human</string>
+    <string name="race_elf">Elf</string>
+    <string name="race_dwarf">Dwarf</string>
+    <string name="race_halfling">Halfling</string>
+    <string name="race_gnome">Gnome</string>
+    <string name="race_orc">Orc</string>
 </resources>

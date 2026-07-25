@@ -1,5 +1,8 @@
 package com.munchkin.app.core
 
+import androidx.annotation.StringRes
+import com.munchkin.app.R
+
 /**
  * Reminders of what a player's class and race actually do in combat.
  *
@@ -19,9 +22,9 @@ package com.munchkin.app.core
 enum class AbilityKind { AUTOMATIC, MANUAL }
 
 data class Ability(
-    /** Short label, e.g. "Guerrero". */
-    val source: String,
-    val description: String,
+    /** Short label naming the card the ability comes from, e.g. the Warrior class. */
+    @StringRes val sourceRes: Int,
+    @StringRes val descriptionRes: Int,
     val kind: AbilityKind
 )
 
@@ -32,57 +35,52 @@ object Abilities {
 
         CharacterClass.WARRIOR -> listOf(
             Ability(
-                source = "Guerrero",
-                description = "Ganas los empates en combate.",
+                sourceRes = R.string.class_warrior,
+                descriptionRes = R.string.ability_warrior_ties,
                 kind = AbilityKind.AUTOMATIC
             ),
             Ability(
-                source = "Guerrero",
-                description = "Berserk: descarta hasta 3 cartas para +1 al combate cada una.",
+                sourceRes = R.string.class_warrior,
+                descriptionRes = R.string.ability_warrior_berserk,
                 kind = AbilityKind.MANUAL
             )
         )
 
         CharacterClass.WIZARD -> listOf(
             Ability(
-                source = "Mago",
-                description = "Hechizo de encanto: descarta toda tu mano para encantar un " +
-                    "monstruo. Lo retiras del combate y te llevas su tesoro, sin subir nivel.",
+                sourceRes = R.string.class_wizard,
+                descriptionRes = R.string.ability_wizard_charm,
                 kind = AbilityKind.MANUAL
             ),
             Ability(
-                source = "Mago",
-                description = "Hechizo de vuelo: descarta hasta 3 cartas para +1 a la " +
-                    "tirada de huida cada una.",
+                sourceRes = R.string.class_wizard,
+                descriptionRes = R.string.ability_wizard_flight,
                 kind = AbilityKind.MANUAL
             )
         )
 
         CharacterClass.THIEF -> listOf(
             Ability(
-                source = "Ladrón",
-                description = "Puñalada por la espalda: descarta una carta para dar -2 al " +
-                    "combate de otro jugador.",
+                sourceRes = R.string.class_thief,
+                descriptionRes = R.string.ability_thief_backstab,
                 kind = AbilityKind.MANUAL
             ),
             Ability(
-                source = "Ladrón",
-                description = "Robar: descarta una carta y tira el dado para robar un " +
-                    "objeto a otro jugador.",
+                sourceRes = R.string.class_thief,
+                descriptionRes = R.string.ability_thief_steal,
                 kind = AbilityKind.MANUAL
             )
         )
 
         CharacterClass.CLERIC -> listOf(
             Ability(
-                source = "Clérigo",
-                description = "+3 al combate contra No-Muertos.",
+                sourceRes = R.string.class_cleric,
+                descriptionRes = R.string.ability_cleric_undead,
                 kind = AbilityKind.AUTOMATIC
             ),
             Ability(
-                source = "Clérigo",
-                description = "Resurrección: al descartar, puedes descartar 2 cartas más " +
-                    "y robar otras 2.",
+                sourceRes = R.string.class_cleric,
+                descriptionRes = R.string.ability_cleric_resurrect,
                 kind = AbilityKind.MANUAL
             )
         )
@@ -94,39 +92,39 @@ object Abilities {
 
         CharacterRace.ELF -> listOf(
             Ability(
-                source = "Elfo",
-                description = "Subes un nivel cada vez que ayudas a matar un monstruo.",
+                sourceRes = R.string.race_elf,
+                descriptionRes = R.string.ability_elf_help_level,
                 kind = AbilityKind.AUTOMATIC
             ),
             Ability(
-                source = "Elfo",
-                description = "+1 a la tirada de huida.",
+                sourceRes = R.string.race_elf,
+                descriptionRes = R.string.ability_elf_run_away,
                 kind = AbilityKind.AUTOMATIC
             )
         )
 
         CharacterRace.DWARF -> listOf(
             Ability(
-                source = "Enano",
-                description = "Puedes llevar cualquier número de objetos Grandes.",
+                sourceRes = R.string.race_dwarf,
+                descriptionRes = R.string.ability_dwarf_big_items,
                 kind = AbilityKind.MANUAL
             ),
             Ability(
-                source = "Enano",
-                description = "Puedes tener 6 cartas en la mano.",
+                sourceRes = R.string.race_dwarf,
+                descriptionRes = R.string.ability_dwarf_hand_size,
                 kind = AbilityKind.MANUAL
             )
         )
 
         CharacterRace.HALFLING -> listOf(
             Ability(
-                source = "Mediano",
-                description = "Puedes vender un objeto por el doble de su valor.",
+                sourceRes = R.string.race_halfling,
+                descriptionRes = R.string.ability_halfling_sell,
                 kind = AbilityKind.MANUAL
             ),
             Ability(
-                source = "Mediano",
-                description = "Puedes tener 6 cartas en la mano.",
+                sourceRes = R.string.race_halfling,
+                descriptionRes = R.string.ability_halfling_hand_size,
                 kind = AbilityKind.MANUAL
             )
         )
