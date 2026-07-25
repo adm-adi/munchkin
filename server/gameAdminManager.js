@@ -61,6 +61,14 @@ function createGameAdminManager({
             return;
         }
 
+        // closeGame() (GAME_END) may already have written this game to history.
+        // Recording twice hits the games.id primary key and rolls the whole
+        // transaction back, losing the participant rows.
+        if (game.ended) {
+            logger.info(`Game ${game.joinCode} already ended; ignoring duplicate GAME_OVER`);
+            return;
+        }
+
         clearRoomLifecycleTimers(game, 'game over received');
         game.ended = true;
         game.phase = 'FINISHED';
@@ -74,15 +82,27 @@ function createGameAdminManager({
         for (const [playerId, player] of game.players) {
             participants.push({
                 userId: player.userId,
-                playerId
+                playerId,
+                joinedAt: player.joinedAt
             });
         }
 
+        // Only a registered account can appear on the leaderboard, which joins
+        // games.winner_id against users.id. Storing a guest's per-game playerId
+        // here would just be an id that matches no user.
         const winnerUserId = winnerId
-            ? (game.players.get(winnerId)?.userId || winnerId)
+            ? (game.players.get(winnerId)?.userId || null)
             : null;
 
-        db.recordGame(game.id, winnerUserId, game.createdAt, Date.now(), participants)
+        db.recordGame(
+            game.id,
+            winnerUserId,
+            game.createdAt,
+            Date.now(),
+            participants,
+            game.joinCode,
+            game.originalHostId || game.hostId
+        )
             .then(() => logger.info('Game recorded successfully'))
             .catch(err => logger.error('Error recording game:', err));
     }

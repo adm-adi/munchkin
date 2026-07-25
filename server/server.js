@@ -28,6 +28,7 @@ const logger = require('./logger');
 
 
 const PORT = 8765;
+const MAX_PLAYERS = 6;
 
 if (!process.env.JWT_SECRET) {
     logger.error('❌ FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
@@ -129,10 +130,9 @@ const wss = new WebSocket.Server({
     maxPayload: 50 * 1024 // 50KB limit per message (prevents DoS)
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-    const protocol = isSsl ? 'HTTPS/WSS' : 'HTTP/WS';
-    logger.info(`✅ Server listening on port ${PORT} (${protocol})`);
-});
+// Listening is deferred until persisted rooms are back in memory — see the
+// bottom of this file. Binding first meant that for the first second after a
+// restart every join attempt was answered with "invalid join code".
 
 // Store active games: gameId -> GameRoom
 const games = new Map();
@@ -173,7 +173,7 @@ const {
 const {
     handleGetHistory,
     handleGetLeaderboard
-} = createHistoryManager({ db, logger });
+} = createHistoryManager({ db, logger, sendError });
 
 // Debounced save: coalesces rapid successive saves (e.g. 6 players leveling at once)
 // into a single DB write per game after 500ms of inactivity.
@@ -224,7 +224,7 @@ async function loadGamesFromDatabase() {
     try {
         const savedGames = await db.loadActiveGames();
         for (const saved of savedGames) {
-            const game = new GameRoom(saved.hostId, saved.joinCode, saved.hostName, 0, 'MALE');
+            const game = new GameRoom(saved.hostId, saved.joinCode, saved.hostName, 0, DEFAULT_GENDER);
             game.id = saved.id;
             game.phase = saved.phase;
             game.ended = saved.phase === "FINISHED";
@@ -247,7 +247,7 @@ async function loadGamesFromDatabase() {
                     ws: null,
                     name: playerData.name,
                     avatarId: playerData.avatarId || 0,
-                    gender: playerData.gender || 'MALE',
+                    gender: normalizeGender(playerData.gender),
                     userId: playerData.userId,
                     reconnectTokenHash: playerData.reconnectTokenHash || null,
                     level: playerData.level || 1,
@@ -271,8 +271,12 @@ async function loadGamesFromDatabase() {
     }
 }
 
-// Call on startup (after a brief delay to ensure DB is ready)
-setTimeout(() => loadGamesFromDatabase(), 1000);
+function startListening() {
+    server.listen(PORT, '0.0.0.0', () => {
+        const protocol = isSsl ? 'HTTPS/WSS' : 'HTTP/WS';
+        logger.info(`✅ Server listening on port ${PORT} (${protocol})`);
+    });
+}
 
 class GameRoom {
     constructor(hostId, joinCode, hostName, avatarId, gender, hostUserId = null) {
@@ -381,6 +385,17 @@ class GameRoom {
     }
 }
 
+/**
+ * Coerces any stored/incoming gender into a value the Kotlin Gender enum accepts.
+ * Older rows may hold "MALE"/"FEMALE", which would break snapshot decoding.
+ */
+function normalizeGender(value) {
+    if (VALID_GENDERS.has(value)) return value;
+    if (value === 'MALE') return 'M';
+    if (value === 'FEMALE') return 'F';
+    return DEFAULT_GENDER;
+}
+
 // Generate 8-char join code (~40 bits entropy)
 function generateJoinCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -389,6 +404,19 @@ function generateJoinCode() {
         code += chars.charAt(crypto.randomInt(chars.length));
     }
     return code;
+}
+
+/**
+ * Join codes address a room, and findGameByCode() returns the first match, so a
+ * collision would make one room permanently unreachable. Retry a few times.
+ */
+function generateUniqueJoinCode() {
+    for (let attempt = 0; attempt < 10; attempt++) {
+        const code = generateJoinCode();
+        if (!findGameByCode(code)) return code;
+    }
+    logger.error('⚠️ Could not find a free join code after 10 attempts');
+    return generateJoinCode();
 }
 
 function generateReconnectToken() {
@@ -607,7 +635,7 @@ function createPlayerState(ws, meta) {
         ws,
         name: meta.name,
         avatarId: meta.avatarId || 0,
-        gender: meta.gender || "MALE",
+        gender: normalizeGender(meta.gender),
         userId: ws.userId || null,
         reconnectTokenHash: null,
         level: 1,
@@ -629,7 +657,7 @@ function handleCreateGame(ws, message) {
         return;
     }
 
-    const joinCode = generateJoinCode();
+    const joinCode = generateUniqueJoinCode();
     const playerId = uuidv4();
 
     logger.info(`🎲 Creating game for ${playerMeta.name} with playerId: ${playerId}, superMunchkin: ${!!superMunchkin}`);
@@ -651,7 +679,9 @@ function handleCreateGame(ws, message) {
     // Send welcome with game state - use "WELCOME" type to match @SerialName
     const response = buildWelcome(game, playerId, reconnectToken);
 
-    logger.info('📤 Sending WELCOME:', JSON.stringify(response, null, 2));
+    // Do not log the payload: WELCOME carries the player's reconnectToken, which
+    // is a bearer credential for resuming this seat.
+    logger.info(`📤 Sending WELCOME for ${joinCode} to ${playerId}`);
     ws.send(JSON.stringify(response));
 
     // Persist game to database
@@ -662,16 +692,20 @@ function handleListGames(ws) {
     const availableGames = [];
 
     for (const game of games.values()) {
-        // Only show games in LOBBY phase that aren't full
-        if (game.players.size < 6) {
-            availableGames.push({
-                joinCode: game.joinCode,
-                hostName: game.hostName,
-                playerCount: game.players.size,
-                maxPlayers: 6,
-                createdAt: game.createdAt
-            });
-        }
+        // Only games actually open to newcomers: still in the lobby, not ended,
+        // and not full. Previously this filtered on seat count alone, so in-progress
+        // and already-finished rooms showed up as joinable.
+        if (game.phase !== 'LOBBY') continue;
+        if (game.ended) continue;
+        if (game.players.size >= MAX_PLAYERS) continue;
+
+        availableGames.push({
+            joinCode: game.joinCode,
+            hostName: game.hostName,
+            playerCount: game.players.size,
+            maxPlayers: MAX_PLAYERS,
+            createdAt: game.createdAt
+        });
     }
 
     logger.info(`📋 Listing ${availableGames.length} available games`);
@@ -792,7 +826,7 @@ function handleHello(ws, message) {
     }
 
     // New player joining
-    if (game.players.size >= 6) {
+    if (game.players.size >= MAX_PLAYERS) {
         sendError(ws, 'GAME_FULL', 'Partida llena');
         return;
     }
@@ -906,80 +940,169 @@ function handleEvent(ws, message) {
     }
 }
 
+// Gameplay numbers are bounded so a malformed or hostile event cannot put a
+// non-numeric or absurd value into the snapshot. The snapshot is broadcast to
+// every client, and the Android client's kotlinx.serialization decoding is
+// strictly typed: a string where an Int is expected takes down the whole room.
+const GEAR_LIMIT = 999;
+const STEP_LIMIT = 100;
+const MAX_NAME_LENGTH = 20;
+const MAX_AVATAR_ID = 100;
+// These must mirror the Kotlin enums in core/Models.kt exactly. A value the
+// client's enum does not contain makes kotlinx.serialization throw while decoding
+// the snapshot, which breaks every client in the room rather than just the sender.
+const VALID_GENDERS = new Set(['M', 'F', 'NA']);
+const VALID_CLASSES = new Set(['NONE', 'WARRIOR', 'WIZARD', 'THIEF', 'CLERIC']);
+const VALID_RACES = new Set(['HUMAN', 'ELF', 'DWARF', 'HALFLING']);
+const DEFAULT_GENDER = 'M';
+const MAX_MONSTERS_PER_COMBAT = 6;
+const MAX_BONUSES_PER_COMBAT = 20;
+// Combat modifiers are intentionally generous (Munchkin items are unbounded);
+// the limit exists only to keep the value a sane, serialisable integer.
+const MODIFIER_LIMIT = 9999;
+
+function clampInt(value, min, max, fallback = 0) {
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, n));
+}
+
+/** Positive step for INC_/DEC_ events; defaults to 1 when absent or unusable. */
+function stepAmount(value) {
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n) || n <= 0) return 1;
+    return Math.min(STEP_LIMIT, n);
+}
+
+/**
+ * Normalises a client-supplied monster into the shape MonsterInstance expects.
+ * Applied on both add and update so the bounds cannot be bypassed.
+ */
+function sanitizeMonster(raw) {
+    const m = raw && typeof raw === 'object' ? raw : {};
+    return {
+        id: typeof m.id === 'string' && m.id ? m.id : uuidv4(),
+        name: typeof m.name === 'string' ? m.name.trim().slice(0, 80) : 'Monstruo',
+        baseLevel: clampInt(m.baseLevel, 1, 20, 1),
+        flatModifier: clampInt(m.flatModifier, -10, 10, 0),
+        levels: clampInt(m.levels, 1, 5, 1),
+        treasures: clampInt(m.treasures, 0, 10, 1),
+        isUndead: m.isUndead === true,
+        conditionalModifiers: Array.isArray(m.conditionalModifiers)
+            ? m.conditionalModifiers.slice(0, 10)
+            : []
+    };
+}
+
 function applyEvent(game, event, playerId, ws) {
     const player = game.players.get(playerId);
     if (!player) return false;
 
     switch (event.type) {
         case 'INC_LEVEL':
-            player.level = Math.min(game.maxLevel, player.level + (event.amount || 1));
+            player.level = Math.min(game.maxLevel, player.level + stepAmount(event.amount));
             break;
         case 'DEC_LEVEL':
-            player.level = Math.max(1, player.level - (event.amount || 1));
+            player.level = Math.max(1, player.level - stepAmount(event.amount));
             break;
         case 'INC_GEAR':
-            player.gear = player.gear + (event.amount || 1);
+            player.gear = clampInt(player.gear + stepAmount(event.amount), -GEAR_LIMIT, GEAR_LIMIT, player.gear);
             break;
         case 'DEC_GEAR':
-            player.gear = player.gear - (event.amount || 1);
+            player.gear = clampInt(player.gear - stepAmount(event.amount), -GEAR_LIMIT, GEAR_LIMIT, player.gear);
             break;
         case 'SET_LEVEL':
-            player.level = Math.max(1, Math.min(game.maxLevel, event.level));
+            player.level = clampInt(event.level, 1, game.maxLevel, player.level);
             break;
         case 'SET_GEAR':
-            player.gear = event.gear;
+            player.gear = clampInt(event.gear, -GEAR_LIMIT, GEAR_LIMIT, player.gear);
             break;
-        case 'SET_NAME':
-            player.name = event.name;
+        case 'SET_NAME': {
+            if (typeof event.name !== 'string') {
+                sendError(ws, 'INVALID_DATA', 'Nombre inválido');
+                return false;
+            }
+            const trimmed = event.name.trim().slice(0, MAX_NAME_LENGTH);
+            if (!trimmed) {
+                sendError(ws, 'INVALID_DATA', 'El nombre no puede estar vacío');
+                return false;
+            }
+            player.name = trimmed;
+            // hostName is denormalised onto the room and shown in the join list.
+            if (game.hostId === playerId) game.hostName = trimmed;
             break;
+        }
         case 'SET_AVATAR':
-            player.avatarId = event.avatarId;
+            player.avatarId = clampInt(event.avatarId, 0, MAX_AVATAR_ID, player.avatarId || 0);
             break;
         case 'SET_GENDER':
+            if (!VALID_GENDERS.has(event.gender)) {
+                sendError(ws, 'INVALID_DATA', 'Género inválido');
+                return false;
+            }
             player.gender = event.gender;
             break;
         case 'SET_HALF_BREED':
-            player.hasHalfBreed = event.enabled;
+            player.hasHalfBreed = event.enabled === true;
             break;
         case 'SET_SUPER_MUNCHKIN':
-            player.hasSuperMunchkin = event.enabled;
+            player.hasSuperMunchkin = event.enabled === true;
             break;
         case 'PLAYER_ROLL':
-            player.lastRoll = event.result;
+            player.lastRoll = clampInt(event.result, 1, 6, 1);
             break;
-        case 'COMBAT_START':
+        case 'COMBAT_START': {
             if (game.combat) {
                 sendError(ws, 'COMBAT_ALREADY_ACTIVE', 'Ya hay un combate activo');
                 return false;
             }
+            // The main player must be a real seat in this room; an arbitrary id
+            // would produce a combat nobody is able to end.
+            const mainPlayerId = event.mainPlayerId;
+            if (!mainPlayerId || !game.players.has(mainPlayerId)) {
+                sendError(ws, 'PLAYER_NOT_FOUND', 'Jugador principal no encontrado');
+                return false;
+            }
+            const initialMonsters = Array.isArray(event.monsters) ? event.monsters : [];
+            if (initialMonsters.length > MAX_MONSTERS_PER_COMBAT) {
+                sendError(ws, 'COMBAT_MONSTER_LIMIT', `Máximo ${MAX_MONSTERS_PER_COMBAT} monstruos por combate`);
+                return false;
+            }
             game.combat = {
-                mainPlayerId: event.mainPlayerId,
+                mainPlayerId,
                 helperPlayerId: null,
-                monsters: event.monsters || [],
+                // Sanitise here too — COMBAT_ADD_MONSTER clamped but COMBAT_START
+                // did not, so the limits could be bypassed by seeding the combat.
+                monsters: initialMonsters.map(sanitizeMonster),
                 tempBonuses: [],
                 heroModifier: 0,
                 monsterModifier: 0,
                 isActive: true
             };
             break;
-        case 'COMBAT_UPDATE_MONSTER':
-            if (game.combat) {
-                game.combat.monsters = game.combat.monsters.map(m =>
-                    m.id === event.monster.id ? event.monster : m
-                );
-            }
-            break;
-        case 'COMBAT_ADD_MONSTER': {
+        }
+        case 'COMBAT_UPDATE_MONSTER': {
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
-            if (game.combat.monsters.length >= 6) { sendError(ws, 'COMBAT_MONSTER_LIMIT', 'Máximo 6 monstruos por combate'); return; }
-            if (game.combat.monsters.length >= 6) {
-                sendError(ws, 'COMBAT_MONSTER_LIMIT', 'Maximo 6 monstruos por combate');
+            const incoming = event.monster;
+            if (!incoming || !incoming.id) {
+                sendError(ws, 'INVALID_DATA', 'Monstruo inválido');
                 return false;
             }
-            const m = event.monster || {};
-            m.baseLevel = Math.max(1, Math.min(20, m.baseLevel || 1));
-            m.flatModifier = Math.max(-10, Math.min(10, m.flatModifier || 0));
-            game.combat.monsters.push(m);
+            // Re-clamp on update: previously only ADD clamped, so a client could
+            // add a legal monster and then update it to any values it liked.
+            const sanitized = sanitizeMonster(incoming);
+            game.combat.monsters = game.combat.monsters.map(m =>
+                m.id === sanitized.id ? sanitized : m
+            );
+            break;
+        }
+        case 'COMBAT_ADD_MONSTER': {
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
+            if (game.combat.monsters.length >= MAX_MONSTERS_PER_COMBAT) {
+                sendError(ws, 'COMBAT_MONSTER_LIMIT', `Máximo ${MAX_MONSTERS_PER_COMBAT} monstruos por combate`);
+                return false;
+            }
+            game.combat.monsters.push(sanitizeMonster(event.monster));
             break;
         }
         case 'COMBAT_REMOVE_MONSTER':
@@ -988,8 +1111,6 @@ function applyEvent(game, event, playerId, ws) {
             break;
         case 'COMBAT_ADD_HELPER': {
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
-            if (event.helperId === game.combat.mainPlayerId) { sendError(ws, 'INVALID_HELPER', 'No puedes ayudarte a ti mismo'); return; }
-            if (!game.players.has(event.helperId)) { sendError(ws, 'PLAYER_NOT_FOUND', 'Jugador no encontrado'); return; }
             if (event.helperId === game.combat.mainPlayerId) {
                 sendError(ws, 'INVALID_HELPER', 'No puedes ayudarte a ti mismo');
                 return false;
@@ -1005,30 +1126,42 @@ function applyEvent(game, event, playerId, ws) {
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
             game.combat.helperPlayerId = null;
             break;
-        case 'COMBAT_MODIFY_MODIFIER':
+        case 'COMBAT_MODIFY_MODIFIER': {
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
-            if (event.target === 'HEROES') game.combat.heroModifier = (game.combat.heroModifier || 0) + (event.delta || 0);
-            else game.combat.monsterModifier = (game.combat.monsterModifier || 0) + (event.delta || 0);
+            // Munchkin bonus items have no upper bound, so these stay unclamped —
+            // but they must still be finite integers to survive serialisation.
+            const delta = clampInt(event.delta, -MODIFIER_LIMIT, MODIFIER_LIMIT, 0);
+            if (event.target === 'HEROES') {
+                game.combat.heroModifier = clampInt((game.combat.heroModifier || 0) + delta, -MODIFIER_LIMIT, MODIFIER_LIMIT, 0);
+            } else {
+                game.combat.monsterModifier = clampInt((game.combat.monsterModifier || 0) + delta, -MODIFIER_LIMIT, MODIFIER_LIMIT, 0);
+            }
             break;
-        case 'COMBAT_SET_MODIFIER':
+        }
+        case 'COMBAT_SET_MODIFIER': {
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
-            if (event.target === 'HEROES') game.combat.heroModifier = (event.value || 0);
-            else game.combat.monsterModifier = (event.value || 0);
+            const value = clampInt(event.value, -MODIFIER_LIMIT, MODIFIER_LIMIT, 0);
+            if (event.target === 'HEROES') game.combat.heroModifier = value;
+            else game.combat.monsterModifier = value;
             break;
+        }
         case 'COMBAT_ADD_BONUS': {
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
-            if (game.combat.tempBonuses.length >= 20) { sendError(ws, 'COMBAT_BONUS_LIMIT', 'Máximo 20 bonificaciones por combate'); return; }
-            if (game.combat.tempBonuses.length >= 20) {
-                sendError(ws, 'COMBAT_BONUS_LIMIT', 'Maximo 20 bonificaciones por combate');
+            if (game.combat.tempBonuses.length >= MAX_BONUSES_PER_COMBAT) {
+                sendError(ws, 'COMBAT_BONUS_LIMIT', `Máximo ${MAX_BONUSES_PER_COMBAT} bonificaciones por combate`);
                 return false;
             }
-            const bonus = event.bonus || {};
-            bonus.amount = Math.max(-50, Math.min(50, bonus.amount || 0));
-            game.combat.tempBonuses.push(bonus);
+            const raw = event.bonus && typeof event.bonus === 'object' ? event.bonus : {};
+            game.combat.tempBonuses.push({
+                id: typeof raw.id === 'string' && raw.id ? raw.id : uuidv4(),
+                label: typeof raw.label === 'string' ? raw.label.trim().slice(0, 40) : 'Bonus',
+                amount: clampInt(raw.amount, -MODIFIER_LIMIT, MODIFIER_LIMIT, 0),
+                appliesTo: raw.appliesTo === 'MONSTER' ? 'MONSTER' : 'HEROES'
+            });
             break;
         }
         case 'COMBAT_REMOVE_BONUS':
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return; }
+            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
             game.combat.tempBonuses = game.combat.tempBonuses.filter(b => b.id !== event.bonusId);
             break;
         case 'COMBAT_END': {
@@ -1071,9 +1204,17 @@ function applyEvent(game, event, playerId, ws) {
             game.phase = "IN_GAME";
             break;
         case 'SET_CLASS':
+            if (!VALID_CLASSES.has(event.newClass)) {
+                sendError(ws, 'INVALID_DATA', 'Clase inválida');
+                return false;
+            }
             player.characterClass = event.newClass;
             break;
         case 'SET_RACE':
+            if (!VALID_RACES.has(event.newRace)) {
+                sendError(ws, 'INVALID_DATA', 'Raza inválida');
+                return false;
+            }
             player.characterRace = event.newRace;
             break;
         case 'GAME_END':
@@ -1122,6 +1263,25 @@ function recordJoinAttempt(ip) {
     joinRateLimits.set(ip, record);
 }
 
+/**
+ * Entries are only dropped when the same IP comes back after its window expired,
+ * so a stream of distinct IPs grew this map for the process lifetime. Sweep it
+ * on the periodic cleanup instead.
+ */
+function pruneJoinRateLimits() {
+    const now = Date.now();
+    let removed = 0;
+    for (const [ip, record] of joinRateLimits) {
+        if (now - record.lastAttempt > JOIN_RATE_LIMIT_WINDOW_MS) {
+            joinRateLimits.delete(ip);
+            removed++;
+        }
+    }
+    if (removed > 0) {
+        logger.info(`🧹 Pruned ${removed} expired join rate-limit entries`);
+    }
+}
+
 
 function sendError(ws, code, message) {
     if (ws.readyState !== WebSocket.OPEN) return;
@@ -1148,6 +1308,8 @@ setInterval(() => {
         }
     }
 
+    pruneJoinRateLimits();
+
     // Cleanup database orphans
     db.cleanupOldGames().catch(err => logger.error('Failed to cleanup DB:', err));
 }, 60 * 60 * 1000);
@@ -1164,7 +1326,7 @@ setInterval(() => {
 
 
 // Graceful shutdown: persist all active games before exiting
-async function gracefulShutdown(signal) {
+async function gracefulShutdown(signal, exitCode = 0) {
     logger.info(`🛑 Received ${signal}. Saving active games and shutting down...`);
     try {
         // Flush any pending debounced saves immediately
@@ -1182,7 +1344,7 @@ async function gracefulShutdown(signal) {
     } catch (err) {
         logger.error('Error during shutdown:', err);
     }
-    process.exit(0);
+    process.exit(exitCode);
 }
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
@@ -1190,11 +1352,22 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 process.on('uncaughtException', (err) => {
     logger.error('💥 Uncaught Exception:', err);
-    gracefulShutdown('uncaughtException');
+    // Exit non-zero: a crash reported as success stops process supervisors
+    // (systemd, pm2, Docker restart policies) from restarting the server.
+    gracefulShutdown('uncaughtException', 1);
 });
 
 process.on('unhandledRejection', (reason) => {
     logger.error('💥 Unhandled Rejection:', reason);
 });
 
-logger.info('✅ Server ready to accept connections');
+// Wait for the schema, restore persisted rooms, and only then accept traffic, so
+// a reconnect immediately after a restart finds its game instead of being told
+// the join code is invalid.
+db.ready
+    .then(() => loadGamesFromDatabase())
+    .catch(err => logger.error('❌ Failed to restore games on startup:', err))
+    .finally(() => {
+        startListening();
+        logger.info('✅ Server ready to accept connections');
+    });

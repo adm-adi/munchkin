@@ -1,22 +1,46 @@
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
+const path = require('path');
 const logger = require('./logger');
 
-const DB_SOURCE = "munchkin.db";
+// Resolved against this file, not the process CWD: starting the server from a
+// different directory used to silently create a second, empty database.
+const DB_SOURCE = process.env.MUNCHKIN_DB_PATH || path.join(__dirname, 'munchkin.db');
+
+const BCRYPT_COST = 12;
+
+/**
+ * Resolves once the schema exists and migrations have run. Callers that touch
+ * tables at startup must await this — the old code slept for a second and hoped,
+ * which failed outright on a fresh database.
+ */
+let signalReady;
+let signalReadyFailed;
+const ready = new Promise((resolve, reject) => {
+    signalReady = resolve;
+    signalReadyFailed = reject;
+});
 
 const db = new sqlite3.Database(DB_SOURCE, (err) => {
     if (err) {
         logger.error("❌ Error opening database", err.message);
-        throw err;
-    } else {
-        logger.info("📂 Connected to SQLite database.");
-        initTables();
+        signalReadyFailed(err);
+        return;
     }
+    logger.info(`📂 Connected to SQLite database at ${DB_SOURCE}`);
+    initTables();
 });
 
 function initTables() {
     db.serialize(() => {
+        // WAL lets reads proceed during writes; busy_timeout stops concurrent
+        // writers from failing outright with SQLITE_BUSY. foreign_keys is off by
+        // default in SQLite, which made the FK clauses below decorative.
+        db.run(`PRAGMA journal_mode = WAL`);
+        db.run(`PRAGMA busy_timeout = 5000`);
+        db.run(`PRAGMA foreign_keys = ON`);
+
         // Users Table
         db.run(`CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
@@ -137,6 +161,21 @@ function initTables() {
         db.run(`CREATE INDEX IF NOT EXISTS idx_participants_user ON participants(user_id)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_games_winner ON games(winner_id)`);
         db.run(`CREATE INDEX IF NOT EXISTS idx_monsters_name ON monsters(name)`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_active_games_activity ON active_games(last_activity_at)`);
+
+        // Login accepts either email or username, so a duplicate username makes
+        // "which account did I just log into?" ambiguous. Enforce uniqueness going
+        // forward; if existing rows already collide the index creation fails and we
+        // surface it rather than silently leaving the ambiguity in place.
+        db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)`, (err) => {
+            if (err) {
+                logger.error(
+                    "⚠️ Could not enforce unique usernames — existing duplicates must be " +
+                    "resolved manually. Login by username stays ambiguous until then:",
+                    err.message
+                );
+            }
+        });
 
         // Seed Monsters if empty
         db.get("SELECT count(*) as count FROM monsters", [], (err, row) => {
@@ -166,14 +205,44 @@ function initTables() {
                 logger.info(`ℹ️ Monsters table has ${row ? row.count : 0} entries.`);
             }
         });
+
+        // Queued last inside serialize(), so this runs only after every statement
+        // above has been applied. Seeding is deliberately not awaited: it is not
+        // needed to serve traffic.
+        db.run(`SELECT 1`, (err) => {
+            if (err) signalReadyFailed(err);
+            else signalReady();
+        });
     });
 }
 
 // ============== User Operations ==============
 
-function createUser(username, email, password, avatarId = 0) {
+/**
+ * bcrypt at cost 12 takes hundreds of milliseconds. The sync variants blocked
+ * Node's single event loop for that whole time, so one login froze every active
+ * game on the server. Always use the async callbacks.
+ */
+function hashPassword(password) {
     return new Promise((resolve, reject) => {
-        const hashedPassword = bcrypt.hashSync(password, 12);
+        bcrypt.hash(password, BCRYPT_COST, (err, hash) => {
+            if (err) reject(err);
+            else resolve(hash);
+        });
+    });
+}
+
+function comparePassword(password, hash) {
+    return new Promise((resolve, reject) => {
+        bcrypt.compare(password, hash, (err, isMatch) => {
+            if (err) reject(err);
+            else resolve(isMatch);
+        });
+    });
+}
+
+function createUser(username, email, password, avatarId = 0) {
+    return hashPassword(password).then(hashedPassword => new Promise((resolve, reject) => {
         const id = uuidv4();
         const now = Date.now();
 
@@ -184,6 +253,8 @@ function createUser(username, email, password, avatarId = 0) {
             if (err) {
                 if (err.message.includes("UNIQUE constraint failed: users.email")) {
                     reject(new Error("EMAIL_EXISTS"));
+                } else if (err.message.includes("UNIQUE constraint failed: users.username")) {
+                    reject(new Error("USERNAME_EXISTS"));
                 } else {
                     reject(err);
                 }
@@ -191,50 +262,47 @@ function createUser(username, email, password, avatarId = 0) {
                 resolve({ id, username, email, avatarId });
             }
         });
-    });
+    }));
 }
 
-function updateUser(userId, newUsername, newPassword) {
+async function updateUser(userId, newUsername, newPassword) {
+    // Guard: nothing to update
+    if (!newUsername && !newPassword) {
+        throw new Error("NO_CHANGES");
+    }
+
+    const assignments = [];
+    const params = [];
+
+    if (newUsername) {
+        assignments.push("username = ?");
+        params.push(newUsername);
+    }
+
+    if (newPassword) {
+        assignments.push("password_hash = ?");
+        params.push(await hashPassword(newPassword));
+    }
+
+    const sql = `UPDATE users SET ${assignments.join(", ")} WHERE id = ?`;
+    params.push(userId);
+
     return new Promise((resolve, reject) => {
-        // Guard: nothing to update
-        if (!newUsername && !newPassword) {
-            return reject(new Error("NO_CHANGES"));
-        }
-
-        let sql = "UPDATE users SET ";
-        let params = [];
-
-        if (newUsername) {
-            sql += "username = ?, ";
-            params.push(newUsername);
-        }
-
-        if (newPassword) {
-            // Use same cost factor as createUser (12 rounds)
-            const hashedPassword = bcrypt.hashSync(newPassword, 12);
-            sql += "password_hash = ?, ";
-            params.push(hashedPassword);
-        }
-
-        // Remove trailing ", "
-        sql = sql.slice(0, -2);
-
-        sql += " WHERE id = ?";
-        params.push(userId);
-
         db.run(sql, params, function (err) {
             if (err) {
-                reject(err);
-            } else {
-                // Fetch updated user
-                db.get("SELECT * FROM users WHERE id = ?", [userId], (err, row) => {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve(row);
-                    }
-                });
+                if (err.message.includes("UNIQUE constraint failed: users.username")) {
+                    reject(new Error("USERNAME_EXISTS"));
+                } else {
+                    reject(err);
+                }
+                return;
             }
+            // Fetch updated user
+            db.get("SELECT * FROM users WHERE id = ?", [userId], (getErr, row) => {
+                if (getErr) reject(getErr);
+                else if (!row) reject(new Error("USER_NOT_FOUND"));
+                else resolve(row);
+            });
         });
     });
 }
@@ -253,28 +321,23 @@ function findUserByEmailOrUsername(identifier) {
     });
 }
 
-function verifyUser(identifier, password) {
-    return new Promise((resolve, reject) => {
-        findUserByEmailOrUsername(identifier)
-            .then(user => {
-                if (!user) {
-                    resolve(null); // User not found
-                    return;
-                }
-                const isValid = bcrypt.compareSync(password, user.password_hash);
-                if (isValid) {
-                    resolve({
-                        id: user.id,
-                        username: user.username,
-                        email: user.email,
-                        avatarId: user.avatar_id
-                    });
-                } else {
-                    resolve(null); // Invalid password
-                }
-            })
-            .catch(reject);
-    });
+async function verifyUser(identifier, password) {
+    const user = await findUserByEmailOrUsername(identifier);
+    if (!user) {
+        return null; // User not found
+    }
+
+    const isValid = await comparePassword(password, user.password_hash);
+    if (!isValid) {
+        return null; // Invalid password
+    }
+
+    return {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        avatarId: user.avatar_id
+    };
 }
 
 function getUserById(userId) {
@@ -290,9 +353,12 @@ function getUserById(userId) {
 
 function searchMonsters(query) {
     return new Promise((resolve, reject) => {
-        const sql = `SELECT * FROM monsters WHERE name LIKE ? ORDER BY name LIMIT 20`;
-        db.all(sql, [`%${query}%`], (err, rows) => {
-            if (err) resolve([]);
+        // Escape LIKE metacharacters so a query containing % or _ searches for
+        // those literal characters instead of acting as a wildcard.
+        const escaped = String(query || '').replace(/[\\%_]/g, ch => `\\${ch}`);
+        const sql = `SELECT * FROM monsters WHERE name LIKE ? ESCAPE '\\' ORDER BY name LIMIT 20`;
+        db.all(sql, [`%${escaped}%`], (err, rows) => {
+            if (err) reject(err);
             else resolve(rows.map(row => ({
                 id: row.id,
                 name: row.name,
@@ -340,47 +406,52 @@ function addMonster(monster, userId) {
 
 // ============== Game History Operations ==============
 
-function recordGame(gameId, winnerId, startTime, endTime, participants) {
+function run(sql, params = []) {
     return new Promise((resolve, reject) => {
-        db.serialize(() => {
-            db.run("BEGIN TRANSACTION");
-
-            // 1. Record Game
-            const gameSql = `INSERT INTO games (id, join_code, host_id, started_at, ended_at, winner_id) VALUES (?, ?, ?, ?, ?, ?)`;
-            // gameId from server might be UUID, ensure it matches
-            db.run(gameSql, [gameId, "HISTORY", "unknown", startTime, endTime, winnerId], function (err) {
-                if (err) {
-                    logger.error("Error inserting game:", err);
-                    db.run("ROLLBACK");
-                    return reject(err);
-                }
-            });
-
-            // 2. Record Participants
-            const partSql = `INSERT INTO participants (game_id, user_id, player_id, joined_at) VALUES (?, ?, ?, ?)`;
-            const stmt = db.prepare(partSql);
-
-            participants.forEach(p => {
-                // If user is logged in, use their real user_id. If guest, maybe store player_id as reference or null.
-                // We prefer linking to registered users.
-                // Assuming p.userId is passed if available, otherwise maybe just skip or store null?
-                // The schema has user_id foreign key, but it might be nullable?
-                // If the user was anonymous, we can't link history to them easily in this schema unless we allow nulls.
-                // Let's assume we filter for registered users or handle it.
-                // For now, only record if we have a valid user_id (registered user).
-                if (p.userId && p.userId !== "anon") {
-                    stmt.run([gameId, p.userId, p.playerId, startTime]);
-                }
-            });
-
-            stmt.finalize(() => {
-                db.run("COMMIT", (err) => {
-                    if (err) reject(err);
-                    else resolve(true);
-                });
-            });
+        db.run(sql, params, function (err) {
+            if (err) reject(err);
+            else resolve(this);
         });
     });
+}
+
+/**
+ * Records a finished game plus its participants.
+ *
+ * The previous implementation issued BEGIN/ROLLBACK/COMMIT from inside nested
+ * sqlite3 callbacks, so the COMMIT stayed queued even after a ROLLBACK, and two
+ * concurrent calls could nest BEGIN and fail with "cannot start a transaction
+ * within a transaction". Awaiting each step keeps the transaction well-formed.
+ *
+ * `joinCode` and `hostId` are recorded properly instead of the old "HISTORY" /
+ * "unknown" placeholders. Guests (no userId) are stored with a NULL user_id so
+ * the player_count in history reflects everyone who actually played.
+ */
+async function recordGame(gameId, winnerId, startTime, endTime, participants, joinCode = null, hostId = null) {
+    await run("BEGIN IMMEDIATE TRANSACTION");
+    try {
+        await run(
+            `INSERT OR REPLACE INTO games (id, join_code, host_id, started_at, ended_at, winner_id)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [gameId, joinCode, hostId, startTime, endTime, winnerId]
+        );
+
+        for (const p of (participants || [])) {
+            const userId = p.userId && p.userId !== "anon" ? p.userId : null;
+            await run(
+                `INSERT OR REPLACE INTO participants (game_id, user_id, player_id, joined_at)
+                 VALUES (?, ?, ?, ?)`,
+                [gameId, userId, p.playerId, p.joinedAt || startTime]
+            );
+        }
+
+        await run("COMMIT");
+        return true;
+    } catch (err) {
+        logger.error("Error recording game, rolling back:", err);
+        await run("ROLLBACK").catch(() => { /* transaction already unwound */ });
+        throw err;
+    }
 }
 
 function getUserHistory(userId) {
@@ -407,12 +478,14 @@ function getLeaderboard() {
     return new Promise((resolve, reject) => {
         const sql = `
             SELECT
-                u.id, u.username, u.avatar_id,
-                COUNT(g.id) as wins
+                u.id,
+                u.username,
+                u.avatar_id,
+                COUNT(DISTINCT g.id) as wins
             FROM users u
             JOIN games g ON g.winner_id = u.id
-            GROUP BY u.id
-            ORDER BY wins DESC
+            GROUP BY u.id, u.username, u.avatar_id
+            ORDER BY wins DESC, u.username ASC
             LIMIT 20
         `;
         db.all(sql, [], (err, rows) => {
@@ -593,6 +666,7 @@ function cleanupOldGames() {
 
 module.exports = {
     db,
+    ready,
     createUser,
     getUserById,
     findUserByEmail: findUserByEmailOrUsername,
