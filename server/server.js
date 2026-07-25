@@ -49,7 +49,9 @@ const {
     sanitizeBonus
 } = require('./validation');
 
-const PORT = 8765;
+// Configurable so integration tests can bind a free port instead of colliding
+// with a running instance.
+const PORT = Number(process.env.PORT) || 8765;
 
 if (!process.env.JWT_SECRET) {
     logger.error('❌ FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
