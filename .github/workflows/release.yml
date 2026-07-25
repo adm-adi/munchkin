@@ -37,8 +37,25 @@ jobs:
             echo "::warning::Secret KEYSTORE_BASE64 not found. Build may fail if signing config requires it."
           fi
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
+
+      # A tag build used to go straight to assembleRelease without running a single
+      # test. Gate the release on the same checks CI runs, so a red tree cannot be
+      # published.
+      - name: Server tests
+        working-directory: server
+        run: |
+          npm ci
+          npm run check
+          npm test
+
+      - name: Android unit tests
+        run: ./gradlew :app:test --stacktrace
 
       - name: Build Release APK
         env:

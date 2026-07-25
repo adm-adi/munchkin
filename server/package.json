@@ -3,6 +3,9 @@
   "version": "2.20.12",
   "description": "WebSocket server for Munchkin Tracker multiplayer",
   "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
