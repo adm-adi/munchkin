@@ -42,6 +42,9 @@ jobs:
       - name: Unit tests
         run: ./gradlew :app:test --stacktrace
 
+      - name: Translation parity (es / en / fr)
+        run: ./gradlew :app:lintDebug --stacktrace
+
       - name: Upload test report
         if: failure()
         uses: actions/upload-artifact@v4

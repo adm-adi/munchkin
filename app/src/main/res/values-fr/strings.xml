@@ -267,4 +267,50 @@
     <string name="abilities_collapsed_hint">%1$d capacités — appuyez pour voir</string>
     <string name="ability_automatic">Appliqué automatiquement</string>
     <string name="ability_manual">À appliquer vous-même avec le modificateur</string>
+
+    <!-- Class and race ability reminders -->
+    <string name="ability_warrior_ties">Vous gagnez les égalités en combat.</string>
+    <string name="ability_warrior_berserk">Berserk : défaussez jusqu\'à 3 cartes pour +1 au combat chacune.</string>
+    <string name="ability_wizard_charm">Sort de charme : défaussez toute votre main pour charmer un monstre. Il quitte le combat et vous prenez son trésor, sans gagner de niveau.</string>
+    <string name="ability_wizard_flight">Sort de fuite : défaussez jusqu\'à 3 cartes pour +1 au jet de fuite chacune.</string>
+    <string name="ability_thief_backstab">Coup dans le dos : défaussez une carte pour infliger -2 au combat d\'un autre joueur.</string>
+    <string name="ability_thief_steal">Vol : défaussez une carte et lancez le dé pour voler un objet à un autre joueur.</string>
+    <string name="ability_cleric_undead">+3 au combat contre les Morts-Vivants.</string>
+    <string name="ability_cleric_resurrect">Résurrection : en défaussant, vous pouvez défausser 2 cartes de plus et en piocher 2 autres.</string>
+    <string name="ability_elf_help_level">Vous gagnez un niveau chaque fois que vous aidez à tuer un monstre.</string>
+    <string name="ability_elf_run_away">+1 au jet de fuite.</string>
+    <string name="ability_dwarf_big_items">Vous pouvez porter autant d\'objets Encombrants que vous voulez.</string>
+    <string name="ability_dwarf_hand_size">Vous pouvez avoir 6 cartes en main.</string>
+    <string name="ability_halfling_sell">Vous pouvez vendre un objet au double de sa valeur.</string>
+    <string name="ability_halfling_hand_size">Vous pouvez avoir 6 cartes en main.</string>
+
+    <!-- Combat, class and race names -->
+    <string name="combat_is_undead">Mort-vivant</string>
+    <string name="combat_cancel">Annuler le combat</string>
+    <string name="combat_run_away">Fuir</string>
+    <string name="combat_no_monsters">Aucun monstre</string>
+    <string name="combat_bad_stuff_label">Truc Pourri</string>
+    <string name="combat_victory_end">VICTOIRE ! (Terminer)</string>
+    <string name="combat_accept_defeat">ACCEPTER LA DÉFAITE</string>
+    <string name="combat_rolled">a fait</string>
+    <string name="combat_escaped">Échappé !</string>
+    <string name="combat_failed_escape">Raté !</string>
+    <string name="combat_remove_helper">Retirer l\'assistant</string>
+    <string name="combat_start_prompt">Lancez un combat</string>
+    <string name="combat_helper_suffix">assistant</string>
+    <string name="combat_cleric_vs_undead">Clerc vs Mort-vivant</string>
+    <string name="combat_card_modifiers">Modificateurs de carte</string>
+    <string name="class_none">Sans classe</string>
+    <string name="class_warrior">Guerrier</string>
+    <string name="class_wizard">Magicien</string>
+    <string name="class_thief">Voleur</string>
+    <string name="class_cleric">Clerc</string>
+    <string name="class_ranger">Rôdeur</string>
+    <string name="class_bard">Barde</string>
+    <string name="race_human">Humain</string>
+    <string name="race_elf">Elfe</string>
+    <string name="race_dwarf">Nain</string>
+    <string name="race_halfling">Halfelin</string>
+    <string name="race_gnome">Gnome</string>
+    <string name="race_orc">Orque</string>
 </resources>

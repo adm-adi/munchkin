@@ -57,6 +57,9 @@ jobs:
       - name: Android unit tests
         run: ./gradlew :app:test --stacktrace
 
+      - name: Translation parity (es / en / fr)
+        run: ./gradlew :app:lintDebug --stacktrace
+
       - name: Build Release APK
         env:
           KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}

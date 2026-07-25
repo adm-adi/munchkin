@@ -2,22 +2,22 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Network permissions for LAN WebSocket -->
+    <!-- Network access for the remote WebSocket server -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
-    
-    <!-- WiFi Direct (P2P) permissions -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" tools:targetApi="tiramisu" />
-    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-    
+
+    <!--
+        The WiFi Direct and multicast permissions went with the LAN/embedded-host
+        mode, which is no longer part of the codebase: nothing under app/src touches
+        WifiManager, NsdManager or any location API. ACCESS_FINE_LOCATION in
+        particular was being requested by a scorekeeping app that has never had a
+        reason to know where the player is, and it shows up in the install dialog.
+    -->
+
     <!-- Camera for QR scanning -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <uses-feature android:name="android.hardware.wifi.direct" android:required="false" />
-    
+
     <!-- Vibration for haptic feedback -->
     <uses-permission android:name="android.permission.VIBRATE" />
     

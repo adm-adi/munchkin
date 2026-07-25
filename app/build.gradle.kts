@@ -77,6 +77,20 @@ android {
         compose = true
         buildConfig = true
     }
+
+    lint {
+        // English and French had drifted 28 strings behind Spanish. That surfaces as
+        // untranslated text mid-screen rather than as any kind of failure, so nothing
+        // caught it. This makes the drift fail the build instead.
+        //
+        // checkOnly narrows the lint task to these two checks. The project has ~210
+        // other lint warnings and 1 pre-existing error; turning them all fatal here
+        // would mean fixing an unrelated backlog before this gate could land, so they
+        // are deliberately left for their own pass rather than silenced.
+        checkOnly += listOf("MissingTranslation", "ExtraTranslation")
+        error += listOf("MissingTranslation", "ExtraTranslation")
+        abortOnError = true
+    }
     
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.8"
