@@ -5,6 +5,57 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
     const RATE_LIMIT_MAX_ATTEMPTS = 5;
     const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 
+    // Registration gets its own, stricter budget: login attempts are cheap to
+    // retry legitimately, creating accounts is not.
+    const registerRateLimits = new Map(); // IP -> { count, windowStart }
+    const REGISTER_MAX_PER_WINDOW = 3;
+    const REGISTER_WINDOW_MS = 60 * 60 * 1000;
+
+    const MIN_PASSWORD_LENGTH = 8;
+    const MAX_RATE_LIMIT_ENTRIES = 10_000;
+
+    /**
+     * Rate-limit maps are keyed by client IP, so without an upper bound they
+     * grow for the lifetime of the process. Evict the oldest entries once the
+     * map gets large rather than letting it become a memory leak.
+     */
+    function pruneRateLimitMap(map, timestampKey) {
+        if (map.size <= MAX_RATE_LIMIT_ENTRIES) return;
+        const entries = [...map.entries()].sort(
+            (a, b) => (a[1][timestampKey] || 0) - (b[1][timestampKey] || 0)
+        );
+        const dropCount = map.size - MAX_RATE_LIMIT_ENTRIES;
+        for (let i = 0; i < dropCount; i++) {
+            map.delete(entries[i][0]);
+        }
+    }
+
+    function isRegisterRateLimited(ip) {
+        const record = registerRateLimits.get(ip);
+        if (!record) return false;
+        if (Date.now() - record.windowStart > REGISTER_WINDOW_MS) {
+            registerRateLimits.delete(ip);
+            return false;
+        }
+        return record.count >= REGISTER_MAX_PER_WINDOW;
+    }
+
+    function recordRegisterAttempt(ip) {
+        const record = registerRateLimits.get(ip);
+        if (!record || Date.now() - record.windowStart > REGISTER_WINDOW_MS) {
+            registerRateLimits.set(ip, { count: 1, windowStart: Date.now() });
+        } else {
+            record.count += 1;
+        }
+        pruneRateLimitMap(registerRateLimits, 'windowStart');
+    }
+
+    // Deliberately permissive: enough to catch obvious typos without rejecting
+    // valid but unusual addresses.
+    function isPlausibleEmail(value) {
+        return typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value);
+    }
+
     function signToken(payload) {
         const header = { alg: 'HS256', typ: 'JWT' };
         const now = Math.floor(Date.now() / 1000);
@@ -75,6 +126,7 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
         record.attempts += 1;
         record.lastAttempt = Date.now();
         authRateLimits.set(ip, record);
+        pruneRateLimitMap(authRateLimits, 'lastAttempt');
     }
 
     function isValidInput(text, maxLength) {
@@ -97,20 +149,35 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
     function handleRegister(ws, message) {
         let { username, email, password, avatarId } = message;
 
+        const clientIp = ws.clientIp || 'unknown';
+        if (isRegisterRateLimited(clientIp)) {
+            logger.warn(`[IP: ${clientIp}] Registration rate limit exceeded`);
+            sendError(ws, 'RATE_LIMITED', 'Demasiadas cuentas creadas. Inténtalo más tarde.');
+            return;
+        }
+
         if (!isValidInput(username, 20) || !isValidInput(password, 100)) {
-            sendError(ws, 'INVALID_DATA', 'Invalid or too long username/password');
+            sendError(ws, 'INVALID_DATA', 'Nombre de usuario o contraseña inválidos');
+            return;
+        }
+
+        if (password.length < MIN_PASSWORD_LENGTH) {
+            sendError(ws, 'INVALID_DATA', `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`);
             return;
         }
 
         if (!email) {
             const sanitizedUsername = username.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
             email = `${sanitizedUsername}@munchkin.local`;
-        } else if (!isValidInput(email, 100)) {
-            sendError(ws, 'INVALID_DATA', 'Email too long');
+        } else if (!isValidInput(email, 100) || !isPlausibleEmail(email)) {
+            sendError(ws, 'INVALID_DATA', 'Email inválido');
             return;
         }
 
-        db.createUser(username, email, password, avatarId || 0)
+        const safeAvatarId = Math.max(0, Math.min(100, Math.round(Number(avatarId) || 0)));
+        recordRegisterAttempt(clientIp);
+
+        db.createUser(username, email, password, safeAvatarId)
             .then(user => {
                 logger.info(`User registered: ${user.username} (${user.id})`);
                 const token = signToken({ id: user.id, username: user.username, email: user.email });
@@ -186,7 +253,15 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
 
                 logger.info(`User logged in via token: ${user.username}`);
                 ws.userId = user.id;
-                ws.send(JSON.stringify(buildAuthSuccess(user, token)));
+                // Re-sign rather than echoing the presented token back: otherwise a
+                // session can never be extended and the user is logged out abruptly
+                // once the original 48h expiry passes, even while actively playing.
+                const refreshedToken = signToken({
+                    id: user.id,
+                    username: user.username,
+                    email: user.email
+                });
+                ws.send(JSON.stringify(buildAuthSuccess(user, refreshedToken)));
             })
             .catch(err => {
                 logger.error('Token login error:', err);
@@ -204,12 +279,23 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
         }
 
         if (username && !isValidInput(username, 20)) {
-            sendError(ws, 'INVALID_DATA', 'Username too long');
+            sendError(ws, 'INVALID_DATA', 'Nombre de usuario inválido');
             return;
         }
 
-        if (password && !isValidInput(password, 100)) {
-            sendError(ws, 'INVALID_DATA', 'Password too long');
+        if (password) {
+            if (!isValidInput(password, 100)) {
+                sendError(ws, 'INVALID_DATA', 'Contraseña inválida');
+                return;
+            }
+            if (password.length < MIN_PASSWORD_LENGTH) {
+                sendError(ws, 'INVALID_DATA', `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`);
+                return;
+            }
+        }
+
+        if (!username && !password) {
+            sendError(ws, 'INVALID_DATA', 'No hay cambios que guardar');
             return;
         }
 

@@ -53,12 +53,12 @@ function createCatalogManager({ db, sendError, logger }) {
         let { monster } = message;
 
         if (!ws.userId) {
-            sendError(ws, "UNAUTHORIZED", "Debes iniciar sesion para anadir monstruos");
+            sendError(ws, "UNAUTHORIZED", "Debes iniciar sesión para añadir monstruos");
             return;
         }
 
         if (!monster || typeof monster.name !== 'string' || !monster.name.trim()) {
-            sendError(ws, "INVALID_DATA", "Datos de monstruo invÃ¡lidos");
+            sendError(ws, "INVALID_DATA", "Datos de monstruo inválidos");
             return;
         }
 
@@ -74,7 +74,7 @@ function createCatalogManager({ db, sendError, logger }) {
 
         const rateLimitKey = ws.userId;
         if (isCatalogAddRateLimited(rateLimitKey)) {
-            sendError(ws, "RATE_LIMITED", "Demasiados monstruos aÃ±adidos. Espera un momento.");
+            sendError(ws, "RATE_LIMITED", "Demasiados monstruos añadidos. Espera un momento.");
             return;
         }
         recordCatalogAdd(rateLimitKey);

@@ -176,13 +176,24 @@ function createTurnManager({ games, db, logger }) {
             });
         }
 
+        // Guests have no account to credit, and an aborted game has no winner at
+        // all; both are recorded as NULL so the leaderboard join simply skips them
+        // instead of matching a sentinel string that is not a user id.
         let winnerUserId = null;
         if (winnerId) {
             const winner = game.players.get(winnerId);
-            if (winner) winnerUserId = winner.userId || winnerId;
+            if (winner) winnerUserId = winner.userId || null;
         }
 
-        db.recordGame(game.id, winnerUserId || "aborted", game.createdAt, Date.now(), participants)
+        db.recordGame(
+            game.id,
+            winnerUserId,
+            game.createdAt,
+            Date.now(),
+            participants,
+            game.joinCode,
+            game.originalHostId || game.hostId
+        )
             .then(() => logger.info(`💾 Game ${game.id} recorded in history`))
             .catch(err => logger.error(`❌ Failed to record game ${game.id}`, err));
     }

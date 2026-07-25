@@ -35,7 +35,12 @@ function createCombatManager({ games, clientGames, sendError, logger }) {
             if (bonus.appliesTo === 'MONSTER') monstersPower += (bonus.amount || 0);
         }
 
-        const isWarrior = mainPlayer.characterClass === 'WARRIOR';
+        // A Warrior on either side of the party wins ties. The client's
+        // CombatCalculator already checks both the main player and the helper, so
+        // only checking the main player here made the server overrule a tie the
+        // client had shown as a win.
+        const isWarrior = mainPlayer.characterClass === 'WARRIOR'
+            || (helperPlayer && helperPlayer.characterClass === 'WARRIOR');
         const outcome = (heroesPower > monstersPower || (heroesPower === monstersPower && isWarrior)) ? 'WIN' : 'LOSE';
         const helperLevelsGained = (outcome === 'WIN' && helperPlayer && helperPlayer.characterRace === 'ELF') ? 1 : 0;
 
@@ -45,7 +50,7 @@ function createCombatManager({ games, clientGames, sendError, logger }) {
     function handleCombatDiceRoll(ws, message) {
         const clientInfo = clientGames.get(ws);
         if (!clientInfo) {
-            return sendError(ws, "GENERAL_ERROR", "No estÃ¡s en ninguna partida");
+            return sendError(ws, "GENERAL_ERROR", "No estás en ninguna partida");
         }
 
         const game = games.get(clientInfo.gameId);
@@ -72,7 +77,7 @@ function createCombatManager({ games, clientGames, sendError, logger }) {
 
         game.lastCombatDiceRoll = diceRollInfo;
 
-        logger.info(`ðŸŽ² ${player.name} rolled ${result} for ${purpose} - ${success ? 'SUCCESS' : 'FAIL'}`);
+        logger.info(`🎲 ${player.name} rolled ${result} for ${purpose} - ${success ? 'SUCCESS' : 'FAIL'}`);
 
         game.broadcast({
             type: "COMBAT_DICE_ROLL_RESULT",
