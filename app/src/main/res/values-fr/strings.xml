@@ -263,4 +263,8 @@
     <string name="confirm_kick">Expulser %1$s de la partie ?</string>
     <string name="waiting_for_player">En attente de %1$s…</string>
     <string name="player_disconnected">Déconnecté</string>
+    <string name="abilities_title">Capacités en jeu</string>
+    <string name="abilities_collapsed_hint">%1$d capacités — appuyez pour voir</string>
+    <string name="ability_automatic">Appliqué automatiquement</string>
+    <string name="ability_manual">À appliquer vous-même avec le modificateur</string>
 </resources>

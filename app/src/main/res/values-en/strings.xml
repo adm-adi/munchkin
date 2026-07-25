@@ -263,4 +263,8 @@
     <string name="confirm_kick">Kick %1$s from the game?</string>
     <string name="waiting_for_player">Waiting for %1$s…</string>
     <string name="player_disconnected">Disconnected</string>
+    <string name="abilities_title">Abilities in play</string>
+    <string name="abilities_collapsed_hint">%1$d abilities — tap to view</string>
+    <string name="ability_automatic">Applied automatically</string>
+    <string name="ability_manual">Apply it yourself with the modifier</string>
 </resources>

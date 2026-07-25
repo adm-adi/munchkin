@@ -63,8 +63,8 @@ object CombatCalculator {
         val monstersPower = monsterBasePower + monsterConditionalBonus + monsterTempBonus + combatState.monsterModifier
         
         // Determine outcome (ties go to monsters unless a hero is a Warrior)
-        val isWarriorInvolved = (mainPlayer.characterClass == CharacterClass.WARRIOR) || 
-                               (helperPlayer?.characterClass == CharacterClass.WARRIOR)
+        val isWarriorInvolved = mainPlayer.hasClass(CharacterClass.WARRIOR) ||
+            helperPlayer?.hasClass(CharacterClass.WARRIOR) == true
         
         val outcome = if (heroesPower > monstersPower || (heroesPower == monstersPower && isWarriorInvolved)) {
             CombatOutcome.WIN
@@ -82,7 +82,7 @@ object CombatCalculator {
             treasures = combatState.monsters.sumOf { it.treasures }
             
             // Elf Helper Bonus: Helper gains 1 level if they help and win
-            if (helperPlayer != null && helperPlayer.characterRace == CharacterRace.ELF) {
+            if (helperPlayer?.hasRace(CharacterRace.ELF) == true) {
                 helperLevels = 1
             }
         }
@@ -110,10 +110,11 @@ object CombatCalculator {
         var bonus = 0
         val isUndeadPresent = monsters.any { it.isUndead }
         
-        // Cleric: +3 vs Undead
+        // Cleric: +3 vs Undead. Goes through hasClass so Super Munchkin
+        // (Warrior + Cleric, say) still grants it.
         if (isUndeadPresent) {
-            if (mainPlayer.characterClass == CharacterClass.CLERIC) bonus += 3
-            if (helperPlayer?.characterClass == CharacterClass.CLERIC) bonus += 3
+            if (mainPlayer.hasClass(CharacterClass.CLERIC)) bonus += 3
+            if (helperPlayer?.hasClass(CharacterClass.CLERIC) == true) bonus += 3
         }
         
         return bonus
@@ -190,7 +191,8 @@ object CombatCalculator {
                 val raceName = modifier.conditionValue.uppercase()
                 val raceEnum = CharacterRace.entries.find { it.name == raceName }
                 if (raceEnum != null) {
-                    player.characterRace == raceEnum
+                    // Half-Breed means a card condition can match either race.
+                    player.hasRace(raceEnum) || player.characterRace == raceEnum
                 } else {
                     player.raceIds.contains(EntryId(modifier.conditionValue))
                 }
@@ -199,7 +201,8 @@ object CombatCalculator {
                 val className = modifier.conditionValue.uppercase()
                 val classEnum = CharacterClass.entries.find { it.name == className }
                 if (classEnum != null) {
-                    player.characterClass == classEnum
+                    // Super Munchkin means a card condition can match either class.
+                    player.hasClass(classEnum) || player.characterClass == classEnum
                 } else {
                     player.classIds.contains(EntryId(modifier.conditionValue))
                 }
@@ -276,10 +279,10 @@ object CombatCalculator {
         // Intrinsic Bonuses (e.g. Class Abilities)
         val isUndeadPresent = combatState.monsters.any { it.isUndead }
         if (isUndeadPresent) {
-            if (mainPlayer.characterClass == CharacterClass.CLERIC) {
+            if (mainPlayer.hasClass(CharacterClass.CLERIC)) {
                 heroSources.add(PowerSource("Clérigo vs No-Muerto", 3))
             }
-            if (helperPlayer?.characterClass == CharacterClass.CLERIC) {
+            if (helperPlayer?.hasClass(CharacterClass.CLERIC) == true) {
                 heroSources.add(PowerSource("Ayudante Clérigo vs No-Muerto", 3))
             }
         }

@@ -297,4 +297,8 @@
     <string name="confirm_kick">¿Expulsar a %1$s de la partida?</string>
     <string name="waiting_for_player">Esperando a %1$s…</string>
     <string name="player_disconnected">Desconectado</string>
+    <string name="abilities_title">Habilidades en juego</string>
+    <string name="abilities_collapsed_hint">%1$d habilidades — toca para ver</string>
+    <string name="ability_automatic">La app ya lo aplica</string>
+    <string name="ability_manual">Aplícalo tú con el modificador</string>
 </resources>

@@ -453,7 +453,9 @@ data class SetClass(
     override val actorId: PlayerId,
     override val timestamp: Long,
     override val targetPlayerId: PlayerId,
-    val newClass: CharacterClass
+    val newClass: CharacterClass,
+    /** Targets the Super Munchkin second slot instead of the primary one. */
+    val isSecondary: Boolean = false
 ) : GameEvent()
 
 @Serializable
@@ -463,5 +465,7 @@ data class SetRace(
     override val actorId: PlayerId,
     override val timestamp: Long,
     override val targetPlayerId: PlayerId,
-    val newRace: CharacterRace
+    val newRace: CharacterRace,
+    /** Targets the Half-Breed second slot instead of the primary one. */
+    val isSecondary: Boolean = false
 ) : GameEvent()

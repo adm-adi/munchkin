@@ -299,6 +299,14 @@ class MainActivity : ComponentActivity() {
                                         },
                                         onSetClass = { viewModel.setCharacterClass(it) },
                                         onSetRace = { viewModel.setCharacterRace(it) },
+                                        onSetSecondaryClass = {
+                                            viewModel.setCharacterClass(it, isSecondary = true)
+                                        },
+                                        onSetSecondaryRace = {
+                                            viewModel.setCharacterRace(it, isSecondary = true)
+                                        },
+                                        onSetSuperMunchkin = { viewModel.setSuperMunchkin(it) },
+                                        onSetHalfBreed = { viewModel.setHalfBreed(it) },
                                         onBack = { viewModel.goBack() },
                                         isReadOnly = selectedPlayer.playerId != myPlayerId,
                                         maxLevel = uiState.gameState?.settings?.maxLevel ?: 10

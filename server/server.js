@@ -314,6 +314,8 @@ async function loadGamesFromDatabase() {
                     treasures: playerData.treasures || 0,
                     characterClass: playerData.characterClass || 'NONE',
                     characterRace: playerData.characterRace || 'HUMAN',
+                    secondaryClass: playerData.secondaryClass || 'NONE',
+                    secondaryRace: playerData.secondaryRace || 'HUMAN',
                     hasHalfBreed: playerData.hasHalfBreed || false,
                     hasSuperMunchkin: playerData.hasSuperMunchkin || false,
                     isConnected: false, // All start disconnected until they reconnect
@@ -406,7 +408,9 @@ class GameRoom {
                 lastRoll: player.lastRoll || null,
                 isConnected: !!player.isConnected,
                 characterClass: player.characterClass || "NONE",
-                characterRace: player.characterRace || "HUMAN"
+                characterRace: player.characterRace || "HUMAN",
+                secondaryClass: player.secondaryClass || "NONE",
+                secondaryRace: player.secondaryRace || "HUMAN"
             };
         }
 
@@ -691,6 +695,8 @@ function createPlayerState(ws, meta) {
         treasures: 0,
         characterClass: "NONE",
         characterRace: "HUMAN",
+        secondaryClass: "NONE",
+        secondaryRace: "HUMAN",
         hasHalfBreed: false,
         hasSuperMunchkin: false,
         isConnected: true,
@@ -1037,9 +1043,13 @@ function applyEvent(game, event, playerId, ws) {
             break;
         case 'SET_HALF_BREED':
             player.hasHalfBreed = event.enabled === true;
+            // Without the card you cannot hold two races, so the second slot goes
+            // with it rather than lingering and silently applying again later.
+            if (!player.hasHalfBreed) player.secondaryRace = 'HUMAN';
             break;
         case 'SET_SUPER_MUNCHKIN':
             player.hasSuperMunchkin = event.enabled === true;
+            if (!player.hasSuperMunchkin) player.secondaryClass = 'NONE';
             break;
         case 'PLAYER_ROLL':
             player.lastRoll = clampInt(event.result, 1, 6, 1);
@@ -1195,14 +1205,32 @@ function applyEvent(game, event, playerId, ws) {
                 sendError(ws, 'INVALID_DATA', 'Clase inválida');
                 return false;
             }
-            player.characterClass = event.newClass;
+            if (event.isSecondary) {
+                // A second class only exists while Super Munchkin is in play.
+                if (!player.hasSuperMunchkin) {
+                    sendError(ws, 'INVALID_DATA', 'Necesitas Súper Munchkin para una segunda clase');
+                    return false;
+                }
+                player.secondaryClass = event.newClass;
+            } else {
+                player.characterClass = event.newClass;
+            }
             break;
         case 'SET_RACE':
             if (!VALID_RACES.has(event.newRace)) {
                 sendError(ws, 'INVALID_DATA', 'Raza inválida');
                 return false;
             }
-            player.characterRace = event.newRace;
+            if (event.isSecondary) {
+                // A second race only exists while Half-Breed is in play.
+                if (!player.hasHalfBreed) {
+                    sendError(ws, 'INVALID_DATA', 'Necesitas Mestizo para una segunda raza');
+                    return false;
+                }
+                player.secondaryRace = event.newRace;
+            } else {
+                player.characterRace = event.newRace;
+            }
             break;
         case 'GAME_END':
             // Explicit end (e.g. host left)
