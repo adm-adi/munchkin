@@ -99,10 +99,18 @@ fun HistoryItem(game: GameHistoryItem) {
     val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
     val dateStr = dateFormat.format(Date(game.endedAt))
     
-    // We assume winnerId matches current user for "WIN" or logic elsewhere helps
-    // Actually ID is ambiguous without knowing "my" ID here.
-    // For now we just show Winner ID or "Tú" if we could check.
-    
+    // The server resolves the winner to a name and tells us whether it was us, so
+    // this no longer has to guess from a raw user id.
+    val didIWin = game.didIWin
+    val winnerLabel = when {
+        didIWin -> "Tú"
+        game.winnerName != null -> game.winnerName
+        // No winner recorded: the game ended without one being confirmed.
+        game.winnerId == null -> "Sin ganador"
+        // A winner exists but has no account, so there is no name to show.
+        else -> "Invitado"
+    }
+
     GlassCard(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -112,9 +120,9 @@ fun HistoryItem(game: GameHistoryItem) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "Partida Finalizada",
+                    text = if (didIWin) "Victoria" else "Partida Finalizada",
                     style = MaterialTheme.typography.titleMedium,
-                    color = NeonGray100,
+                    color = if (didIWin) NeonWarning else NeonGray100,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
@@ -132,16 +140,13 @@ fun HistoryItem(game: GameHistoryItem) {
             Spacer(modifier = Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                  Text("Ganador: ", color = NeonGray300)
-                 // If winnerId is UUID, it's ugly. Server should probably return Name.
-                 // But Protocol.kt defines GameHistoryItem with winnerId.
-                 // Assuming server sends ID.
-                 // Ideally server sends name, but let's stick to ID or "Unknown" for now.
-                 // Improving: Server Step 8596 sends winnerId.
-                 // We can't resolve name easily without user cache.
-                 // Let's just show "Jugador" or ID prefix.
                  Text(
-                     text = if (game.winnerId == "aborted") "Cancelada" else "Jugador",
-                     color = if (game.winnerId == "aborted") NeonError else NeonWarning,
+                     text = winnerLabel,
+                     color = when {
+                         didIWin -> NeonWarning
+                         game.winnerId == null -> NeonGray500
+                         else -> NeonGray100
+                     },
                      fontWeight = FontWeight.Bold
                  )
             }

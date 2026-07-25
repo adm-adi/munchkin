@@ -205,6 +205,9 @@ data class GameHistoryItem(
     val id: String,
     val endedAt: Long,
     val winnerId: String?,
+    /** Resolved by the server; null for a guest winner or a game with no winner. */
+    val winnerName: String? = null,
+    val didIWin: Boolean = false,
     val playerCount: Int
 )
 

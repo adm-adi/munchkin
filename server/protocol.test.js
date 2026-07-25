@@ -239,6 +239,61 @@ test('a finished game credits the winner and counts a game for both players', as
     await loser.client.close();
 });
 
+test('history names the winner and flags whether it was you', async () => {
+    // The client had no way to turn a user id into a name, so every finished game
+    // read "Jugador". The winner is resolved server-side now.
+    const champ = await registerUser(server.url, 'hist_champ');
+    const other = await registerUser(server.url, 'hist_other');
+
+    const welcome = await champ.client.request({
+        type: 'CreateGameMessage',
+        playerMeta: { name: 'Champ', avatarId: 1, gender: 'M' }
+    }, ['WELCOME', 'ERROR']);
+    const gameId = welcome.gameState.gameId;
+    const champPlayerId = welcome.yourPlayerId;
+
+    await other.client.request({
+        type: 'HELLO',
+        joinCode: welcome.gameState.joinCode,
+        playerMeta: { name: 'Other', avatarId: 0, gender: 'F' }
+    }, ['WELCOME', 'ERROR']);
+    await champ.client.settle();
+
+    champ.client.send({
+        type: 'EVENT_REQUEST',
+        event: { type: 'GAME_START', eventId: 'h-start', actorId: champPlayerId, timestamp: Date.now() }
+    });
+    await champ.client.waitFor(['STATE_SNAPSHOT']);
+    champ.client.send({ type: 'GAME_OVER', gameId, winnerId: champPlayerId });
+    await champ.client.waitFor(['STATE_SNAPSHOT']);
+    await new Promise(r => setTimeout(r, 500));
+
+    // The winner's own view.
+    const mine = await champ.client.request(
+        { type: 'GET_HISTORY', userId: champ.reply.user.id },
+        ['HISTORY_RESULT', 'ERROR']
+    );
+    assert.strictEqual(mine.type, 'HISTORY_RESULT', JSON.stringify(mine));
+    const wonGame = mine.games.find(g => g.id === gameId);
+    assert.ok(wonGame, 'the finished game must appear in the history');
+    assert.strictEqual(wonGame.winnerName, 'hist_champ', 'the winner is named, not an id');
+    assert.strictEqual(wonGame.didIWin, true);
+    assert.strictEqual(wonGame.playerCount, 2, 'both participants are counted');
+
+    // The loser's view of the same game.
+    const theirs = await other.client.request(
+        { type: 'GET_HISTORY', userId: other.reply.user.id },
+        ['HISTORY_RESULT', 'ERROR']
+    );
+    const lostGame = theirs.games.find(g => g.id === gameId);
+    assert.ok(lostGame, 'the loser also sees the game');
+    assert.strictEqual(lostGame.winnerName, 'hist_champ');
+    assert.strictEqual(lostGame.didIWin, false, 'must not claim the loser won');
+
+    await champ.client.close();
+    await other.client.close();
+});
+
 test('an anonymous caller gets the ranking but no personal stats', async () => {
     const c = await TestClient.connect(server.url);
     const board = await c.request({ type: 'GET_LEADERBOARD' }, ['LEADERBOARD_RESULT', 'ERROR']);

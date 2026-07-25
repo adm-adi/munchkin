@@ -456,19 +456,31 @@ async function recordGame(gameId, winnerId, startTime, endTime, participants, jo
     }
 }
 
+/**
+ * A player's own game history.
+ *
+ * Resolves the winner to a username here rather than shipping a raw id: the
+ * client had no way to turn a user id into a name, so the history screen showed
+ * the literal word "Jugador" for every finished game.
+ */
 function getUserHistory(userId) {
     return new Promise((resolve, reject) => {
         const sql = `
             SELECT
-                g.id, g.ended_at, g.winner_id,
+                g.id,
+                g.ended_at,
+                g.winner_id,
+                w.username AS winner_name,
+                (g.winner_id IS NOT NULL AND g.winner_id = ?) AS did_i_win,
                 (SELECT COUNT(*) FROM participants WHERE game_id = g.id) as player_count
             FROM games g
             JOIN participants p ON g.id = p.game_id
+            LEFT JOIN users w ON w.id = g.winner_id
             WHERE p.user_id = ?
             ORDER BY g.ended_at DESC
             LIMIT 50
         `;
-        db.all(sql, [userId], (err, rows) => {
+        db.all(sql, [userId, userId], (err, rows) => {
             if (err) reject(err);
             else resolve(rows);
         });
