@@ -4,18 +4,18 @@ import androidx.lifecycle.viewModelScope
 import com.munchkin.app.core.GamePhase
 import com.munchkin.app.core.PlayerId
 import com.munchkin.app.network.GameClient
-import com.munchkin.app.network.models.GamesListResponse
-import com.munchkin.app.network.models.PlayerMeta
-import com.munchkin.app.viewmodel.models.DiscoveredGame
-import com.munchkin.app.viewmodel.models.Gender
-import com.munchkin.app.core.events.GameStart
-import com.munchkin.app.util.DLog
+import com.munchkin.app.core.PlayerMeta
+import com.munchkin.app.network.DiscoveredGame
+import com.munchkin.app.core.Gender
+import com.munchkin.app.core.GameStart
+import com.munchkin.app.ui.components.DebugLogManager as DLog
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
+import io.ktor.websocket.send
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
@@ -245,27 +245,9 @@ fun GameViewModel.createGame(name: String, avatarId: Int, gender: Gender, timerS
     }
 }
 
-fun GameViewModel.startGame() {
-    if (!isHost) return
-    sendPlayerEvent { playerId ->
-        GameStart(
-            eventId = UUID.randomUUID().toString(),
-            actorId = playerId,
-            timestamp = System.currentTimeMillis()
-        )
-    }
-}
-
-fun GameViewModel.swapPlayers(player1: PlayerId, player2: PlayerId) {
-    if (!isHost) return
-    viewModelScope.launch {
-        try {
-            gameClient?.sendSwapPlayers(player1, player2)
-        } catch (e: Exception) {
-            _uiState.update { it.copy(error = "Error al reordenar: ${e.message}") }
-        }
-    }
-}
+// startGame() and swapPlayers() intentionally live as members on GameViewModel
+// (see GameViewModel.kt). Extension copies here were dead code — a member always
+// shadows an extension with the same signature.
 
 fun GameViewModel.joinGame(
     wsUrl: String,

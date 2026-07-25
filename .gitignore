@@ -37,3 +37,24 @@ output.json
 *.keystore
 *.jks
 server/node_modules/
+
+# Databases — NEVER commit. Contains users(email, password_hash) and
+# active_games.players_json with reconnectTokenHash.
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Server runtime artifacts
+server/logs/
+server/*.pem
+
+# Tool/CLI scratch output
+gh_log*.txt
+
+# Secrets
+.env
+.env.*
+!.env.example

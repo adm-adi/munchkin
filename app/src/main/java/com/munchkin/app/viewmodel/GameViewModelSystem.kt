@@ -4,8 +4,8 @@ import androidx.lifecycle.viewModelScope
 import com.munchkin.app.MunchkinApp
 import com.munchkin.app.R
 import com.munchkin.app.network.GameClient
-import com.munchkin.app.updater.UpdateChecker
-import com.munchkin.app.updater.UpdateResult
+import com.munchkin.app.update.UpdateChecker
+import com.munchkin.app.update.UpdateResult
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
