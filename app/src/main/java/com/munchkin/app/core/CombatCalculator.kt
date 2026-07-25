@@ -182,35 +182,31 @@ object CombatCalculator {
         player: PlayerState,
         gameState: GameState
     ): Boolean {
+        // Enum lookups go through find rather than valueOf + catch: this runs for
+        // every monster x modifier x participant, and a miss is the normal path
+        // (the value is then treated as a catalog EntryId), not an error.
         return when (modifier.conditionType) {
             ConditionType.RACE_ID -> {
-                // Determine if checking against Enum or ID
                 val raceName = modifier.conditionValue.uppercase()
-                try {
-                    val raceEnum = CharacterRace.valueOf(raceName)
+                val raceEnum = CharacterRace.entries.find { it.name == raceName }
+                if (raceEnum != null) {
                     player.characterRace == raceEnum
-                } catch (e: Exception) {
-                    val targetEntryId = EntryId(modifier.conditionValue)
-                    player.raceIds.contains(targetEntryId)
+                } else {
+                    player.raceIds.contains(EntryId(modifier.conditionValue))
                 }
             }
             ConditionType.CLASS_ID -> {
                 val className = modifier.conditionValue.uppercase()
-                try {
-                    val classEnum = CharacterClass.valueOf(className)
+                val classEnum = CharacterClass.entries.find { it.name == className }
+                if (classEnum != null) {
                     player.characterClass == classEnum
-                } catch (e: Exception) {
-                    val targetEntryId = EntryId(modifier.conditionValue)
-                    player.classIds.contains(targetEntryId)
+                } else {
+                    player.classIds.contains(EntryId(modifier.conditionValue))
                 }
             }
             ConditionType.GENDER -> {
-                val targetGender = try {
-                    Gender.valueOf(modifier.conditionValue)
-                } catch (e: IllegalArgumentException) {
-                    return false
-                }
-                player.gender == targetGender
+                val targetGender = Gender.entries.find { it.name == modifier.conditionValue }
+                targetGender != null && player.gender == targetGender
             }
         }
     }
@@ -260,10 +256,24 @@ object CombatCalculator {
                 BonusTarget.MONSTER -> monsterSources.add(source)
             }
         }
-        
+
+        // Manual +/- modifiers. calculateResult() folds these into the totals, so
+        // omitting them here made the breakdown fail to add up to the displayed
+        // result — an unbounded discrepancy now that the ±20 cap is gone.
+        if (combatState.heroModifier != 0) {
+            heroSources.add(PowerSource(
+                label = "Modificador manual",
+                amount = combatState.heroModifier
+            ))
+        }
+        if (combatState.monsterModifier != 0) {
+            monsterSources.add(PowerSource(
+                label = "Modificador manual",
+                amount = combatState.monsterModifier
+            ))
+        }
+
         // Intrinsic Bonuses (e.g. Class Abilities)
-        val intrinsicWithDesc = mutableListOf<String>()
-        // Re-calc to get details (simplified for display)
         val isUndeadPresent = combatState.monsters.any { it.isUndead }
         if (isUndeadPresent) {
             if (mainPlayer.characterClass == CharacterClass.CLERIC) {

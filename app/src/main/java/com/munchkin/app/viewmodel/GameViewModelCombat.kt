@@ -51,7 +51,11 @@ fun GameViewModel.modifyCombatModifier(target: BonusTarget, delta: Int) {
         BonusTarget.HEROES -> currentCombat.heroModifier
         BonusTarget.MONSTER -> currentCombat.monsterModifier
     }
-    val newValue = (currentValue + delta).coerceIn(-20, 20)
+    // Munchkin bonus items have no upper bound. v2.19.18 removed the ±20 cap on the
+    // server but left this client-side clamp in place, so the UI still refused to go
+    // past ±20 and the fix never actually reached the user. The wide bound here only
+    // keeps the value a sane serialisable integer, matching MODIFIER_LIMIT on the server.
+    val newValue = (currentValue + delta).coerceIn(-9999, 9999)
 
     sendPlayerEvent { playerId ->
         CombatSetModifier(

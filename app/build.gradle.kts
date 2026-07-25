@@ -42,6 +42,9 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            // Code was already shrunk but resources were not; enabling this
+            // strips unused resources from the release APK.
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -102,21 +105,18 @@ dependencies {
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.7")
     
-    // Ktor (WebSocket Server & Client)
+    // Ktor WebSocket client.
+    // The ktor-server-* artifacts were dropped along with the embedded LAN-host
+    // mode: nothing under app/src imports io.ktor.server, so they were shipping
+    // an unused server stack inside the APK. Same for the content-negotiation
+    // plugins — this client hand-rolls its JSON via kotlinx.serialization.
     val ktorVersion = "2.3.8"
-    implementation("io.ktor:ktor-server-core:$ktorVersion")
-    implementation("io.ktor:ktor-server-cio:$ktorVersion")  // CIO works better on Android than Netty
-    implementation("io.ktor:ktor-server-websockets:$ktorVersion")
-    implementation("io.ktor:ktor-server-content-negotiation:$ktorVersion")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
     implementation("io.ktor:ktor-client-core:$ktorVersion")
     implementation("io.ktor:ktor-client-cio:$ktorVersion")
     implementation("io.ktor:ktor-client-websockets:$ktorVersion")
-    implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
-    
-    // Serialization
+
+    // Serialization (cbor removed — unused)
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-cbor:1.6.3")
     
     // Room Database
     val roomVersion = "2.6.1"
@@ -154,7 +154,8 @@ dependencies {
     // Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
-    testImplementation("io.ktor:ktor-server-test-host:$ktorVersion")
+    // ktor-server-test-host removed: no test imports io.ktor, and it pulled the
+    // Ktor server stack back into the test classpath.
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")

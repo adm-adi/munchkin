@@ -93,7 +93,10 @@ data class EventBroadcastMessage(
 @Serializable
 @SerialName("ERROR")
 data class ErrorMessage(
-    val code: ErrorCode,
+    // Defaulted so coerceInputValues can fall back to UNKNOWN when the server
+    // sends an error code this build does not have. Without a default, an
+    // unrecognised code throws and the error never reaches the user.
+    val code: ErrorCode = ErrorCode.UNKNOWN,
     val message: String
 ) : WsMessage()
 
@@ -255,6 +258,16 @@ data class HandoverAckMessage(
 
 // ============== Error Codes ==============
 
+/**
+ * Must stay in sync with every code the server passes to sendError().
+ *
+ * An unknown enum value is a hard SerializationException — `ignoreUnknownKeys`
+ * only covers unknown *keys*, not unknown *values* — which meant the whole
+ * ERROR message failed to decode and the user saw nothing or a misleading
+ * generic failure. UNKNOWN is the declared fallback (see the Json config in
+ * GameClient, which enables coerceInputValues) so a newer server adding a code
+ * degrades to a generic message instead of breaking the screen.
+ */
 @Serializable
 enum class ErrorCode {
     INVALID_JOIN_CODE,
@@ -270,8 +283,10 @@ enum class ErrorCode {
     // Auth Errors
     AUTH_FAILED,
     EMAIL_EXISTS,
+    USERNAME_EXISTS,
     REGISTER_FAILED,
     LOGIN_ERROR,
+    UPDATE_FAILED,
     INVALID_DATA,
     RATE_LIMITED,
     FORBIDDEN,
@@ -287,7 +302,10 @@ enum class ErrorCode {
 
     // Catalog Errors
     SEARCH_ERROR,
-    ADD_MONSTER_ERROR
+    ADD_MONSTER_ERROR,
+
+    /** Fallback for a code this client build does not know about. */
+    UNKNOWN
 }
 
 // ============== Catalog Messages ==============
