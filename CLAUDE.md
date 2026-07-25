@@ -124,9 +124,23 @@ not resolve, so a green `node --check` alone proves very little:
 ```
 
 Server tests use the built-in `node:test` runner, so there is no test dependency to
-install. Keep validation helpers in `server/validation.js` rather than `server.js`:
-requiring `server.js` binds a port and opens the database, so nothing in it is
-testable.
+install. There are two layers:
+
+- `validation.test.js` — pure helpers from `validation.js`. Keep validation logic
+  there rather than in `server.js`: requiring `server.js` binds a port and opens the
+  database, so nothing defined in it is testable.
+- `protocol.test.js` — integration tests that boot the real server on a free port
+  against a temporary database (`testServer.js`) and drive it over a real
+  WebSocket. This is the layer that covers the handlers, which is where the bugs
+  have actually been.
+
+When writing protocol tests, use `client.drain()` / `await client.settle()` before
+asserting on a reply. Joins, another player's actions, and timer changes all
+broadcast to every client, so an assertion that accepts `STATE_SNAPSHOT` will
+otherwise match a stale queued broadcast instead of the response it just triggered.
+
+Test-only environment knobs, all with production-safe defaults: `PORT`,
+`MUNCHKIN_DB_PATH`, `MUNCHKIN_LOG_DIR`, `MUNCHKIN_REGISTER_LIMIT`.
 
 ## Invariants worth preserving
 
