@@ -17,10 +17,17 @@ function createHistoryManager({ db, logger, sendError }) {
             return;
         }
 
-        db.getUserHistory(ws.userId)
-            .then(games => {
+        Promise.all([db.getUserHistory(ws.userId), db.getUserStats(ws.userId)])
+            .then(([games, stats]) => {
                 ws.send(JSON.stringify({
                     type: 'HISTORY_RESULT',
+                    // Real totals, not derived from the returned rows: the history is
+                    // capped at 50, so counting those understated anyone past 50 games
+                    // and disagreed with the ranking.
+                    stats: {
+                        wins: stats.wins || 0,
+                        gamesPlayed: stats.games_played || 0
+                    },
                     games: games.map(game => ({
                         id: game.id,
                         endedAt: game.ended_at || 0,

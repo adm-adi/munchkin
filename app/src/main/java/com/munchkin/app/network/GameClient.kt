@@ -34,6 +34,9 @@ class GameClient {
          * suspended forever, stranding the UI on "Conectando…" with no way out.
          */
         private const val RESPONSE_TIMEOUT_MS = 15_000L
+
+        /** How often to re-measure the server clock offset. */
+        private const val CLOCK_SYNC_INTERVAL_MS = 20_000L
     }
 
     /** Thrown when the server accepts the connection but does not reply in time. */
@@ -82,6 +85,24 @@ class GameClient {
 
     private val _reconnectAttempt = MutableStateFlow(0)
     val reconnectAttempt: StateFlow<Int> = _reconnectAttempt.asStateFlow()
+
+    /**
+     * Estimated difference between the server's clock and this device's, in ms.
+     *
+     * Deadlines such as `turnEndsAt` are server timestamps. Comparing them against
+     * System.currentTimeMillis() made the countdown wrong by however far the phone's
+     * clock drifted, while the server still cut the turn on its own schedule.
+     * Add this to a local time to get server time.
+     */
+    private val _serverTimeOffsetMs = MutableStateFlow(0L)
+    val serverTimeOffsetMs: StateFlow<Long> = _serverTimeOffsetMs.asStateFlow()
+
+    /** Last measured round-trip time, in ms. */
+    private val _latencyMs = MutableStateFlow(0L)
+    val latencyMs: StateFlow<Long> = _latencyMs.asStateFlow()
+
+    /** When the outstanding PING was sent, by the local clock. */
+    private var pingSentAtMs: Long? = null
     
     private val json = Json {
         ignoreUnknownKeys = true
@@ -308,6 +329,9 @@ class GameClient {
                             return@webSocket
                         }
                         
+                        // Keep the server clock offset fresh while connected.
+                        startClockSync(this)
+
                         // NOW stay in this block handling messages - keeps connection open!
                         handleIncomingMessages()
                     }
@@ -464,7 +488,17 @@ class GameClient {
                 _errors.emit(message.message)
             }
             is PongMessage -> {
-                // Keepalive response
+                // Estimate the clock offset, assuming the round trip is symmetric:
+                // the server's timestamp corresponds to roughly halfway through.
+                val sentAt = pingSentAtMs
+                if (sentAt != null) {
+                    pingSentAtMs = null
+                    val now = System.currentTimeMillis()
+                    val roundTrip = (now - sentAt).coerceAtLeast(0L)
+                    _latencyMs.value = roundTrip
+                    val serverNow = message.timestamp + roundTrip / 2
+                    _serverTimeOffsetMs.value = serverNow - now
+                }
             }
             is GameDeletedMessage -> {
                 _errors.emit("La partida ha sido eliminada por el anfitrión")
@@ -476,6 +510,27 @@ class GameClient {
         }
     }
     
+    /**
+     * Periodically pings the server so [serverTimeOffsetMs] tracks clock drift.
+     *
+     * Nothing sent a PING before, which left the PONG handler unreachable and the
+     * latency reading permanently at zero.
+     */
+    private fun startClockSync(session: WebSocketSession) {
+        scope?.launch {
+            while (isActive) {
+                try {
+                    pingSentAtMs = System.currentTimeMillis()
+                    session.send(json.encodeToString<WsMessage>(PingMessage()))
+                } catch (e: Exception) {
+                    // The socket is going away; the message loop handles reconnection.
+                    return@launch
+                }
+                delay(CLOCK_SYNC_INTERVAL_MS)
+            }
+        }
+    }
+
     /**
      * Apply a server-broadcast event to local game state using the persistent engine.
      * Avoids allocating a new GameEngine instance on every incoming broadcast.
@@ -614,6 +669,9 @@ class GameClient {
         scope = null
         gameEngine = null         // Reset so a fresh engine is created on next WELCOME
         _reconnectAttempt.value = 0
+        pingSentAtMs = null
+        _serverTimeOffsetMs.value = 0L
+        _latencyMs.value = 0L
 
         _connectionState.value = ConnectionState.DISCONNECTED
     }
@@ -739,18 +797,24 @@ class GameClient {
 
     // ============== History Methods ==============
 
+    /**
+     * A player's own game history plus their lifetime totals.
+     *
+     * This must be an authenticated request: the server serves history only for the
+     * session's own account (an unauthenticated one-off request is answered with
+     * UNAUTHORIZED), because trusting a client-supplied userId is what let any
+     * client read anyone's history.
+     */
     suspend fun getHistory(
         serverUrl: String,
-        userId: String
-    ): Result<List<GameHistoryItem>> = withContext(Dispatchers.IO) {
-        val request = GetHistoryRequest(userId)
-        sendOneOffRequest(serverUrl, request).map { response ->
-            if (response is HistoryResult) {
-                response.games
-            } else {
-                emptyList()
+        userId: String,
+        authToken: String
+    ): Result<HistoryResult> = withContext(Dispatchers.IO) {
+        authenticatedRequest(serverUrl, authToken, GetHistoryRequest(userId))
+            .mapCatching { response ->
+                response as? HistoryResult
+                    ?: throw Exception("Respuesta inesperada del servidor")
             }
-        }
     }
     
     // Generic Helper for One-Off Requests (Catalog, History, etc.)

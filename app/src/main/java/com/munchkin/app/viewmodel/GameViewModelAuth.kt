@@ -3,15 +3,24 @@ package com.munchkin.app.viewmodel
 import androidx.lifecycle.viewModelScope
 import com.munchkin.app.network.GameClient
 import com.munchkin.app.core.Gender
+import com.munchkin.app.ui.theme.AvatarResources
 import com.munchkin.app.network.ServerConfig
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/**
+ * Creates an account.
+ *
+ * The avatar defaults to a random slot rather than always 0. Asking for one during
+ * sign-up would add a step to the one screen that should stay short, but every
+ * account landing on slot 0 made the ranking a wall of identical portraits. It is
+ * editable from the profile afterwards.
+ */
 fun GameViewModel.register(
     username: String,
     email: String,
     pass: String,
-    avatarId: Int = 0,
+    avatarId: Int = (0 until AvatarResources.AVATAR_COUNT).random(),
     gender: Gender = Gender.M
 ) {
     viewModelScope.launch {

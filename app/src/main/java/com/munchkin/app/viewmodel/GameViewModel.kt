@@ -443,6 +443,20 @@ class GameViewModel : ViewModel() {
             }
         }
 
+        // Deadlines like turnEndsAt are server timestamps, so the UI needs the
+        // measured offset to count down against the same clock the server uses.
+        viewModelScope.launch {
+            gameClient?.serverTimeOffsetMs?.collect { offset ->
+                _uiState.update { it.copy(serverTimeOffsetMs = offset) }
+            }
+        }
+
+        viewModelScope.launch {
+            gameClient?.latencyMs?.collect { latency ->
+                _latencyMs.value = latency
+            }
+        }
+
         viewModelScope.launch {
             gameClient?.errors?.collect { error ->
                 if (error == "La partida ha sido eliminada por el anfitrión") {
@@ -524,6 +538,9 @@ data class GameUiState(
 
     val monsterSearchResults: List<CatalogMonster> = emptyList(),
     val gameHistory: List<GameHistoryItem> = emptyList(),
+    val playerTotals: PlayerTotals = PlayerTotals(),
+    /** Add to a local timestamp to get server time. See GameClient. */
+    val serverTimeOffsetMs: Long = 0L,
     val leaderboard: List<LeaderboardEntry> = emptyList(),
     val leaderboardSelf: LeaderboardSelf? = null,
     val pendingWinnerId: PlayerId? = null, // For host to confirm win

@@ -111,6 +111,38 @@ test('GET_HISTORY refuses to read another account\'s history', async () => {
     await b.client.close();
 });
 
+test('GET_HISTORY over a fresh unauthenticated connection is refused', async () => {
+    // Mirrors how the real client used to call this: a one-off socket with no
+    // LOGIN_WITH_TOKEN first. Every other history test authenticates on the same
+    // connection, which hid the fact that the app's own request path was broken by
+    // the authorization check.
+    const registered = await registerUser(server.url, 'freshconn_user');
+    const userId = registered.reply.user.id;
+    await registered.client.close();
+
+    const fresh = await TestClient.connect(server.url);
+    const reply = await fresh.request(
+        { type: 'GET_HISTORY', userId },
+        ['HISTORY_RESULT', 'ERROR']
+    );
+    assert.strictEqual(reply.type, 'ERROR', 'an unauthenticated socket must be refused');
+    assert.strictEqual(reply.code, 'UNAUTHORIZED');
+    await fresh.close();
+});
+
+test('history carries real lifetime totals, not a count of the returned page', async () => {
+    const { reply: auth, client } = await registerUser(server.url, 'totals_user');
+    const reply = await client.request(
+        { type: 'GET_HISTORY', userId: auth.user.id },
+        ['HISTORY_RESULT', 'ERROR']
+    );
+    assert.strictEqual(reply.type, 'HISTORY_RESULT', JSON.stringify(reply));
+    assert.ok(reply.stats, 'totals must be attached');
+    assert.strictEqual(typeof reply.stats.wins, 'number');
+    assert.strictEqual(typeof reply.stats.gamesPlayed, 'number');
+    await client.close();
+});
+
 test('GET_HISTORY without a session is refused', async () => {
     const c = await TestClient.connect(server.url);
     const reply = await c.request(

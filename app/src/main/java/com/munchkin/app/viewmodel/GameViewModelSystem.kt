@@ -78,24 +78,31 @@ fun GameViewModel.downloadUpdate() {
 
 fun GameViewModel.loadHistory() {
     val user = _uiState.value.userProfile ?: return
+    // History is private to the account, so the request has to be authenticated.
+    val token = sessionManager?.getAuthToken() ?: run {
+        _uiState.update {
+            it.copy(error = MunchkinApp.context.getString(R.string.error_session_expired))
+        }
+        return
+    }
+
     viewModelScope.launch {
-        try {
-            _uiState.update { it.copy(isLoading = true) }
-            val client = GameClient()
-            val result = client.getHistory(GameViewModel.SERVER_URL, user.id)
-            if (result.isSuccess) {
+        _uiState.update { it.copy(isLoading = true) }
+        GameClient().getHistory(GameViewModel.SERVER_URL, user.id, token)
+            .onSuccess { result ->
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        gameHistory = result.getOrElse { emptyList() }
+                        gameHistory = result.games,
+                        playerTotals = result.stats
                     )
                 }
-            } else {
-                _uiState.update { it.copy(isLoading = false) }
             }
-        } catch (e: Exception) {
-            _uiState.update { it.copy(isLoading = false) }
-        }
+            .onFailure { e ->
+                _uiState.update {
+                    it.copy(isLoading = false, error = getFriendlyErrorMessage(e))
+                }
+            }
     }
 }
 

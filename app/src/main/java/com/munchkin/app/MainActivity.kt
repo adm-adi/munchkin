@@ -272,6 +272,7 @@ class MainActivity : ComponentActivity() {
                                             onConfirmWin = { viewModel.confirmWin(it) },
                                             onDismissWin = { viewModel.dismissWinConfirmation() },
                                             onEndTurn = { viewModel.endTurn() },
+                                            serverTimeOffsetMs = uiState.serverTimeOffsetMs,
                                             onToggleGender = { viewModel.toggleGender() },
                                             onSwapPlayers = viewModel::swapPlayers,
                                             onKickPlayer = { viewModel.kickPlayer(it) },
@@ -373,6 +374,7 @@ class MainActivity : ComponentActivity() {
                                     ProfileScreen(
                                         userProfile = user,
                                         gameHistory = uiState.gameHistory,
+                                        playerTotals = uiState.playerTotals,
                                         isLoading = uiState.isLoading,
                                         error = uiState.error,
                                         onBack = { viewModel.navigateTo(Screen.HOME) },

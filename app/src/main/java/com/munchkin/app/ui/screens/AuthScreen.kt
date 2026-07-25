@@ -31,6 +31,9 @@ import com.munchkin.app.R
 import com.munchkin.app.ui.components.*
 import com.munchkin.app.ui.theme.*
 
+/** Mirrors MIN_PASSWORD_LENGTH in server/authManager.js. */
+private const val MIN_PASSWORD_LENGTH = 8
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuthScreen(
@@ -249,6 +252,21 @@ fun AuthScreen(
                                             )
                                         }
                                     },
+                                    supportingText = if (isRegister) {
+                                        {
+                                            Text(
+                                                text = stringResource(
+                                                    R.string.password_min_length,
+                                                    MIN_PASSWORD_LENGTH
+                                                ),
+                                                color = if (password.isNotEmpty() &&
+                                                    password.length < MIN_PASSWORD_LENGTH
+                                                ) NeonError else NeonGray500
+                                            )
+                                        }
+                                    } else null,
+                                    isError = isRegister && password.isNotEmpty() &&
+                                        password.length < MIN_PASSWORD_LENGTH,
                                     shape = RoundedCornerShape(16.dp),
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedBorderColor = NeonPrimary,
@@ -289,7 +307,11 @@ fun AuthScreen(
                                         if (isRegister) onRegister(username, email, password)
                                         else onLogin(email, password)
                                     },
+                                    // Registration requires the same minimum the server
+                                    // enforces, so a short password is refused here
+                                    // instead of after a round trip.
                                     enabled = !isLoading && password.isNotBlank() &&
+                                        (!isRegister || password.length >= MIN_PASSWORD_LENGTH) &&
                                         ((isRegister && username.isNotBlank() && email.isNotBlank()) ||
                                         (!isRegister && email.isNotBlank())),
                                     modifier = Modifier.fillMaxWidth(),
