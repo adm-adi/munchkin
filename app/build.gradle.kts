@@ -22,6 +22,17 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // Backend endpoint. Overridable at build time so a dev or staging server can
+        // be targeted without editing source, e.g.
+        //   ./gradlew assembleDebug -PmunchkinScheme=ws -PmunchkinHost=10.0.2.2
+        // (10.0.2.2 is the host machine as seen from the Android emulator.)
+        val serverScheme = (project.findProperty("munchkinScheme") as String?) ?: "wss"
+        val serverHost = (project.findProperty("munchkinHost") as String?) ?: "munchking-sirpepo.duckdns.org"
+        val serverPort = (project.findProperty("munchkinPort") as String?) ?: "8765"
+        buildConfigField("String", "SERVER_SCHEME", "\"$serverScheme\"")
+        buildConfigField("String", "SERVER_HOST", "\"$serverHost\"")
+        buildConfigField("int", "SERVER_PORT", serverPort)
     }
     
     signingConfigs {
@@ -102,8 +113,6 @@ dependencies {
     // AppCompat for per-app language support
     implementation("androidx.appcompat:appcompat:1.6.1")
     
-    // Navigation
-    implementation("androidx.navigation:navigation-compose:2.7.7")
     
     // Ktor WebSocket client.
     // The ktor-server-* artifacts were dropped along with the embedded LAN-host
@@ -145,8 +154,9 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
     
-    // Encrypted SharedPreferences
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    // Encrypted SharedPreferences.
+    // 1.1.0 is stable now; this held the session token and JWT on an alpha build.
+    implementation("androidx.security:security-crypto:1.1.0")
 
     // Core KTX
     implementation("androidx.core:core-ktx:1.12.0")

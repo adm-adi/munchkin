@@ -6,48 +6,23 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
 
 /**
- * Game Engine - the authoritative processor of game events.
- * Only the host runs this to validate and apply events.
+ * Client-side reducer for authoritative server state.
+ *
+ * The server owns the game; this only folds the snapshots and event broadcasts it
+ * sends into the local [gameState] the UI renders. It deliberately does not
+ * validate: doing so could only reject something the server had already accepted
+ * and applied.
+ *
+ * The host-side half of this class (createGame, processEvent and its validators,
+ * and the replayable event log) was removed along with the embedded LAN-host mode.
  */
 class GameEngine {
-    
+
     private val _gameState = MutableStateFlow<GameState?>(null)
     val gameState: StateFlow<GameState?> = _gameState.asStateFlow()
-    
+
     /**
-     * Recent events, used for gap recovery via [getEventsSince]. Bounded: it grew
-     * for the lifetime of the session before, one entry per event ever received.
-     */
-    private val eventLog = ArrayDeque<EventEnvelope>()
-    
-    /**
-     * Initialize a new game with the host as first player.
-     */
-    fun createGame(hostMeta: PlayerMeta): GameState {
-        val gameId = GameId(UUID.randomUUID().toString())
-        val joinCode = generateJoinCode()
-        
-        val hostState = PlayerState(
-            playerId = hostMeta.playerId,
-            name = hostMeta.name,
-            avatarId = hostMeta.avatarId,
-            gender = hostMeta.gender
-        )
-        
-        val newState = GameState(
-            gameId = gameId,
-            joinCode = joinCode,
-            hostId = hostMeta.playerId,
-            players = mapOf(hostMeta.playerId to hostState),
-            playerOrder = listOf(hostMeta.playerId)
-        )
-        
-        _gameState.value = newState
-        return newState
-    }
-    
-    /**
-     * Load an existing game state (for recovery/handover).
+     * Load an existing game state (from a WELCOME or STATE_SNAPSHOT).
      */
     fun loadState(state: GameState) {
         _gameState.value = state
@@ -56,230 +31,17 @@ class GameEngine {
     /**
      * Applies an event the server has already validated, accepted, and broadcast.
      *
-     * Deliberately skips [validateEvent]: the server is authoritative, so local
-     * re-validation can only reject something that has already happened. When it
-     * did, the event was dropped silently and this client's state drifted from the
-     * server's until the next full snapshot arrived.
+     * The local sequence number is advanced to keep it aligned with the server's,
+     * but nothing is retained for replay: WebSocket frames arrive over TCP in order
+     * or the connection drops, and a dropped connection is followed by a full
+     * WELCOME snapshot. There is no silent gap to recover from.
      */
     fun applyRemoteEvent(event: GameEvent) {
         val currentState = _gameState.value ?: return
-
         val newState = applyEvent(event, currentState)
-        val nextSeq = currentState.seq + 1
-
-        eventLog.addLast(EventEnvelope(
-            gameId = currentState.gameId,
-            epoch = currentState.epoch,
-            seq = nextSeq,
-            event = event
-        ))
-        while (eventLog.size > MAX_EVENT_LOG_SIZE) {
-            eventLog.removeFirst()
-        }
-
-        _gameState.value = newState.copy(seq = nextSeq)
+        _gameState.value = newState.copy(seq = currentState.seq + 1)
     }
 
-    /**
-     * Validates an event locally and applies it if it passes.
-     *
-     * For events originating from the server use [applyRemoteEvent] instead —
-     * those are authoritative and must not be second-guessed.
-     */
-    fun processEvent(event: GameEvent): ValidationResult {
-        val currentState = _gameState.value 
-            ?: return ValidationResult.Error("No hay partida activa")
-        
-        // Validate the event
-        val validation = validateEvent(event, currentState)
-        if (validation is ValidationResult.Error) {
-            return validation
-        }
-        
-        // Apply the event
-        val newState = applyEvent(event, currentState)
-        
-        // Create envelope with sequence number
-        val envelope = EventEnvelope(
-            gameId = currentState.gameId,
-            epoch = currentState.epoch,
-            seq = currentState.seq + 1,
-            event = event
-        )
-        
-        // Update state with new sequence
-        val finalState = newState.copy(seq = currentState.seq + 1)
-        _gameState.value = finalState
-        
-        // Log the event, dropping the oldest once the window is full
-        eventLog.addLast(envelope)
-        while (eventLog.size > MAX_EVENT_LOG_SIZE) {
-            eventLog.removeFirst()
-        }
-
-        return ValidationResult.Success(finalState, envelope)
-    }
-    
-    /**
-     * Validate an event against current state.
-     */
-    private fun validateEvent(event: GameEvent, state: GameState): ValidationResult {
-        // Check ownership for player modification events
-        if (event.targetPlayerId != null) {
-            if (event.actorId != event.targetPlayerId) {
-                return ValidationResult.Error("No puedes modificar a otro jugador")
-            }
-            if (!state.players.containsKey(event.targetPlayerId)) {
-                return ValidationResult.Error("Jugador no encontrado")
-            }
-        }
-        
-        return when (event) {
-            is PlayerJoin -> validatePlayerJoin(event, state)
-            is GameStart -> validateGameStart(event, state)
-            is IncLevel -> validateIncLevel(event, state)
-            is AddRace -> validateAddRace(event, state)
-            is AddClass -> validateAddClass(event, state)
-            is CatalogAddRace -> validateCatalogAddRace(event, state)
-            is CatalogAddClass -> validateCatalogAddClass(event, state)
-            is SetHalfBreed -> validateSetHalfBreed(event, state)
-            is SetSuperMunchkin -> validateSetSuperMunchkin(event, state)
-            is PlayerRoll -> ValidationResult.Success(state, null)
-            else -> ValidationResult.Success(state, null)
-        }
-    }
-    
-    private fun validatePlayerJoin(event: PlayerJoin, state: GameState): ValidationResult {
-        if (state.isFull) {
-            return ValidationResult.Error("Partida llena (máximo 6 jugadores)")
-        }
-        if (state.phase != GamePhase.LOBBY) {
-            return ValidationResult.Error("La partida ya ha comenzado")
-        }
-        if (state.players.containsKey(event.playerMeta.playerId)) {
-            return ValidationResult.Error("Ya estás en la partida")
-        }
-        return ValidationResult.Success(state, null)
-    }
-    
-    private fun validateGameStart(event: GameStart, state: GameState): ValidationResult {
-        if (event.actorId != state.hostId) {
-            return ValidationResult.Error("Solo el anfitrión puede iniciar la partida")
-        }
-        if (!state.canStart) {
-            return ValidationResult.Error("Se necesitan al menos 2 jugadores")
-        }
-        return ValidationResult.Success(state, null)
-    }
-    
-    private fun validateIncLevel(event: IncLevel, state: GameState): ValidationResult {
-        val player = state.players[event.targetPlayerId] ?: return ValidationResult.Error("Jugador no encontrado")
-        val newLevel = player.level + event.amount
-        
-        // Check level 10 restriction
-        if (newLevel >= 10 && state.settings.levelTenOnlyCombat && event.reason == null) {
-            if (!state.settings.allowLevelTenOverride) {
-                // For now, allow it but in full version could restrict
-            }
-        }
-        
-        return ValidationResult.Success(state, null)
-    }
-    
-    private fun validateAddRace(event: AddRace, state: GameState): ValidationResult {
-        val player = state.players[event.targetPlayerId] ?: return ValidationResult.Error("Jugador no encontrado")
-        
-        if (!player.canAddRace) {
-            return ValidationResult.Error(
-                if (player.hasHalfBreed) "Máximo 2 razas" 
-                else "Necesitas Mestizo para tener 2 razas"
-            )
-        }
-        
-        if (player.raceIds.contains(event.entryId)) {
-            return ValidationResult.Error("Ya tienes esa raza")
-        }
-        
-        if (!state.races.containsKey(event.entryId)) {
-            return ValidationResult.Error("Raza no encontrada en el catálogo")
-        }
-        
-        return ValidationResult.Success(state, null)
-    }
-    
-    private fun validateAddClass(event: AddClass, state: GameState): ValidationResult {
-        val player = state.players[event.targetPlayerId] ?: return ValidationResult.Error("Jugador no encontrado")
-        
-        if (!player.canAddClass) {
-            return ValidationResult.Error(
-                if (player.hasSuperMunchkin) "Máximo 2 clases"
-                else "Necesitas Super Munchkin para tener 2 clases"
-            )
-        }
-        
-        if (player.classIds.contains(event.entryId)) {
-            return ValidationResult.Error("Ya tienes esa clase")
-        }
-        
-        if (!state.classes.containsKey(event.entryId)) {
-            return ValidationResult.Error("Clase no encontrada en el catálogo")
-        }
-        
-        return ValidationResult.Success(state, null)
-    }
-    
-    private fun validateSetHalfBreed(event: SetHalfBreed, state: GameState): ValidationResult {
-        val player = state.players[event.targetPlayerId] ?: return ValidationResult.Error("Jugador no encontrado")
-        
-        // If disabling and player has 2 races, need to remove one
-        if (!event.enabled && player.raceIds.size > 1) {
-            return ValidationResult.Error("Quita una raza antes de desactivar Mestizo")
-        }
-        
-        return ValidationResult.Success(state, null)
-    }
-    
-    private fun validateSetSuperMunchkin(event: SetSuperMunchkin, state: GameState): ValidationResult {
-        val player = state.players[event.targetPlayerId] ?: return ValidationResult.Error("Jugador no encontrado")
-        
-        if (!event.enabled && player.classIds.size > 1) {
-            return ValidationResult.Error("Quita una clase antes de desactivar Super Munchkin")
-        }
-        
-        return ValidationResult.Success(state, null)
-    }
-    
-    private fun validateCatalogAddRace(event: CatalogAddRace, state: GameState): ValidationResult {
-        if (!CatalogEntry.isValidName(event.displayName)) {
-            return ValidationResult.Error("Nombre inválido (2-24 caracteres)")
-        }
-        
-        val normalized = CatalogEntry.normalize(event.displayName)
-        val exists = state.races.values.any { it.normalizedName == normalized }
-        if (exists) {
-            return ValidationResult.Error("Ya existe una raza con ese nombre")
-        }
-        
-        return ValidationResult.Success(state, null)
-    }
-    
-    private fun validateCatalogAddClass(event: CatalogAddClass, state: GameState): ValidationResult {
-        if (!CatalogEntry.isValidName(event.displayName)) {
-            return ValidationResult.Error("Nombre inválido (2-24 caracteres)")
-        }
-        
-        val normalized = CatalogEntry.normalize(event.displayName)
-        val exists = state.classes.values.any { it.normalizedName == normalized }
-        if (exists) {
-            return ValidationResult.Error("Ya existe una clase con ese nombre")
-        }
-        
-        return ValidationResult.Success(state, null)
-    }
-    
-    /**
-     * Apply an event to produce new state.
-     */
     private fun applyEvent(event: GameEvent, state: GameState): GameState {
         return when (event) {
             is PlayerJoin -> applyPlayerJoin(event, state)
@@ -313,7 +75,7 @@ class GameEngine {
             
             is IncLevel -> updatePlayer(state, event.targetPlayerId) { 
                 it.copy(level = (it.level + event.amount).coerceIn(state.settings.minLevel, state.settings.maxLevel))
-            }.let { s -> checkWinCondition(s) }
+            }
             is DecLevel -> updatePlayer(state, event.targetPlayerId) { 
                 it.copy(level = (it.level - event.amount).coerceIn(state.settings.minLevel, state.settings.maxLevel))
             }
@@ -603,48 +365,11 @@ class GameEngine {
                 }
             }
             
-            newState = checkWinCondition(newState)
         }
         
         return newState
     }
     
-    /**
-     * Get events since a specific sequence number.
-     */
-    fun getEventsSince(seq: Long): List<EventEnvelope> {
-        return eventLog.filter { it.seq > seq }
-    }
-    
-    /**
-     * Get current event log for persistence.
-     */
-    fun getEventLog(): List<EventEnvelope> = eventLog.toList()
-    
-    companion object {
-        /** Enough history for gap recovery without unbounded growth. */
-        private const val MAX_EVENT_LOG_SIZE = 200
-
-        private fun generateJoinCode(): String {
-            val chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // No I, O, 0, 1 to avoid confusion
-            return (1..6).map { chars.random() }.joinToString("")
-        }
-    }
-    
-    private fun checkWinCondition(state: GameState): GameState {
-        val winner = state.players.values.find { it.level >= state.settings.maxLevel }
-        return state 
-        // We do NOT automatically end the game anymore. 
-        // The host must confirm the win in UI.
-        /* if (winner != null) {
-            state.copy(
-                phase = GamePhase.FINISHED,
-                winnerId = winner.playerId
-            )
-        } else {
-            state
-        } */
-    }
     private fun applyPlayerRoll(event: PlayerRoll, state: GameState): GameState {
         val player = state.players[event.actorId] ?: return state
         val updatedPlayer = player.copy(lastRoll = event.result)
@@ -682,26 +407,4 @@ class GameEngine {
             stateWithPlayer
         }
     }
-}
-
-/**
- * Event envelope with metadata for synchronization.
- */
-data class EventEnvelope(
-    val gameId: GameId,
-    val epoch: Int,
-    val seq: Long,
-    val event: GameEvent
-)
-
-/**
- * Result of event validation.
- */
-sealed class ValidationResult {
-    data class Success(
-        val state: GameState,
-        val envelope: EventEnvelope?
-    ) : ValidationResult()
-    
-    data class Error(val message: String) : ValidationResult()
 }
