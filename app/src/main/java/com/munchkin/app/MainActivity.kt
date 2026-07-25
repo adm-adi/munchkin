@@ -32,6 +32,10 @@ import com.munchkin.app.ui.screens.*
 import com.munchkin.app.ui.theme.MunchkinTheme
 import com.munchkin.app.viewmodel.GameViewModel
 import com.munchkin.app.viewmodel.Screen
+// GameViewModel behaviour lives in top-level extension functions across
+// GameViewModelAuth/Combat/Lobby/Player/System.kt — extensions need explicit
+// imports to resolve from this package.
+import com.munchkin.app.viewmodel.*
 
 class MainActivity : ComponentActivity() {
     

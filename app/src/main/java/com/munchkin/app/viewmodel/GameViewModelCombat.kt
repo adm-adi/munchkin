@@ -6,17 +6,17 @@ import com.munchkin.app.R
 import com.munchkin.app.core.CombatCalculator
 import com.munchkin.app.core.MonsterInstance
 import com.munchkin.app.core.PlayerId
-import com.munchkin.app.core.events.CombatAddHelper
-import com.munchkin.app.core.events.CombatAddMonster
-import com.munchkin.app.core.events.CombatEnd
-import com.munchkin.app.core.events.CombatOutcome
-import com.munchkin.app.core.events.CombatRemoveHelper
-import com.munchkin.app.core.events.CombatSetModifier
-import com.munchkin.app.core.events.CombatStart
-import com.munchkin.app.core.events.SetLevel
+import com.munchkin.app.core.CombatAddHelper
+import com.munchkin.app.core.CombatAddMonster
+import com.munchkin.app.core.CombatEnd
+import com.munchkin.app.core.CombatOutcome
+import com.munchkin.app.core.CombatRemoveHelper
+import com.munchkin.app.core.CombatSetModifier
+import com.munchkin.app.core.CombatStart
+import com.munchkin.app.core.DecLevel
 import com.munchkin.app.network.GameClient
-import com.munchkin.app.network.models.CatalogMonster
-import com.munchkin.app.viewmodel.models.BonusTarget
+import com.munchkin.app.network.CatalogMonster
+import com.munchkin.app.core.BonusTarget
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -188,13 +188,15 @@ fun GameViewModel.resolveRunAway(success: Boolean) {
             )
         }
     } else {
+        // Apply 1-level penalty to the main combat player.
+        // DEC_LEVEL is floored at 1 by the server, so no clamping is needed here.
         sendPlayerEvent { playerId ->
-            SetLevel(
+            DecLevel(
                 eventId = UUID.randomUUID().toString(),
                 actorId = playerId,
                 timestamp = System.currentTimeMillis(),
                 targetPlayerId = currentCombat.mainPlayerId,
-                newLevel = (currentGameState.players[currentCombat.mainPlayerId]?.level ?: 1) - 1
+                amount = 1
             )
         }
     }
