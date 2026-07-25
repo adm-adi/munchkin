@@ -30,7 +30,9 @@ import com.munchkin.app.R
 class GameViewModel : ViewModel() {
 
     companion object {
-        internal const val SERVER_URL = ServerConfig.WS_URL
+        // Not const: ServerConfig resolves the endpoint from BuildConfig at runtime
+        // so dev/staging builds can override it.
+        internal val SERVER_URL: String = ServerConfig.WS_URL
     }
 
     // ============== State ==============
@@ -129,10 +131,27 @@ class GameViewModel : ViewModel() {
                         fetchHostedGames()
                     }
                 } else {
-                    android.util.Log.w("GameViewModel", "⚠️ Auto-login failed, clearing session")
-                    // Token expired or invalid
-                    // sessionManager?.clearSession() // Optional: force logout vs keeping stale profile
-                    // For now, let's keep profile but maybe show a "Session Expired" if they try to do something
+                    // Distinguish "the server rejected this token" from "we could not
+                    // reach the server". Clearing the session on a transient network
+                    // failure would log people out for no reason; keeping a rejected
+                    // token leaves the user looking signed in while every
+                    // authenticated request fails (which is what used to happen —
+                    // the clearSession() call here was commented out).
+                    val cause = result.exceptionOrNull()
+                    val rejected = cause is ServerErrorException &&
+                        cause.code == ErrorCode.AUTH_FAILED
+
+                    if (rejected) {
+                        android.util.Log.i("GameViewModel", "Session no longer valid — signing out")
+                        sessionManager?.clearSession()
+                        _uiState.update { it.copy(userProfile = null) }
+                        _events.emit(GameUiEvent.ShowMessage("Tu sesión ha caducado. Vuelve a iniciar sesión."))
+                    } else {
+                        android.util.Log.w(
+                            "GameViewModel",
+                            "Could not validate session (offline?), keeping local profile: ${cause?.message}"
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 android.util.Log.e("GameViewModel", "Auto-login error", e)
