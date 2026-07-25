@@ -52,6 +52,16 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
         pruneRateLimitMap(registerRateLimits, 'windowStart');
     }
 
+    // Must mirror the Kotlin Gender enum in core/Models.kt (M/F/NA).
+    const VALID_ACCOUNT_GENDERS = new Set(['M', 'F', 'NA']);
+
+    function normalizeAccountGender(value) {
+        if (VALID_ACCOUNT_GENDERS.has(value)) return value;
+        if (value === 'MALE') return 'M';
+        if (value === 'FEMALE') return 'F';
+        return 'M';
+    }
+
     // Deliberately permissive: enough to catch obvious typos without rejecting
     // valid but unusual addresses.
     function isPlausibleEmail(value) {
@@ -142,14 +152,15 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
                 id: user.id,
                 username: user.username,
                 email: user.email,
-                avatarId: user.avatarId !== undefined ? user.avatarId : (user.avatar_id || 0)
+                avatarId: user.avatarId !== undefined ? user.avatarId : (user.avatar_id || 0),
+                gender: normalizeAccountGender(user.gender)
             },
             token
         };
     }
 
     function handleRegister(ws, message) {
-        let { username, email, password, avatarId } = message;
+        let { username, email, password, avatarId, gender } = message;
 
         const clientIp = ws.clientIp || 'unknown';
         if (isRegisterRateLimited(clientIp)) {
@@ -177,9 +188,10 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
         }
 
         const safeAvatarId = Math.max(0, Math.min(100, Math.round(Number(avatarId) || 0)));
+        const safeGender = normalizeAccountGender(gender);
         recordRegisterAttempt(clientIp);
 
-        db.createUser(username, email, password, safeAvatarId)
+        db.createUser(username, email, password, safeAvatarId, safeGender)
             .then(user => {
                 logger.info(`User registered: ${user.username} (${user.id})`);
                 const token = signToken({ id: user.id, username: user.username, email: user.email });
@@ -272,7 +284,7 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
     }
 
     function handleUpdateProfile(ws, message) {
-        const { userId, username, password } = message;
+        const { userId, username, password, avatarId, gender } = message;
 
         if (!ws.userId || ws.userId !== userId) {
             logger.warn(`Unauthorized profile update attempt. Session: ${ws.userId}, Target: ${userId}`);
@@ -296,12 +308,33 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
             }
         }
 
-        if (!username && !password) {
+        // avatarId 0 is a valid slot, so absence must be tested explicitly rather
+        // than by truthiness.
+        let safeAvatarId = null;
+        if (avatarId !== undefined && avatarId !== null) {
+            const n = Math.round(Number(avatarId));
+            if (!Number.isFinite(n) || n < 0 || n > 100) {
+                sendError(ws, 'INVALID_DATA', 'Avatar inválido');
+                return;
+            }
+            safeAvatarId = n;
+        }
+
+        let safeGender = null;
+        if (gender !== undefined && gender !== null) {
+            if (!VALID_ACCOUNT_GENDERS.has(gender)) {
+                sendError(ws, 'INVALID_DATA', 'Género inválido');
+                return;
+            }
+            safeGender = gender;
+        }
+
+        if (!username && !password && safeAvatarId === null && safeGender === null) {
             sendError(ws, 'INVALID_DATA', 'No hay cambios que guardar');
             return;
         }
 
-        db.updateUser(userId, username, password)
+        db.updateUser(userId, username, password, safeAvatarId, safeGender)
             .then(user => {
                 logger.info(`Profile updated for user: ${user.username}`);
                 ws.send(JSON.stringify({
@@ -310,7 +343,8 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
                         id: user.id,
                         username: user.username,
                         email: user.email,
-                        avatarId: user.avatarId !== undefined ? user.avatarId : (user.avatar_id || 0)
+                        avatarId: user.avatarId !== undefined ? user.avatarId : (user.avatar_id || 0),
+                        gender: normalizeAccountGender(user.gender)
                     }
                 }));
             })

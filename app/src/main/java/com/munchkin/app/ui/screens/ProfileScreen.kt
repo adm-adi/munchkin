@@ -28,6 +28,15 @@ import com.munchkin.app.network.GameHistoryItem
 import com.munchkin.app.network.UserProfile
 import com.munchkin.app.ui.components.GlassCard
 import com.munchkin.app.ui.components.GlassTopAppBar
+import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import com.munchkin.app.core.Gender
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.shape.CircleShape
 import com.munchkin.app.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -42,7 +51,7 @@ fun ProfileScreen(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onClearError: () -> Unit,
-    onUpdateProfile: (String?, String?) -> Unit
+    onUpdateProfile: (String?, String?, Int?, Gender?) -> Unit
 ) {
     // Initial load
     LaunchedEffect(Unit) {
@@ -144,11 +153,13 @@ fun ProfileHeader(
     isLoading: Boolean = false,
     error: String? = null,
     onClearError: () -> Unit = {},
-    onUpdateProfile: (String?, String?) -> Unit = { _, _ -> }
+    onUpdateProfile: (String?, String?, Int?, Gender?) -> Unit = { _, _, _, _ -> }
 ) {
     var isEditing by remember { mutableStateOf(false) }
     var editedUsername by remember { mutableStateOf(user.username) }
     var editedPassword by remember { mutableStateOf("") }
+    var editedAvatarId by remember(user.avatarId) { mutableStateOf(user.avatarId) }
+    var editedGender by remember(user.gender) { mutableStateOf(user.gender) }
     var savePending by remember { mutableStateOf(false) }
 
     // Close edit mode and clear password when save completes without error
@@ -167,19 +178,22 @@ fun ProfileHeader(
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Avatar Placeholder
-                Box(
+                // The account stores an avatar slot and a gender, so show the real
+                // portrait instead of the first letter of the username.
+                Image(
+                    painter = painterResource(
+                        id = AvatarResources.getAvatarDrawable(
+                            if (isEditing) editedAvatarId else user.avatarId,
+                            (if (isEditing) editedGender else user.gender) == Gender.F
+                        )
+                    ),
+                    contentDescription = AvatarResources.getAvatarName(user.avatarId),
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .size(64.dp)
-                        .background(NeonPrimary.copy(alpha = 0.2f), shape = MaterialTheme.shapes.medium),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = user.username.take(1).uppercase(),
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = NeonPrimary
-                    )
-                }
+                        .clip(MaterialTheme.shapes.medium)
+                        .background(getAvatarColor(user.avatarId).copy(alpha = 0.25f))
+                )
 
                 Spacer(modifier = Modifier.width(16.dp))
 
@@ -246,6 +260,63 @@ fun ProfileHeader(
             }
 
             if (isEditing) {
+                // Avatar and gender were previously write-once at registration, which
+                // itself hardcoded slot 0 — so every account looked identical.
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = stringResource(R.string.select_avatar),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NeonGray300
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Gender.entries.forEach { option ->
+                        val selected = editedGender == option
+                        FilterChip(
+                            selected = selected,
+                            onClick = { editedGender = option; onClearError() },
+                            label = {
+                                Text(
+                                    when (option) {
+                                        Gender.M -> "Masculino"
+                                        Gender.F -> "Femenino"
+                                        Gender.NA -> "Otro"
+                                    }
+                                )
+                            }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(AvatarResources.AVATAR_COUNT) { slot ->
+                        val selected = editedAvatarId == slot
+                        Image(
+                            painter = painterResource(
+                                id = AvatarResources.getAvatarDrawable(slot, editedGender == Gender.F)
+                            ),
+                            contentDescription = AvatarResources.getAvatarName(slot),
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(CircleShape)
+                                .background(getAvatarColor(slot).copy(alpha = 0.25f))
+                                .border(
+                                    width = if (selected) 2.dp else 1.dp,
+                                    color = if (selected) NeonPrimary else GlassBorder,
+                                    shape = CircleShape
+                                )
+                                .clickable { editedAvatarId = slot; onClearError() }
+                        )
+                    }
+                }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -257,6 +328,8 @@ fun ProfileHeader(
                             isEditing = false
                             editedUsername = user.username
                             editedPassword = ""
+                            editedAvatarId = user.avatarId
+                            editedGender = user.gender
                             savePending = false
                             onClearError()
                         }
@@ -268,7 +341,12 @@ fun ProfileHeader(
                         onClick = {
                             if (editedUsername.isNotBlank()) {
                                 onClearError()
-                                onUpdateProfile(editedUsername, editedPassword.ifBlank { null })
+                                onUpdateProfile(
+                                    editedUsername,
+                                    editedPassword.ifBlank { null },
+                                    editedAvatarId.takeIf { it != user.avatarId },
+                                    editedGender.takeIf { it != user.gender }
+                                )
                                 savePending = true
                                 // Do NOT close edit mode here — wait for server response
                             }

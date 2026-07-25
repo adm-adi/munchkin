@@ -21,6 +21,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.munchkin.app.core.Gender
 import com.munchkin.app.network.LeaderboardEntry
 import com.munchkin.app.network.LeaderboardSelf
 import com.munchkin.app.ui.components.GlassCard
@@ -231,12 +232,13 @@ fun LeaderboardItem(
                 modifier = Modifier.width(48.dp)
             )
 
-            // Avatar. The account stores an avatar slot but no gender, so the
-            // default portrait variant is used here; the slots are class/race
-            // portraits rather than personal likenesses.
+            // Avatar, using the account's own slot and gender.
             Image(
                 painter = painterResource(
-                    id = AvatarResources.getAvatarDrawable(entry.avatarId)
+                    id = AvatarResources.getAvatarDrawable(
+                        entry.avatarId,
+                        entry.gender == Gender.F
+                    )
                 ),
                 contentDescription = AvatarResources.getAvatarName(entry.avatarId),
                 contentScale = ContentScale.Crop,

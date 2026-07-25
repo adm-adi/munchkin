@@ -2,16 +2,23 @@ package com.munchkin.app.viewmodel
 
 import androidx.lifecycle.viewModelScope
 import com.munchkin.app.network.GameClient
+import com.munchkin.app.core.Gender
 import com.munchkin.app.network.ServerConfig
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-fun GameViewModel.register(username: String, email: String, pass: String) {
+fun GameViewModel.register(
+    username: String,
+    email: String,
+    pass: String,
+    avatarId: Int = 0,
+    gender: Gender = Gender.M
+) {
     viewModelScope.launch {
         _uiState.update { it.copy(isLoading = true, error = null) }
         try {
             val client = GameClient() // Temp instance
-            val result = client.register(ServerConfig.WS_URL, username, email, pass)
+            val result = client.register(ServerConfig.WS_URL, username, email, pass, avatarId, gender)
 
             if (result.isSuccess) {
                 val authData = result.getOrNull()
