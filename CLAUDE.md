@@ -62,8 +62,10 @@ UI <- GameViewModel <- GameClient <- authoritative server state
 | `network/Protocol.kt` | WebSocket message types |
 | `network/GameClient.kt` | WebSocket client and one-off API requests |
 | `network/ServerConfig.kt` | Active backend host/port/url |
-| `viewmodel/GameViewModel.kt` | Main app orchestration |
+| `viewmodel/GameViewModel.kt` | Shared state holder; behaviour lives in the `GameViewModel*.kt` extension files |
+| `viewmodel/GameViewModelAuth/Combat/Lobby/Player/System.kt` | Top-level `GameViewModel` extension functions by area |
 | `server/server.js` | Main WebSocket server |
+| `server/validation.js` | Pure input-validation helpers (unit tested; no side effects on require) |
 | `server/db.js` | SQLite persistence |
 | `server/turnManager.js` | Turn order and timer lifecycle |
 | `server/combatManager.js` | Combat-specific server logic |
@@ -80,6 +82,21 @@ The Android client uses `kotlinx.serialization`; the Node server parses raw JSON
 - Enum names must match the server expectations exactly
 - `@SerialName` controls the wire field names
 
+**Decoding is strict and failures are room-wide.** Client state arrives as a full
+snapshot broadcast to everyone, so a value the client cannot decode breaks every
+player in the room, not just the sender. Two consequences:
+
+- Any gameplay value the server writes must be validated first. `server/validation.js`
+  holds the whitelists and clamps; its `VALID_GENDERS` / `VALID_CLASSES` / `VALID_RACES`
+  sets must mirror the Kotlin enums in `core/Models.kt` exactly, and a test asserts it.
+- Adding an enum case server-side without adding it client-side is a breaking change.
+  `ErrorCode` has an `UNKNOWN` fallback plus `coerceInputValues` for this reason; other
+  enums do not, so they need both sides changed together.
+
+Response DTOs must be mapped to camelCase before sending. SQLite returns snake_case
+(`avatar_id`), and a client field with no default (`LeaderboardEntry.avatarId`) makes
+decoding throw outright.
+
 ## Current Product Assumptions
 
 - The backend is authoritative
@@ -89,10 +106,39 @@ The Android client uses `kotlinx.serialization`; the Node server parses raw JSON
 
 ## Validation
 
-Use these before closing backend/client refactors:
+Run these before closing backend/client changes:
 
 ```bash
-node --check server/server.js
-node --check server/db.js
+cd server && npm run check && npm test
+```
+
+```bash
 ./gradlew :app:test
 ```
+
+The Android build is the real gate — v2.20.12 was published with imports that did
+not resolve, so a green `node --check` alone proves very little:
+
+```bash
+./gradlew :app:compileDebugKotlin
+```
+
+Server tests use the built-in `node:test` runner, so there is no test dependency to
+install. Keep validation helpers in `server/validation.js` rather than `server.js`:
+requiring `server.js` binds a port and opens the database, so nothing in it is
+testable.
+
+## Invariants worth preserving
+
+- **Never commit `server/munchkin.db`.** It holds `users(email, password_hash)` and
+  `active_games.players_json` with per-seat `reconnectTokenHash` values. It was
+  committed to this public repo once already.
+- **Never log credentials.** WELCOME carries a `reconnectToken`, AUTH_SUCCESS carries
+  a JWT, and login/register requests carry a plaintext password. The in-app
+  `DebugLogViewer` makes client-side logs user-visible.
+- **bcrypt must stay async.** The sync variants block Node's single event loop for the
+  full cost-12 hash, freezing every active game on each login.
+- **Client-side combat math must match `combatManager.js`.** Both compute the outcome;
+  the server wins. Divergence shows up as the `COMBAT_END mismatch` warning.
+- **Requests carrying a `userId` must authorize it against `ws.userId`.** Trusting the
+  client-supplied id is how `GET_HISTORY` became an IDOR.

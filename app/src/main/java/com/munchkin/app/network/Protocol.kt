@@ -235,26 +235,10 @@ data class HostAnnounceMessage(
     val wsUrl: String
 ) : WsMessage()
 
-/**
- * Request for clients to acknowledge new host.
- */
-@Serializable
-@SerialName("HANDOVER_INIT")
-data class HandoverInitMessage(
-    val newHostId: PlayerId,
-    val newEpoch: Int,
-    val wsUrl: String
-) : WsMessage()
-
-/**
- * Client acknowledges handover to new host.
- */
-@Serializable
-@SerialName("HANDOVER_ACK")
-data class HandoverAckMessage(
-    val playerId: PlayerId,
-    val acknowledged: Boolean
-) : WsMessage()
+// HANDOVER_INIT / HANDOVER_ACK removed along with the embedded LAN-host mode.
+// The remote server is authoritative and migrates the host in place (see
+// gameAdminManager's pendingHostMigration), so it never sent these; the client
+// handler for them was unreachable code.
 
 // ============== Error Codes ==============
 
@@ -409,7 +393,6 @@ enum class ConnectionState {
     CONNECTING,
     CONNECTED,
     RECONNECTING,
-    HANDOVER,
     FAILED_PERMANENTLY  // All automatic retry attempts exhausted; requires manual retry
 }
 

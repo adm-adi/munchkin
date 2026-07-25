@@ -81,6 +81,30 @@ try {
     server = http.createServer(handleRequest);
 }
 
+// Rate limiting for the public HTTP API
+const apiRateLimits = new Map(); // IP -> { count, windowStart }
+const API_RATE_LIMIT_MAX = 60;
+const API_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+
+function isApiRateLimited(ip) {
+    const record = apiRateLimits.get(ip);
+    if (!record) return false;
+    if (Date.now() - record.windowStart > API_RATE_LIMIT_WINDOW_MS) {
+        apiRateLimits.delete(ip);
+        return false;
+    }
+    return record.count >= API_RATE_LIMIT_MAX;
+}
+
+function recordApiRequest(ip) {
+    const record = apiRateLimits.get(ip);
+    if (!record || Date.now() - record.windowStart > API_RATE_LIMIT_WINDOW_MS) {
+        apiRateLimits.set(ip, { count: 1, windowStart: Date.now() });
+    } else {
+        record.count++;
+    }
+}
+
 // HTTP/HTTPS Request Handler
 function handleRequest(req, res) {
     // Apply Helmet Security Headers
@@ -97,9 +121,11 @@ function processRequest(req, res) {
     if (origin && allowedOrigins.includes(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
     }
-    res.setHeader('Access-Control-Request-Method', '*');
+    // Access-Control-Request-Method is a *request* header sent by the browser during
+    // a preflight; setting it on the response did nothing.
     res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Vary', 'Origin');
 
     if (req.method === 'OPTIONS') {
         res.writeHead(200);
@@ -118,6 +144,16 @@ function processRequest(req, res) {
 
     // API: Search Monsters
     if (req.method === 'GET' && parsedUrl.pathname === '/api/monsters') {
+        // This is the only unauthenticated endpoint that hits the database, and it
+        // had no rate limit while the WebSocket join path did.
+        const clientIp = req.socket.remoteAddress || 'unknown';
+        if (isApiRateLimited(clientIp)) {
+            res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' });
+            res.end(JSON.stringify({ error: 'Too many requests' }));
+            return;
+        }
+        recordApiRequest(clientIp);
+
         const query = (parsedUrl.searchParams.get('q') || '').slice(0, 50); // hard cap at 50 chars
         logger.info(`🔍 Search Monsters: "${query}"`);
 
@@ -1255,6 +1291,12 @@ setInterval(() => {
     }
 
     pruneJoinRateLimits();
+
+    // Same unbounded-growth issue as the join limiter.
+    const apiCutoff = Date.now() - API_RATE_LIMIT_WINDOW_MS;
+    for (const [ip, record] of apiRateLimits) {
+        if (record.windowStart < apiCutoff) apiRateLimits.delete(ip);
+    }
 
     // Cleanup database orphans
     db.cleanupOldGames().catch(err => logger.error('Failed to cleanup DB:', err));

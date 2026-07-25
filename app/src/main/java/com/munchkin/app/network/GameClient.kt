@@ -466,9 +466,6 @@ class GameClient {
             is PongMessage -> {
                 // Keepalive response
             }
-            is HandoverInitMessage -> {
-                handleHandover(message)
-            }
             is GameDeletedMessage -> {
                 _errors.emit("La partida ha sido eliminada por el anfitrión")
                 disconnect()
@@ -552,24 +549,6 @@ class GameClient {
             Log.e(TAG, "❌ Failed to reconnect after $MAX_RECONNECT_ATTEMPTS attempts")
             _reconnectAttempt.value = 0
             _connectionState.value = ConnectionState.FAILED_PERMANENTLY
-        }
-    }
-    
-    /**
-     * Handle handover to new host.
-     */
-    private suspend fun handleHandover(message: HandoverInitMessage) {
-        _connectionState.value = ConnectionState.HANDOVER
-        
-        // Disconnect from current host
-        disconnect()
-        
-        // Connect to new host
-        lastUrl = message.wsUrl
-        lastPlayerMeta?.let { meta ->
-            lastJoinCode?.let { code ->
-                connect(message.wsUrl, code, meta, lastReconnectToken, lastAuthToken)
-            }
         }
     }
     
