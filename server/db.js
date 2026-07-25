@@ -125,6 +125,14 @@ function initTables() {
             }
         });
 
+        // The account carried an avatar slot but no gender, so nothing could pick the
+        // correct portrait variant for it (the ranking had to fall back to a letter).
+        db.run(`ALTER TABLE users ADD COLUMN gender TEXT DEFAULT 'M'`, (err) => {
+            if (err && !err.message.includes("duplicate column name")) {
+                logger.error("Migration error (users.gender):", err);
+            }
+        });
+
         // active_games column migrations
         db.run(`ALTER TABLE active_games ADD COLUMN max_level INTEGER DEFAULT 10`, (err) => {
             if (err && !err.message.includes("duplicate column name")) {
@@ -243,13 +251,14 @@ function comparePassword(password, hash) {
     });
 }
 
-function createUser(username, email, password, avatarId = 0) {
+function createUser(username, email, password, avatarId = 0, gender = 'M') {
     return hashPassword(password).then(hashedPassword => new Promise((resolve, reject) => {
         const id = uuidv4();
         const now = Date.now();
 
-        const sql = `INSERT INTO users(id, username, email, password_hash, avatar_id, created_at) VALUES(?, ?, ?, ?, ?, ?)`;
-        const params = [id, username, email, hashedPassword, avatarId, now];
+        const sql = `INSERT INTO users(id, username, email, password_hash, avatar_id, gender, created_at)
+                     VALUES(?, ?, ?, ?, ?, ?, ?)`;
+        const params = [id, username, email, hashedPassword, avatarId, gender, now];
 
         db.run(sql, params, function (err) {
             if (err) {
@@ -261,15 +270,23 @@ function createUser(username, email, password, avatarId = 0) {
                     reject(err);
                 }
             } else {
-                resolve({ id, username, email, avatarId });
+                resolve({ id, username, email, avatarId, gender });
             }
         });
     }));
 }
 
-async function updateUser(userId, newUsername, newPassword) {
+/**
+ * Updates the mutable parts of an account. Avatar and gender are included because
+ * they were previously write-once at registration — and registration hardcoded
+ * avatar 0 — so every account displayed the same portrait forever.
+ *
+ * avatarId/gender are passed as null when unchanged; 0 is a valid avatar slot, so
+ * they cannot be tested for truthiness.
+ */
+async function updateUser(userId, newUsername, newPassword, newAvatarId = null, newGender = null) {
     // Guard: nothing to update
-    if (!newUsername && !newPassword) {
+    if (!newUsername && !newPassword && newAvatarId === null && newGender === null) {
         throw new Error("NO_CHANGES");
     }
 
@@ -284,6 +301,16 @@ async function updateUser(userId, newUsername, newPassword) {
     if (newPassword) {
         assignments.push("password_hash = ?");
         params.push(await hashPassword(newPassword));
+    }
+
+    if (newAvatarId !== null) {
+        assignments.push("avatar_id = ?");
+        params.push(newAvatarId);
+    }
+
+    if (newGender !== null) {
+        assignments.push("gender = ?");
+        params.push(newGender);
     }
 
     const sql = `UPDATE users SET ${assignments.join(", ")} WHERE id = ?`;
@@ -338,7 +365,8 @@ async function verifyUser(identifier, password) {
         id: user.id,
         username: user.username,
         email: user.email,
-        avatarId: user.avatar_id
+        avatarId: user.avatar_id,
+        gender: user.gender || 'M'
     };
 }
 
@@ -513,12 +541,13 @@ function getLeaderboard(limit = 20) {
                 u.id,
                 u.username,
                 u.avatar_id,
+                u.gender,
                 COUNT(DISTINCT p.game_id) AS games_played,
                 COUNT(DISTINCT CASE WHEN g.winner_id = u.id THEN g.id END) AS wins
             FROM users u
             JOIN participants p ON p.user_id = u.id
             JOIN games g ON g.id = p.game_id
-            GROUP BY u.id, u.username, u.avatar_id
+            GROUP BY u.id, u.username, u.avatar_id, u.gender
             ORDER BY wins DESC, games_played ASC, u.username ASC
             LIMIT ?
         `;

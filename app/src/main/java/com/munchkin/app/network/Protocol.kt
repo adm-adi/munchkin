@@ -136,7 +136,8 @@ data class RegisterMessage(
     val username: String,
     val email: String,
     val password: String, // In production should be hashed clientside or SSL
-    val avatarId: Int
+    val avatarId: Int,
+    val gender: Gender = Gender.M
 ) : WsMessage()
 
 @Serializable
@@ -164,7 +165,9 @@ data class UserProfile(
     val id: String,
     val username: String,
     val email: String,
-    val avatarId: Int
+    val avatarId: Int,
+    // Defaulted so an older server that does not send it still decodes.
+    val gender: Gender = Gender.M
 )
 
 @Serializable
@@ -172,7 +175,10 @@ data class UserProfile(
 data class UpdateProfileRequest(
     val userId: String,
     val username: String? = null,
-    val password: String? = null
+    val password: String? = null,
+    /** Null leaves it unchanged. 0 is a valid slot, so this cannot be a sentinel. */
+    val avatarId: Int? = null,
+    val gender: Gender? = null
 ) : WsMessage()
 
 @Serializable
@@ -368,6 +374,7 @@ data class LeaderboardEntry(
     val id: String,
     val username: String,
     val avatarId: Int,
+    val gender: Gender = Gender.M,
     val wins: Int,
     // Defaulted so an older server that does not send it still decodes.
     val gamesPlayed: Int = 0

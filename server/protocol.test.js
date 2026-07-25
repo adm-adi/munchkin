@@ -294,6 +294,83 @@ test('history names the winner and flags whether it was you', async () => {
     await other.client.close();
 });
 
+test('registration stores the chosen avatar and gender, and the profile can change them', async () => {
+    // Registration hardcoded avatar 0 client-side and UPDATE_PROFILE could not touch
+    // the avatar at all, so every account displayed the same portrait forever.
+    const c = await TestClient.connect(server.url);
+    const reg = await c.request({
+        type: 'REGISTER',
+        username: 'avatar_user',
+        email: 'avatar_user@example.com',
+        password: 'test-password-123',
+        avatarId: 5,
+        gender: 'F'
+    }, ['AUTH_SUCCESS', 'ERROR']);
+
+    assert.strictEqual(reg.type, 'AUTH_SUCCESS', JSON.stringify(reg));
+    assert.strictEqual(reg.user.avatarId, 5, 'the chosen avatar must be stored');
+    assert.strictEqual(reg.user.gender, 'F', 'the chosen gender must be stored');
+
+    // Change both.
+    const updated = await c.request({
+        type: 'UPDATE_PROFILE',
+        userId: reg.user.id,
+        avatarId: 2,
+        gender: 'NA'
+    }, ['PROFILE_UPDATED', 'ERROR']);
+    assert.strictEqual(updated.type, 'PROFILE_UPDATED', JSON.stringify(updated));
+    assert.strictEqual(updated.user.avatarId, 2);
+    assert.strictEqual(updated.user.gender, 'NA');
+
+    // Slot 0 is a real value, so it must not be mistaken for "unchanged".
+    const toZero = await c.request({
+        type: 'UPDATE_PROFILE', userId: reg.user.id, avatarId: 0
+    }, ['PROFILE_UPDATED', 'ERROR']);
+    assert.strictEqual(toZero.type, 'PROFILE_UPDATED');
+    assert.strictEqual(toZero.user.avatarId, 0, 'avatar 0 must be settable');
+    assert.strictEqual(toZero.user.gender, 'NA', 'an omitted field stays unchanged');
+
+    await c.close();
+});
+
+test('an invalid profile gender or avatar is refused', async () => {
+    const c = await TestClient.connect(server.url);
+    const reg = await c.request({
+        type: 'REGISTER',
+        username: 'badprofile_user',
+        email: 'badprofile_user@example.com',
+        password: 'test-password-123'
+    }, ['AUTH_SUCCESS', 'ERROR']);
+    assert.strictEqual(reg.type, 'AUTH_SUCCESS');
+
+    const badGender = await c.request({
+        type: 'UPDATE_PROFILE', userId: reg.user.id, gender: 'ROBOT'
+    }, ['PROFILE_UPDATED', 'ERROR']);
+    assert.strictEqual(badGender.type, 'ERROR');
+    assert.strictEqual(badGender.code, 'INVALID_DATA');
+
+    const badAvatar = await c.request({
+        type: 'UPDATE_PROFILE', userId: reg.user.id, avatarId: 9999
+    }, ['PROFILE_UPDATED', 'ERROR']);
+    assert.strictEqual(badAvatar.type, 'ERROR');
+    assert.strictEqual(badAvatar.code, 'INVALID_DATA');
+
+    await c.close();
+});
+
+test('the ranking exposes each account\'s avatar and gender', async () => {
+    const c = await TestClient.connect(server.url);
+    const board = await c.request({ type: 'GET_LEADERBOARD' }, ['LEADERBOARD_RESULT']);
+    for (const entry of board.leaderboard) {
+        assert.strictEqual(typeof entry.avatarId, 'number');
+        assert.ok(
+            ['M', 'F', 'NA'].includes(entry.gender),
+            `gender must be a Kotlin Gender value, got ${entry.gender}`
+        );
+    }
+    await c.close();
+});
+
 test('an anonymous caller gets the ranking but no personal stats', async () => {
     const c = await TestClient.connect(server.url);
     const board = await c.request({ type: 'GET_LEADERBOARD' }, ['LEADERBOARD_RESULT', 'ERROR']);

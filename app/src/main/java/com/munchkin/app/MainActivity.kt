@@ -378,7 +378,9 @@ class MainActivity : ComponentActivity() {
                                         onBack = { viewModel.navigateTo(Screen.HOME) },
                                         onRefresh = { viewModel.loadHistory() },
                                         onClearError = { viewModel.clearError() },
-                                        onUpdateProfile = { name, pass -> viewModel.updateProfile(name, pass) }
+                                        onUpdateProfile = { name, pass, avatar, gender ->
+                                            viewModel.updateProfile(name, pass, avatar, gender)
+                                        }
                                     )
                                 }
                             }

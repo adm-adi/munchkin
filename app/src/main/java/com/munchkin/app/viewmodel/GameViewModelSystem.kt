@@ -2,6 +2,7 @@ package com.munchkin.app.viewmodel
 
 import androidx.lifecycle.viewModelScope
 import com.munchkin.app.MunchkinApp
+import com.munchkin.app.core.Gender
 import com.munchkin.app.R
 import com.munchkin.app.network.GameClient
 import com.munchkin.app.update.UpdateChecker
@@ -127,18 +128,26 @@ fun GameViewModel.loadLeaderboard() {
     }
 }
 
-fun GameViewModel.updateProfile(username: String?, pass: String?) {
+fun GameViewModel.updateProfile(
+    username: String? = null,
+    pass: String? = null,
+    avatarId: Int? = null,
+    gender: Gender? = null
+) {
     val currentUser = _uiState.value.userProfile ?: return
     val token = sessionManager?.getAuthToken() ?: run {
         _uiState.update { it.copy(error = MunchkinApp.context.getString(R.string.error_session_expired)) }
         return
     }
-    if (username.isNullOrBlank() && pass.isNullOrBlank()) return
+    // avatarId 0 is a real slot, so absence is null rather than falsy.
+    if (username.isNullOrBlank() && pass.isNullOrBlank() && avatarId == null && gender == null) return
 
     _uiState.update { it.copy(isLoading = true, error = null) }
 
     viewModelScope.launch {
-        val result = GameClient().updateProfile(GameViewModel.SERVER_URL, currentUser.id, username, pass, token)
+        val result = GameClient().updateProfile(
+            GameViewModel.SERVER_URL, currentUser.id, username, pass, token, avatarId, gender
+        )
         if (result.isSuccess) {
             val updatedUser = result.getOrThrow()
             _uiState.update { it.copy(userProfile = updatedUser, isLoading = false, error = null) }

@@ -61,6 +61,7 @@ function createHistoryManager({ db, logger, sendError }) {
                     id: row.id,
                     username: row.username,
                     avatarId: row.avatar_id || 0,
+                    gender: row.gender || 'M',
                     wins: row.wins || 0,
                     gamesPlayed: row.games_played || 0
                 }));

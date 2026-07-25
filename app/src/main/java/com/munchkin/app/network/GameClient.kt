@@ -624,7 +624,11 @@ class GameClient {
         serverUrl: String,
         username: String,
         email: String,
-        password: String
+        password: String,
+        // Previously hardcoded to avatar 0 here, and the profile could not change it
+        // afterwards, so every account displayed the same portrait forever.
+        avatarId: Int = 0,
+        gender: Gender = Gender.M
     ): Result<AuthSuccessMessage> {
         // Auto-generate dummy email if empty (Backward compatibility with older servers)
         val finalEmail = if (email.isBlank()) {
@@ -633,7 +637,7 @@ class GameClient {
         } else {
             email
         }
-        val msg = RegisterMessage(username, finalEmail, password, 0)
+        val msg = RegisterMessage(username, finalEmail, password, avatarId, gender)
         return performAuth(serverUrl, msg)
     }
 
@@ -842,9 +846,11 @@ class GameClient {
         userId: String,
         username: String?,
         password: String?,
-        token: String
+        token: String,
+        avatarId: Int? = null,
+        gender: Gender? = null
     ): Result<UserProfile> = withContext(Dispatchers.IO) {
-        val req = UpdateProfileRequest(userId, username, password)
+        val req = UpdateProfileRequest(userId, username, password, avatarId, gender)
         authenticatedRequest(serverUrl, token, req).map { response ->
             if (response is ProfileUpdatedMessage) {
                 response.user
