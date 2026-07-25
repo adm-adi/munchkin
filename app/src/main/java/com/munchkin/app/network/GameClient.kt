@@ -7,6 +7,7 @@ import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.websocket.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -26,7 +27,24 @@ class GameClient {
         private const val RECONNECT_DELAY_MS = 1000L
         private const val MAX_RECONNECT_DELAY_MS = 30_000L  // cap at 30 seconds
         private const val MAX_RECONNECT_ATTEMPTS = 15       // was 5
+
+        /**
+         * Every server reply is awaited with a timeout. A server that completes the
+         * WebSocket handshake but never answers would otherwise leave the caller
+         * suspended forever, stranding the UI on "Conectando…" with no way out.
+         */
+        private const val RESPONSE_TIMEOUT_MS = 15_000L
     }
+
+    /** Thrown when the server accepts the connection but does not reply in time. */
+    class ServerTimeoutException : Exception("El servidor no respondió a tiempo")
+
+    /**
+     * Receives the next frame, or fails instead of suspending indefinitely.
+     */
+    private suspend fun WebSocketSession.receiveWithTimeout(): Frame =
+        withTimeoutOrNull(RESPONSE_TIMEOUT_MS) { incoming.receive() }
+            ?: throw ServerTimeoutException()
     
     private var client: HttpClient? = null
     private var session: WebSocketSession? = null
@@ -51,7 +69,15 @@ class GameClient {
     private val _myPlayerId = MutableStateFlow<PlayerId?>(null)
     val myPlayerId: StateFlow<PlayerId?> = _myPlayerId.asStateFlow()
     
-    private val _errors = MutableSharedFlow<String>()
+    // Buffered on purpose: with the default (replay = 0, extraBufferCapacity = 0)
+    // emit() suspends until a collector receives the value. An ERROR arriving while
+    // nothing was collecting — app backgrounded, collector not yet attached — stalled
+    // the WebSocket read loop indefinitely. DROP_OLDEST keeps the socket moving even
+    // if errors outpace the UI.
+    private val _errors = MutableSharedFlow<String>(
+        extraBufferCapacity = 16,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
     val errors: SharedFlow<String> = _errors.asSharedFlow()
 
     private val _reconnectAttempt = MutableStateFlow(0)
@@ -61,6 +87,9 @@ class GameClient {
         ignoreUnknownKeys = true
         encodeDefaults = true
         classDiscriminator = "type"
+        // Unknown enum values fall back to the property default instead of
+        // throwing, so a server that adds an error code cannot break this client.
+        coerceInputValues = true
     }
 
     val currentPlayerId: PlayerId?
@@ -90,7 +119,10 @@ class GameClient {
             lastPlayerMeta = playerMeta
             lastAuthToken = authToken
             
-            // Create HTTP client
+            // Close any previous engine before replacing it: each CIO client owns a
+            // selector and thread pool, so overwriting the field leaked one engine per
+            // reconnect attempt (up to MAX_RECONNECT_ATTEMPTS per session).
+            client?.close()
             client = HttpClient(CIO) {
                 install(WebSockets) {
                     pingInterval = 15_000
@@ -197,7 +229,10 @@ class GameClient {
             lastReconnectToken = reconnectToken
             lastAuthToken = authToken
             
-            // Create HTTP client with WebSocket support
+            // Close the previous engine first. connect() is called once per reconnect
+            // attempt, so overwriting this field without closing leaked a CIO engine
+            // (selector + thread pool) on every retry.
+            client?.close()
             client = HttpClient(CIO) {
                 install(WebSockets) {
                     pingInterval = 15_000
@@ -301,7 +336,7 @@ class GameClient {
 
         return try {
             send(json.encodeToString<WsMessage>(LoginWithTokenMessage(token)))
-            val frame = incoming.receive()
+            val frame = receiveWithTimeout()
             if (frame !is Frame.Text) {
                 return Result.failure(Exception("Respuesta de autenticacion inesperada"))
             }
@@ -320,7 +355,7 @@ class GameClient {
      * Wait for welcome message after hello.
      */
     private suspend fun WebSocketSession.waitForWelcome(): Result<Unit> {
-        val frame = incoming.receive()
+        val frame = receiveWithTimeout()
         
         if (frame !is Frame.Text) {
             return Result.failure(Exception("Respuesta inesperada"))
@@ -370,7 +405,10 @@ class GameClient {
                 when (frame) {
                     is Frame.Text -> {
                         val text = frame.readText()
-                        DLog.i(TAG, "📩 Received message: ${text.take(100)}...")
+                        // Log size only, not content: WELCOME carries a reconnectToken
+                        // and AUTH_SUCCESS carries a JWT. The decoded type is logged
+                        // just below, which is what is actually useful when debugging.
+                        DLog.i(TAG, "📩 Received message (${text.length} chars)")
                         val message = try {
                             json.decodeFromString<WsMessage>(text)
                         } catch (e: Exception) {
@@ -442,7 +480,7 @@ class GameClient {
     }
     
     /**
-     * Apply an event to local game state using the persistent engine.
+     * Apply a server-broadcast event to local game state using the persistent engine.
      * Avoids allocating a new GameEngine instance on every incoming broadcast.
      */
     private fun applyEvent(event: GameEvent) {
@@ -452,7 +490,9 @@ class GameClient {
             val s = _gameState.value ?: return
             GameEngine().also { it.loadState(s); gameEngine = it }
         }
-        engine.processEvent(event)
+        // applyRemoteEvent, not processEvent: the server already validated this
+        // event, and local re-validation silently dropped legitimate updates.
+        engine.applyRemoteEvent(event)
         _gameState.value = engine.gameState.value
     }
     
@@ -640,29 +680,30 @@ class GameClient {
         message: WsMessage
     ): Result<AuthSuccessMessage> = withContext(Dispatchers.IO) {
         try {
-            val urlParts = parseWsUrl(serverUrl) ?: return@withContext Result.failure(Exception("URL inválida"))
-            val (host, port, _) = urlParts
-            
-            DLog.i(TAG, "Auth: Connecting to $host:$port...")
-            
-            // Temporary client for auth
-            val authClient = HttpClient(CIO) { install(WebSockets) }
-            
+            val wsUrl = buildWsUrl(serverUrl)
+                ?: return@withContext Result.failure(Exception("URL inválida"))
+
+            DLog.i(TAG, "Auth: Connecting...")
+
             var result: Result<AuthSuccessMessage>? = null
-            
-            authClient.webSocket(urlString = "${"wss".takeIf { serverUrl.startsWith("wss://") } ?: "ws"}://$host:$port/") {
+
+            // use {} so the engine is released even if the handshake throws.
+            HttpClient(CIO) { install(WebSockets) }.use { authClient ->
+            authClient.webSocket(urlString = wsUrl) {
                 // Send auth message - Encoded as WsMessage to preserve "type" field
                 val finalJson = json.encodeToString<WsMessage>(message)
-                DLog.i(TAG, "Sending auth: $finalJson")
+                // Never log this payload: RegisterMessage/LoginMessage carry the
+                // user's plaintext password, and the reply carries their JWT. The
+                // debug log is readable in-app via DebugLogViewer.
+                DLog.i(TAG, "Sending auth request: ${message::class.simpleName}")
                 send(finalJson)
-                
+
                 // Wait for response
                 try {
-                    val frame = incoming.receive()
+                    val frame = receiveWithTimeout()
                     if (frame is Frame.Text) {
                         val text = frame.readText()
-                        DLog.i(TAG, "Auth response: $text")
-                        
+
                         val response = json.decodeFromString<WsMessage>(text)
                         if (response is AuthSuccessMessage) {
                             result = Result.success(response)
@@ -676,8 +717,8 @@ class GameClient {
                 }
                 close()
             }
-            authClient.close()
-            
+            }
+
             result ?: Result.failure(Exception("No response from server"))
             
         } catch (e: Exception) {
@@ -735,38 +776,38 @@ class GameClient {
         message: WsMessage
     ): Result<WsMessage> = withContext(Dispatchers.IO) {
         try {
-            val urlParts = parseWsUrl(serverUrl) ?: return@withContext Result.failure(Exception("URL inválida"))
-            val (host, port, _) = urlParts
-            
-            // Temporary client
-            val client = HttpClient(CIO) { install(WebSockets) }
+            val wsUrl = buildWsUrl(serverUrl)
+                ?: return@withContext Result.failure(Exception("URL inválida"))
+
             var result: Result<WsMessage>? = null
-            
-            client.webSocket(urlString = "${"wss".takeIf { serverUrl.startsWith("wss://") } ?: "ws"}://$host:$port/") {
-                val jsonStr = json.encodeToString<WsMessage>(message)
-                send(jsonStr)
-                
-                try {
-                    val frame = incoming.receive()
-                    if (frame is Frame.Text) {
-                        val text = frame.readText()
-                        val response = json.decodeFromString<WsMessage>(text)
-                        
-                        if (response is ErrorMessage) {
-                            result = Result.failure(ServerErrorException(response.code, response.message))
-                        } else {
-                            result = Result.success(response)
+
+            // use {} so the engine is released even if the handshake throws.
+            HttpClient(CIO) { install(WebSockets) }.use { client ->
+                client.webSocket(urlString = wsUrl) {
+                    val jsonStr = json.encodeToString<WsMessage>(message)
+                    send(jsonStr)
+
+                    try {
+                        val frame = receiveWithTimeout()
+                        if (frame is Frame.Text) {
+                            val text = frame.readText()
+                            val response = json.decodeFromString<WsMessage>(text)
+
+                            if (response is ErrorMessage) {
+                                result = Result.failure(ServerErrorException(response.code, response.message))
+                            } else {
+                                result = Result.success(response)
+                            }
                         }
+                    } catch (e: Exception) {
+                        result = Result.failure(e)
                     }
-                } catch (e: Exception) {
-                    result = Result.failure(e)
+                    close()
                 }
-                close()
             }
-            client.close()
-            
+
             result ?: Result.failure(Exception("Sin respuesta del servidor"))
-            
+
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -858,77 +899,105 @@ class GameClient {
         request: WsMessage
     ): Result<WsMessage> = withContext(Dispatchers.IO) {
         try {
-            val urlParts = parseWsUrl(serverUrl) ?: return@withContext Result.failure(Exception("URL inválida"))
-            val (host, port, _) = urlParts
-            
-            val client = HttpClient(CIO) { install(WebSockets) }
-            var result: Result<WsMessage>? = null
-            
-            client.webSocket(urlString = "${"wss".takeIf { serverUrl.startsWith("wss://") } ?: "ws"}://$host:$port/") {
-                // 1. Login
-                val loginMsg = LoginWithTokenMessage(token)
-                send(json.encodeToString<WsMessage>(loginMsg))
-                
-                // Wait for Auth Success
-                var authenticated = false
-                try {
-                    val frame = incoming.receive()
-                    if (frame is Frame.Text) {
-                        val response = json.decodeFromString<WsMessage>(frame.readText())
-                        if (response is AuthSuccessMessage) {
-                            authenticated = true
-                        } else if (response is ErrorMessage) {
-                            result = Result.failure(ServerErrorException(response.code, response.message))
-                        }
-                    }
-                } catch (e: Exception) {
-                    result = Result.failure(Exception("Auth handshake failed"))
-                }
+            val wsUrl = buildWsUrl(serverUrl)
+                ?: return@withContext Result.failure(Exception("URL inválida"))
 
-                if (authenticated) {
-                    // 2. Send Actual Request
-                    send(json.encodeToString<WsMessage>(request))
-                    
-                    // 3. Wait for Response
+            var result: Result<WsMessage>? = null
+
+            // use {} so the engine is released even if the handshake throws.
+            HttpClient(CIO) { install(WebSockets) }.use { client ->
+                client.webSocket(urlString = wsUrl) {
+                    // 1. Login
+                    val loginMsg = LoginWithTokenMessage(token)
+                    send(json.encodeToString<WsMessage>(loginMsg))
+
+                    // Wait for Auth Success
+                    var authenticated = false
                     try {
-                        val frame = incoming.receive()
+                        val frame = receiveWithTimeout()
                         if (frame is Frame.Text) {
                             val response = json.decodeFromString<WsMessage>(frame.readText())
-                            if (response is ErrorMessage) {
-                                Log.e(TAG, "Error emitted: ${response.message}")
-                                _errors.emit(response.message)
-                                // We don't fail the job for async errors, but we emit them.
-                            } else {
-                                result = Result.success(response)
+                            if (response is AuthSuccessMessage) {
+                                authenticated = true
+                            } else if (response is ErrorMessage) {
+                                result = Result.failure(ServerErrorException(response.code, response.message))
                             }
                         }
                     } catch (e: Exception) {
-                        result = Result.failure(Exception("Request failed: ${e.message}"))
+                        result = Result.failure(Exception("Auth handshake failed"))
                     }
+
+                    if (authenticated) {
+                        // 2. Send Actual Request
+                        send(json.encodeToString<WsMessage>(request))
+
+                        // 3. Wait for Response
+                        try {
+                            val frame = receiveWithTimeout()
+                            if (frame is Frame.Text) {
+                                val response = json.decodeFromString<WsMessage>(frame.readText())
+                                if (response is ErrorMessage) {
+                                    // Also fail the call. Previously this only emitted to
+                                    // the shared error flow and left result null, so the
+                                    // caller surfaced a misleading "No response or auth
+                                    // failed" instead of the server's actual reason.
+                                    Log.e(TAG, "Server rejected request: ${response.message}")
+                                    _errors.emit(response.message)
+                                    result = Result.failure(ServerErrorException(response.code, response.message))
+                                } else {
+                                    result = Result.success(response)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            result = Result.failure(Exception("Request failed: ${e.message}"))
+                        }
+                    }
+
+                    close()
                 }
-                
-                close()
             }
-            client.close()
-            
+
             result ?: Result.failure(Exception("No response or auth failed"))
-            
+
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    private fun parseWsUrl(url: String): Triple<String, Int, String>? {
-        val regex = Regex("""wss?://([^:]+):(\d+)(/.*)?""")
-        val match = regex.find(url) ?: return null
+    /**
+     * Builds the normalised ws(s) URL to connect to, preserving the path from the
+     * configured server URL. The one-off request helpers used to hardcode "/",
+     * so they silently ignored any configured path while connect() honoured it.
+     */
+    private fun buildWsUrl(serverUrl: String): String? {
+        val (host, port, path) = parseWsUrl(serverUrl) ?: return null
+        val scheme = if (serverUrl.trim().startsWith("wss://")) "wss" else "ws"
+        return "$scheme://$host:$port$path"
+    }
 
-        if (url.startsWith("ws://")) {
+    private fun parseWsUrl(url: String): Triple<String, Int, String>? {
+        // The port is optional: it previously was not, so a standard-port
+        // deployment such as wss://api.example.com/ was rejected as invalid.
+        val regex = Regex("""^(wss?)://([^:/?#]+)(?::(\d+))?(/[^?#]*)?""")
+        val match = regex.find(url.trim()) ?: return null
+
+        val scheme = match.groupValues[1]
+        val isSecure = scheme == "wss"
+        if (!isSecure) {
             DLog.w(TAG, "⚠️ Connecting over unencrypted ws://. Use wss:// for production servers.")
         }
 
-        val host = match.groupValues[1]
-        val port = match.groupValues[2].toIntOrNull() ?: return null
-        val path = match.groupValues.getOrNull(3)?.ifEmpty { "/" } ?: "/"
+        val host = match.groupValues[2]
+        if (host.isEmpty()) return null
+
+        val portGroup = match.groupValues[3]
+        val port = if (portGroup.isEmpty()) {
+            if (isSecure) 443 else 80
+        } else {
+            portGroup.toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
+        }
+
+        val path = match.groupValues[4].ifEmpty { "/" }
 
         return Triple(host, port, path)
     }

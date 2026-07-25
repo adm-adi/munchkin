@@ -14,7 +14,11 @@ class GameEngine {
     private val _gameState = MutableStateFlow<GameState?>(null)
     val gameState: StateFlow<GameState?> = _gameState.asStateFlow()
     
-    private val eventLog = mutableListOf<EventEnvelope>()
+    /**
+     * Recent events, used for gap recovery via [getEventsSince]. Bounded: it grew
+     * for the lifetime of the session before, one entry per event ever received.
+     */
+    private val eventLog = ArrayDeque<EventEnvelope>()
     
     /**
      * Initialize a new game with the host as first player.
@@ -50,8 +54,37 @@ class GameEngine {
     }
     
     /**
-     * Process an event and return the result.
-     * Returns ValidationResult with success/failure and updated state.
+     * Applies an event the server has already validated, accepted, and broadcast.
+     *
+     * Deliberately skips [validateEvent]: the server is authoritative, so local
+     * re-validation can only reject something that has already happened. When it
+     * did, the event was dropped silently and this client's state drifted from the
+     * server's until the next full snapshot arrived.
+     */
+    fun applyRemoteEvent(event: GameEvent) {
+        val currentState = _gameState.value ?: return
+
+        val newState = applyEvent(event, currentState)
+        val nextSeq = currentState.seq + 1
+
+        eventLog.addLast(EventEnvelope(
+            gameId = currentState.gameId,
+            epoch = currentState.epoch,
+            seq = nextSeq,
+            event = event
+        ))
+        while (eventLog.size > MAX_EVENT_LOG_SIZE) {
+            eventLog.removeFirst()
+        }
+
+        _gameState.value = newState.copy(seq = nextSeq)
+    }
+
+    /**
+     * Validates an event locally and applies it if it passes.
+     *
+     * For events originating from the server use [applyRemoteEvent] instead —
+     * those are authoritative and must not be second-guessed.
      */
     fun processEvent(event: GameEvent): ValidationResult {
         val currentState = _gameState.value 
@@ -78,9 +111,12 @@ class GameEngine {
         val finalState = newState.copy(seq = currentState.seq + 1)
         _gameState.value = finalState
         
-        // Log the event
-        eventLog.add(envelope)
-        
+        // Log the event, dropping the oldest once the window is full
+        eventLog.addLast(envelope)
+        while (eventLog.size > MAX_EVENT_LOG_SIZE) {
+            eventLog.removeFirst()
+        }
+
         return ValidationResult.Success(finalState, envelope)
     }
     
@@ -586,6 +622,9 @@ class GameEngine {
     fun getEventLog(): List<EventEnvelope> = eventLog.toList()
     
     companion object {
+        /** Enough history for gap recovery without unbounded growth. */
+        private const val MAX_EVENT_LOG_SIZE = 200
+
         private fun generateJoinCode(): String {
             val chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // No I, O, 0, 1 to avoid confusion
             return (1..6).map { chars.random() }.joinToString("")
