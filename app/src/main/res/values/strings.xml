@@ -280,7 +280,7 @@
     <string name="login_button">Entrar</string>
     <string name="already_have_account">¿Ya tienes cuenta? Entra</string>
     <string name="no_account">¿No tienes cuenta? Regístrate</string>
-    <string name="password_min_length">Mínimo 6 caracteres</string>
+    <string name="password_min_length">Mínimo %1$d caracteres</string>
     
     <!-- Tutorial -->
     <string name="skip">Saltar</string>

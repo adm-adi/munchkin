@@ -246,7 +246,7 @@
     <string name="login_button">Log in</string>
     <string name="already_have_account">Already have an account? Log in</string>
     <string name="no_account">No account? Register</string>
-    <string name="password_min_length">Minimum 6 characters</string>
+    <string name="password_min_length">At least %1$d characters</string>
     
     <!-- Tutorial -->
     <string name="skip">Skip</string>

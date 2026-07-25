@@ -203,8 +203,22 @@ data class GetHistoryRequest(
 @Serializable
 @SerialName("HISTORY_RESULT")
 data class HistoryResult(
-    val games: List<GameHistoryItem>
+    val games: List<GameHistoryItem>,
+    /**
+     * Real lifetime totals. The games list is capped at 50, so counting it
+     * understated anyone past 50 games and disagreed with the ranking.
+     */
+    val stats: PlayerTotals = PlayerTotals()
 ) : WsMessage()
+
+@Serializable
+data class PlayerTotals(
+    val wins: Int = 0,
+    val gamesPlayed: Int = 0
+) {
+    val winRate: Int
+        get() = if (gamesPlayed <= 0) 0 else (wins * 100) / gamesPlayed
+}
 
 @Serializable
 data class GameHistoryItem(

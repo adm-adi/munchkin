@@ -52,6 +52,8 @@ fun BoardScreen(
     onConfirmWin: (PlayerId) -> Unit = {},
     onDismissWin: () -> Unit = {},
     onEndTurn: () -> Unit = {},
+    /** Offset to add to the local clock to get server time; see GameClient. */
+    serverTimeOffsetMs: Long = 0L,
     onToggleGender: () -> Unit = {},
     onSwapPlayers: (PlayerId, PlayerId) -> Unit = { _, _ -> },
     onKickPlayer: ((PlayerId) -> Unit)? = null,
@@ -276,8 +278,10 @@ fun BoardScreen(
                                 val timerDuration = gameState.settings.turnTimerSeconds
                                 val turnEndsAt = gameState.turnEndsAt
 
+                                // turnEndsAt is a server timestamp, so compare it
+                                // against server time rather than the device clock.
                                 var currentTimeMs by remember(turnEndsAt, gameState.turnPlayerId) {
-                                    mutableLongStateOf(System.currentTimeMillis())
+                                    mutableLongStateOf(System.currentTimeMillis() + serverTimeOffsetMs)
                                 }
                                 val remainingSeconds = if (timerDuration > 0 && currentTurnPlayer != null && turnEndsAt != null) {
                                     (((turnEndsAt - currentTimeMs).coerceAtLeast(0L) + 999L) / 1000L).toInt()
@@ -289,7 +293,7 @@ fun BoardScreen(
                                     LaunchedEffect(turnEndsAt, gameState.turnPlayerId, timerDuration) {
                                         var lastAnnouncedSecond: Int? = null
                                         while (isActive) {
-                                            currentTimeMs = System.currentTimeMillis()
+                                            currentTimeMs = System.currentTimeMillis() + serverTimeOffsetMs
                                             val secondsLeft = (((turnEndsAt - currentTimeMs).coerceAtLeast(0L) + 999L) / 1000L).toInt()
 
                                             if (secondsLeft != lastAnnouncedSecond) {

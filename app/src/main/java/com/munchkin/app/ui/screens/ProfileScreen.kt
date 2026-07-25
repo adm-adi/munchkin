@@ -25,6 +25,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.munchkin.app.R
 import com.munchkin.app.network.GameHistoryItem
+import com.munchkin.app.network.PlayerTotals
 import com.munchkin.app.network.UserProfile
 import com.munchkin.app.ui.components.GlassCard
 import com.munchkin.app.ui.components.GlassTopAppBar
@@ -46,6 +47,7 @@ import java.util.*
 fun ProfileScreen(
     userProfile: UserProfile,
     gameHistory: List<GameHistoryItem>,
+    playerTotals: PlayerTotals,
     isLoading: Boolean,
     error: String?,
     onBack: () -> Unit,
@@ -111,7 +113,7 @@ fun ProfileScreen(
 
                 // Stats Summary
                 item {
-                    StatsSummary(userProfile, gameHistory)
+                    StatsSummary(playerTotals)
                 }
 
                 item {
@@ -371,10 +373,12 @@ fun ProfileHeader(
 }
 
 @Composable
-fun StatsSummary(user: UserProfile, history: List<GameHistoryItem>) {
-    val totalGames = history.size
-    val wins = history.count { it.winnerId == user.id }
-    val winRate = if (totalGames > 0) (wins.toFloat() / totalGames * 100).toInt() else 0
+fun StatsSummary(totals: PlayerTotals) {
+    // Comes from the server. Counting the history list instead understated anyone
+    // past 50 games (the list is capped) and disagreed with the ranking.
+    val totalGames = totals.gamesPlayed
+    val wins = totals.wins
+    val winRate = totals.winRate
 
     Row(
         modifier = Modifier.fillMaxWidth(),
