@@ -27,8 +27,29 @@ const logger = require('./logger');
 // console.error = (...args) => logger.error(args.join(' '));
 
 
+// Input validation lives in its own module so it is unit-testable without
+// starting a server. See validation.test.js.
+const {
+    VALID_GENDERS,
+    VALID_CLASSES,
+    VALID_RACES,
+    DEFAULT_GENDER,
+    MAX_PLAYERS,
+    GEAR_LIMIT,
+    MAX_NAME_LENGTH,
+    MAX_AVATAR_ID,
+    MAX_MONSTERS_PER_COMBAT,
+    MAX_BONUSES_PER_COMBAT,
+    MODIFIER_LIMIT,
+    clampInt,
+    stepAmount,
+    normalizeGender,
+    normalizeName,
+    sanitizeMonster,
+    sanitizeBonus
+} = require('./validation');
+
 const PORT = 8765;
-const MAX_PLAYERS = 6;
 
 if (!process.env.JWT_SECRET) {
     logger.error('❌ FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
@@ -383,17 +404,6 @@ class GameRoom {
             }
         };
     }
-}
-
-/**
- * Coerces any stored/incoming gender into a value the Kotlin Gender enum accepts.
- * Older rows may hold "MALE"/"FEMALE", which would break snapshot decoding.
- */
-function normalizeGender(value) {
-    if (VALID_GENDERS.has(value)) return value;
-    if (value === 'MALE') return 'M';
-    if (value === 'FEMALE') return 'F';
-    return DEFAULT_GENDER;
 }
 
 // Generate 8-char join code (~40 bits entropy)
@@ -940,60 +950,6 @@ function handleEvent(ws, message) {
     }
 }
 
-// Gameplay numbers are bounded so a malformed or hostile event cannot put a
-// non-numeric or absurd value into the snapshot. The snapshot is broadcast to
-// every client, and the Android client's kotlinx.serialization decoding is
-// strictly typed: a string where an Int is expected takes down the whole room.
-const GEAR_LIMIT = 999;
-const STEP_LIMIT = 100;
-const MAX_NAME_LENGTH = 20;
-const MAX_AVATAR_ID = 100;
-// These must mirror the Kotlin enums in core/Models.kt exactly. A value the
-// client's enum does not contain makes kotlinx.serialization throw while decoding
-// the snapshot, which breaks every client in the room rather than just the sender.
-const VALID_GENDERS = new Set(['M', 'F', 'NA']);
-const VALID_CLASSES = new Set(['NONE', 'WARRIOR', 'WIZARD', 'THIEF', 'CLERIC']);
-const VALID_RACES = new Set(['HUMAN', 'ELF', 'DWARF', 'HALFLING']);
-const DEFAULT_GENDER = 'M';
-const MAX_MONSTERS_PER_COMBAT = 6;
-const MAX_BONUSES_PER_COMBAT = 20;
-// Combat modifiers are intentionally generous (Munchkin items are unbounded);
-// the limit exists only to keep the value a sane, serialisable integer.
-const MODIFIER_LIMIT = 9999;
-
-function clampInt(value, min, max, fallback = 0) {
-    const n = Math.round(Number(value));
-    if (!Number.isFinite(n)) return fallback;
-    return Math.max(min, Math.min(max, n));
-}
-
-/** Positive step for INC_/DEC_ events; defaults to 1 when absent or unusable. */
-function stepAmount(value) {
-    const n = Math.round(Number(value));
-    if (!Number.isFinite(n) || n <= 0) return 1;
-    return Math.min(STEP_LIMIT, n);
-}
-
-/**
- * Normalises a client-supplied monster into the shape MonsterInstance expects.
- * Applied on both add and update so the bounds cannot be bypassed.
- */
-function sanitizeMonster(raw) {
-    const m = raw && typeof raw === 'object' ? raw : {};
-    return {
-        id: typeof m.id === 'string' && m.id ? m.id : uuidv4(),
-        name: typeof m.name === 'string' ? m.name.trim().slice(0, 80) : 'Monstruo',
-        baseLevel: clampInt(m.baseLevel, 1, 20, 1),
-        flatModifier: clampInt(m.flatModifier, -10, 10, 0),
-        levels: clampInt(m.levels, 1, 5, 1),
-        treasures: clampInt(m.treasures, 0, 10, 1),
-        isUndead: m.isUndead === true,
-        conditionalModifiers: Array.isArray(m.conditionalModifiers)
-            ? m.conditionalModifiers.slice(0, 10)
-            : []
-    };
-}
-
 function applyEvent(game, event, playerId, ws) {
     const player = game.players.get(playerId);
     if (!player) return false;
@@ -1018,13 +974,9 @@ function applyEvent(game, event, playerId, ws) {
             player.gear = clampInt(event.gear, -GEAR_LIMIT, GEAR_LIMIT, player.gear);
             break;
         case 'SET_NAME': {
-            if (typeof event.name !== 'string') {
-                sendError(ws, 'INVALID_DATA', 'Nombre inválido');
-                return false;
-            }
-            const trimmed = event.name.trim().slice(0, MAX_NAME_LENGTH);
+            const trimmed = normalizeName(event.name);
             if (!trimmed) {
-                sendError(ws, 'INVALID_DATA', 'El nombre no puede estar vacío');
+                sendError(ws, 'INVALID_DATA', 'Nombre inválido');
                 return false;
             }
             player.name = trimmed;
@@ -1151,13 +1103,7 @@ function applyEvent(game, event, playerId, ws) {
                 sendError(ws, 'COMBAT_BONUS_LIMIT', `Máximo ${MAX_BONUSES_PER_COMBAT} bonificaciones por combate`);
                 return false;
             }
-            const raw = event.bonus && typeof event.bonus === 'object' ? event.bonus : {};
-            game.combat.tempBonuses.push({
-                id: typeof raw.id === 'string' && raw.id ? raw.id : uuidv4(),
-                label: typeof raw.label === 'string' ? raw.label.trim().slice(0, 40) : 'Bonus',
-                amount: clampInt(raw.amount, -MODIFIER_LIMIT, MODIFIER_LIMIT, 0),
-                appliesTo: raw.appliesTo === 'MONSTER' ? 'MONSTER' : 'HEROES'
-            });
+            game.combat.tempBonuses.push(sanitizeBonus(event.bonus));
             break;
         }
         case 'COMBAT_REMOVE_BONUS':
