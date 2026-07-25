@@ -25,6 +25,10 @@ function createHistoryManager({ db, logger, sendError }) {
                         id: game.id,
                         endedAt: game.ended_at || 0,
                         winnerId: game.winner_id,
+                        // Resolved server-side; null when the winner was a guest
+                        // (no account to name) or the game ended with no winner.
+                        winnerName: game.winner_name || null,
+                        didIWin: game.did_i_win === 1,
                         playerCount: game.player_count || 0
                     }))
                 }));
