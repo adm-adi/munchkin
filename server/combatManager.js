@@ -1,3 +1,21 @@
+/**
+ * Super Munchkin grants the abilities of two classes, Half-Breed of two races, so
+ * every ability check has to consider both slots. These mirror
+ * PlayerState.activeClasses / activeRaces on the client — the two implementations
+ * must agree or the server overrules an outcome the client already displayed.
+ */
+function playerHasClass(player, target) {
+    if (!player) return false;
+    if (player.characterClass === target) return true;
+    return player.hasSuperMunchkin === true && player.secondaryClass === target;
+}
+
+function playerHasRace(player, target) {
+    if (!player) return false;
+    if (player.characterRace === target) return true;
+    return player.hasHalfBreed === true && player.secondaryRace === target;
+}
+
 function createCombatManager({ games, clientGames, sendError, logger }) {
     function calculateCombatResult(game) {
         const combat = game.combat;
@@ -17,8 +35,8 @@ function createCombatManager({ games, clientGames, sendError, logger }) {
 
         const hasUndead = (combat.monsters || []).some(m => m.isUndead);
         if (hasUndead) {
-            if (mainPlayer.characterClass === 'CLERIC') heroesPower += 3;
-            if (helperPlayer && helperPlayer.characterClass === 'CLERIC') heroesPower += 3;
+            if (playerHasClass(mainPlayer, 'CLERIC')) heroesPower += 3;
+            if (helperPlayer && playerHasClass(helperPlayer, 'CLERIC')) heroesPower += 3;
         }
 
         let monstersPower = 0;
@@ -39,10 +57,11 @@ function createCombatManager({ games, clientGames, sendError, logger }) {
         // CombatCalculator already checks both the main player and the helper, so
         // only checking the main player here made the server overrule a tie the
         // client had shown as a win.
-        const isWarrior = mainPlayer.characterClass === 'WARRIOR'
-            || (helperPlayer && helperPlayer.characterClass === 'WARRIOR');
+        const isWarrior = playerHasClass(mainPlayer, 'WARRIOR')
+            || playerHasClass(helperPlayer, 'WARRIOR');
         const outcome = (heroesPower > monstersPower || (heroesPower === monstersPower && isWarrior)) ? 'WIN' : 'LOSE';
-        const helperLevelsGained = (outcome === 'WIN' && helperPlayer && helperPlayer.characterRace === 'ELF') ? 1 : 0;
+        const helperLevelsGained =
+            (outcome === 'WIN' && playerHasRace(helperPlayer, 'ELF')) ? 1 : 0;
 
         return { outcome, heroesPower, monstersPower, totalLevels, totalTreasures, helperLevelsGained };
     }
@@ -92,5 +111,7 @@ function createCombatManager({ games, clientGames, sendError, logger }) {
 }
 
 module.exports = {
-    createCombatManager
+    createCombatManager,
+    playerHasClass,
+    playerHasRace
 };

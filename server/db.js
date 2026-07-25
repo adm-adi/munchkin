@@ -601,6 +601,8 @@ function saveActiveGame(game) {
                 treasures: player.treasures || 0,
                 characterClass: player.characterClass,
                 characterRace: player.characterRace,
+                secondaryClass: player.secondaryClass || 'NONE',
+                secondaryRace: player.secondaryRace || 'HUMAN',
                 hasHalfBreed: player.hasHalfBreed,
                 hasSuperMunchkin: player.hasSuperMunchkin,
                 isConnected: player.isConnected !== false,

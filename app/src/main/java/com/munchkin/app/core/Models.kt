@@ -63,6 +63,15 @@ data class PlayerState(
     val gender: Gender = Gender.NA,
     val characterClass: CharacterClass = CharacterClass.NONE,
     val characterRace: CharacterRace = CharacterRace.HUMAN,
+    /**
+     * Second class, only meaningful with Super Munchkin. NONE means no second class.
+     */
+    val secondaryClass: CharacterClass = CharacterClass.NONE,
+    /**
+     * Second race, only meaningful with Half-Breed. HUMAN means no second race —
+     * in Munchkin a Human is precisely the absence of a Race card.
+     */
+    val secondaryRace: CharacterRace = CharacterRace.HUMAN,
     val level: Int = 1,
     val gearBonus: Int = 0,
     val tempCombatBonus: Int = 0,
@@ -84,17 +93,52 @@ data class PlayerState(
      * Maximum races allowed based on Half-Breed status
      */
     val maxRaces: Int get() = if (hasHalfBreed) 2 else 1
-    
+
     /**
      * Maximum classes allowed based on Super Munchkin status
      */
     val maxClasses: Int get() = if (hasSuperMunchkin) 2 else 1
-    
+
+    /**
+     * Every class whose abilities currently apply.
+     *
+     * Super Munchkin lets a player hold two Class cards and use the abilities of
+     * both, so ability checks must go through this rather than testing
+     * [characterClass] alone.
+     */
+    val activeClasses: List<CharacterClass>
+        get() = buildList {
+            if (characterClass != CharacterClass.NONE) add(characterClass)
+            if (hasSuperMunchkin && secondaryClass != CharacterClass.NONE &&
+                secondaryClass != characterClass
+            ) {
+                add(secondaryClass)
+            }
+        }
+
+    /**
+     * Every race whose abilities currently apply. Half-Breed is the race equivalent
+     * of Super Munchkin. HUMAN is omitted because it grants nothing.
+     */
+    val activeRaces: List<CharacterRace>
+        get() = buildList {
+            if (characterRace != CharacterRace.HUMAN) add(characterRace)
+            if (hasHalfBreed && secondaryRace != CharacterRace.HUMAN &&
+                secondaryRace != characterRace
+            ) {
+                add(secondaryRace)
+            }
+        }
+
+    fun hasClass(target: CharacterClass): Boolean = activeClasses.contains(target)
+
+    fun hasRace(target: CharacterRace): Boolean = activeRaces.contains(target)
+
     /**
      * Check if player can add another race
      */
     val canAddRace: Boolean get() = raceIds.size < maxRaces
-    
+
     /**
      * Check if player can add another class
      */

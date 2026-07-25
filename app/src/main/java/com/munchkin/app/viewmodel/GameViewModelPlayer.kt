@@ -193,26 +193,36 @@ fun GameViewModel.toggleGender() {
     }
 }
 
-fun GameViewModel.setCharacterClass(newClass: CharacterClass) {
+fun GameViewModel.setCharacterClass(
+    newClass: CharacterClass,
+    /** Targets the Super Munchkin second slot instead of the primary one. */
+    isSecondary: Boolean = false
+) {
     sendPlayerEvent { playerId ->
         SetClass(
             eventId = UUID.randomUUID().toString(),
             actorId = playerId,
             timestamp = System.currentTimeMillis(),
             targetPlayerId = playerId,
-            newClass = newClass
+            newClass = newClass,
+            isSecondary = isSecondary
         )
     }
 }
 
-fun GameViewModel.setCharacterRace(newRace: CharacterRace) {
+fun GameViewModel.setCharacterRace(
+    newRace: CharacterRace,
+    /** Targets the Half-Breed second slot instead of the primary one. */
+    isSecondary: Boolean = false
+) {
     sendPlayerEvent { playerId ->
         SetRace(
             eventId = UUID.randomUUID().toString(),
             actorId = playerId,
             timestamp = System.currentTimeMillis(),
             targetPlayerId = playerId,
-            newRace = newRace
+            newRace = newRace,
+            isSecondary = isSecondary
         )
     }
 }

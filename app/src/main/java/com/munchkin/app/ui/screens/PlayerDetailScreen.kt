@@ -33,6 +33,10 @@ fun PlayerDetailScreen(
     onModifyGear: (Int) -> Unit,
     onSetClass: (CharacterClass) -> Unit = {},
     onSetRace: (CharacterRace) -> Unit = {},
+    onSetSecondaryClass: (CharacterClass) -> Unit = {},
+    onSetSecondaryRace: (CharacterRace) -> Unit = {},
+    onSetSuperMunchkin: (Boolean) -> Unit = {},
+    onSetHalfBreed: (Boolean) -> Unit = {},
     onBack: () -> Unit,
     isReadOnly: Boolean = false,
     maxLevel: Int = 10,
@@ -130,9 +134,39 @@ fun PlayerDetailScreen(
                     onOptionSelected = onSetClass,
                     labelMapper = { it.name }
                 )
-                
+
+                // Super Munchkin grants the abilities of two classes. There was no way
+                // to turn it on from the UI at all, which is why the flag looked inert.
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Súper Munchkin (dos clases)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = player.hasSuperMunchkin,
+                        onCheckedChange = onSetSuperMunchkin
+                    )
+                }
+
+                if (player.hasSuperMunchkin) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = "Segunda clase", style = MaterialTheme.typography.labelLarge)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    AppDropdown(
+                        options = CharacterClass.values().toList(),
+                        selectedOption = player.secondaryClass,
+                        onOptionSelected = onSetSecondaryClass,
+                        labelMapper = { it.name }
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(24.dp))
-                
+
                 // Race Selector
                 Text(text = "Raza", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
@@ -142,7 +176,42 @@ fun PlayerDetailScreen(
                     onOptionSelected = onSetRace,
                     labelMapper = { it.name }
                 )
-                
+
+                // Half-Breed is the race equivalent of Super Munchkin.
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Mestizo (dos razas)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = player.hasHalfBreed,
+                        onCheckedChange = onSetHalfBreed
+                    )
+                }
+
+                if (player.hasHalfBreed) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = "Segunda raza", style = MaterialTheme.typography.labelLarge)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    AppDropdown(
+                        options = CharacterRace.values().toList(),
+                        selectedOption = player.secondaryRace,
+                        onOptionSelected = onSetSecondaryRace,
+                        labelMapper = { it.name }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Same reminders as in combat: which abilities the app applies and
+                // which the player has to resolve at the table.
+                AbilityReminders(listOf(player))
+
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }

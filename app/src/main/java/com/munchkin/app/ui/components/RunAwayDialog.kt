@@ -16,7 +16,14 @@ import androidx.compose.ui.window.Dialog
 @Composable
 fun RunAwayDialog(
     onDismiss: () -> Unit,
-    onResult: (result: Int, success: Boolean) -> Unit
+    onResult: (result: Int, success: Boolean) -> Unit,
+    /**
+     * Automatic bonus to the roll from the player's race (an Elf gets +1). The
+     * player still decides the outcome at the table, so this is shown rather than
+     * enforced.
+     */
+    runAwayBonus: Int = 0,
+    runAwayBonusLabel: String? = null
 ) {
     var step by remember { mutableStateOf(RunAwayStep.ROLL) }
     var rollResult by remember { mutableIntStateOf(0) }
@@ -68,12 +75,23 @@ fun RunAwayDialog(
                 } else {
                     // Verification Step
                     Text(
-                        text = "Resultado: $rollResult",
+                        text = if (runAwayBonus > 0) "Resultado: ${rollResult + runAwayBonus}"
+                               else "Resultado: $rollResult",
                         color = MaterialTheme.colorScheme.primary,
                         fontSize = 48.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    
+
+                    if (runAwayBonus > 0) {
+                        Text(
+                            text = "$rollResult en el dado +$runAwayBonus" +
+                                (runAwayBonusLabel?.let { " ($it)" } ?: ""),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     Card(

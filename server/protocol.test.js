@@ -616,6 +616,59 @@ test('an invalid gender is refused instead of reaching the snapshot', async () =
     await host.close();
 });
 
+test('a second class requires Super Munchkin, and is dropped when it is removed', async () => {
+    const { client: host, welcome } = await createGame(server.url, 'SlotHost');
+    const me = welcome.yourPlayerId;
+
+    const ev = (type, extra) => ({
+        type: 'EVENT_REQUEST',
+        event: {
+            type, eventId: `s-${type}-${Math.abs(JSON.stringify(extra).length)}`,
+            actorId: me, targetPlayerId: me, timestamp: 1, ...extra
+        }
+    });
+
+    // Without the card there is no second slot to fill.
+    const refused = await host.request(
+        ev('SET_CLASS', { newClass: 'CLERIC', isSecondary: true }),
+        ['ERROR', 'STATE_SNAPSHOT', 'EVENT_BROADCAST']
+    );
+    assert.strictEqual(refused.type, 'ERROR', 'a second class without the card must be refused');
+    assert.strictEqual(refused.code, 'INVALID_DATA');
+
+    // Turn Super Munchkin on, then the second class sticks.
+    await host.settle();
+    host.send(ev('SET_SUPER_MUNCHKIN', { enabled: true }));
+    await host.waitFor(['STATE_SNAPSHOT', 'EVENT_BROADCAST']);
+    await host.settle();
+    host.send(ev('SET_CLASS', { newClass: 'CLERIC', isSecondary: true }));
+    await host.waitFor(['STATE_SNAPSHOT', 'EVENT_BROADCAST']);
+
+    // Force an authoritative snapshot to read the stored state back.
+    let snap = await host.request(
+        ev('COMBAT_START', { mainPlayerId: me }),
+        ['STATE_SNAPSHOT']
+    );
+    assert.strictEqual(snap.gameState.players[me].secondaryClass, 'CLERIC');
+    assert.strictEqual(snap.gameState.players[me].hasSuperMunchkin, true);
+
+    // Losing the card must clear the slot rather than leave it to apply again later.
+    await host.settle();
+    host.send(ev('SET_SUPER_MUNCHKIN', { enabled: false }));
+    await host.waitFor(['STATE_SNAPSHOT', 'EVENT_BROADCAST']);
+    await host.settle();
+    snap = await host.request(
+        ev('COMBAT_ADD_MONSTER', { monster: { id: 'slot-m', baseLevel: 1 } }),
+        ['STATE_SNAPSHOT']
+    );
+    assert.strictEqual(
+        snap.gameState.players[me].secondaryClass, 'NONE',
+        'the second class must go with the card'
+    );
+
+    await host.close();
+});
+
 test('an invalid character class is refused', async () => {
     const { client: host, welcome } = await createGame(server.url, 'ClassHost');
     const me = welcome.yourPlayerId;

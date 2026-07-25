@@ -457,11 +457,23 @@ fun CombatScreen(
                     }
                 }
                 
+                // Reminders of what the participants' classes and races do. Most
+                // Munchkin abilities depend on discarding cards or on inventory,
+                // neither of which this app models, so it cannot apply them — but it
+                // can at least stop the player having to remember them.
+                item {
+                    val participants = listOfNotNull(
+                        gameState.players[combatState.mainPlayerId],
+                        combatState.helperPlayerId?.let { gameState.players[it] }
+                    )
+                    AbilityReminders(participants)
+                }
+
                 item { Spacer(modifier = Modifier.height(16.dp)) }
             }
         }
     }
-    
+
     // Add monster dialog
     if (showAddMonster) {
         MonsterSearchDialog(
@@ -535,12 +547,15 @@ fun CombatScreen(
     }
 
     if (showRunAwayDialog) {
+        val runner = gameState.players[myPlayerId]
         RunAwayDialog(
             onDismiss = { showRunAwayDialog = false },
             onResult = { result, success ->
                 showRunAwayDialog = false
                 onRollCombatDice(DiceRollPurpose.RUN_AWAY, result, success)
-            }
+            },
+            runAwayBonus = runner?.let { Abilities.runAwayBonus(it) } ?: 0,
+            runAwayBonusLabel = "Elfo"
         )
     }
     } // close outer Box
@@ -724,4 +739,109 @@ private fun CharacterRace.displayName(): String = when(this) {
     CharacterRace.ELF -> stringResource(R.string.race_elf)
     CharacterRace.DWARF -> stringResource(R.string.race_dwarf)
     CharacterRace.HALFLING -> stringResource(R.string.race_halfling)
+}
+
+/**
+ * Lists the class and race abilities in play for the combat participants.
+ *
+ * Each entry is marked as either applied by the app or left to the player. Most
+ * Munchkin abilities are resolved by discarding cards or from inventory, and this
+ * app tracks neither, so pretending it handles everything would be worse than
+ * saying plainly which is which.
+ */
+@Composable
+fun AbilityReminders(participants: List<PlayerState>) {
+    val entries = participants.flatMap { player ->
+        Abilities.forPlayer(player).map { player to it }
+    }
+    if (entries.isEmpty()) return
+
+    var expanded by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clickable { expanded = !expanded },
+        colors = CardDefaults.cardColors(containerColor = GlassBase),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = NeonSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.abilities_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NeonGray100,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(
+                    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = NeonGray400
+                )
+            }
+
+            if (!expanded) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.abilities_collapsed_hint, entries.size),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NeonGray500
+                )
+                return@Column
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Grouped by player so a helper's abilities are not mistaken for yours.
+            participants.forEach { player ->
+                val playerAbilities = Abilities.forPlayer(player)
+                if (playerAbilities.isEmpty()) return@forEach
+
+                Text(
+                    text = player.name,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = NeonSecondary,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+
+                playerAbilities.forEach { ability ->
+                    val isAuto = ability.kind == AbilityKind.AUTOMATIC
+                    Row(modifier = Modifier.padding(vertical = 3.dp)) {
+                        Text(
+                            text = if (isAuto) "✓" else "•",
+                            color = if (isAuto) NeonSuccess else NeonWarning,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.width(18.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "${ability.source}: ${ability.description}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NeonGray300
+                            )
+                            Text(
+                                text = stringResource(
+                                    if (isAuto) R.string.ability_automatic
+                                    else R.string.ability_manual
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isAuto) NeonSuccess else NeonWarning
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+    }
 }
