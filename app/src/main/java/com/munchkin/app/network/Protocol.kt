@@ -355,7 +355,9 @@ object GetLeaderboardRequest : WsMessage()
 @Serializable
 @SerialName("LEADERBOARD_RESULT")
 data class LeaderboardResult(
-    val leaderboard: List<LeaderboardEntry>
+    val leaderboard: List<LeaderboardEntry>,
+    /** Present only when the request was made with a signed-in session. */
+    val me: LeaderboardSelf? = null
 ) : WsMessage()
 
 @Serializable
@@ -363,8 +365,29 @@ data class LeaderboardEntry(
     val id: String,
     val username: String,
     val avatarId: Int,
-    val wins: Int
-)
+    val wins: Int,
+    // Defaulted so an older server that does not send it still decodes.
+    val gamesPlayed: Int = 0
+) {
+    /** Win percentage, 0 when nothing has been played yet. */
+    val winRate: Int
+        get() = if (gamesPlayed <= 0) 0 else (wins * 100) / gamesPlayed
+}
+
+/**
+ * The signed-in player's own totals, so they can see their standing even when they
+ * are not in the returned page of the ranking.
+ */
+@Serializable
+data class LeaderboardSelf(
+    val wins: Int,
+    val gamesPlayed: Int,
+    /** 1-based position within the returned page, or 0 if outside it. */
+    val rank: Int = 0
+) {
+    val winRate: Int
+        get() = if (gamesPlayed <= 0) 0 else (wins * 100) / gamesPlayed
+}
 
 // ============== Combat Dice Roll Result ==============
 

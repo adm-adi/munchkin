@@ -150,6 +150,153 @@ test('LEADERBOARD_RESULT uses camelCase avatarId', async () => {
     await c.close();
 });
 
+// ─────────────────── ranking end to end ───────────────────
+
+/**
+ * Plays a game to a confirmed finish between two registered accounts and checks
+ * the ranking reflects it. This is the path the whole feature depends on: the
+ * account must be attached to the seat at join time, GAME_OVER must record both
+ * the game and every participant, and the query must then count one win for the
+ * winner and one game played for both.
+ */
+test('a finished game credits the winner and counts a game for both players', async () => {
+    // Authenticate first: createPlayerState() copies ws.userId onto the seat, so a
+    // game created on an anonymous socket is never linked to an account.
+    const winner = await registerUser(server.url, 'rank_winner');
+    assert.strictEqual(winner.reply.type, 'AUTH_SUCCESS', JSON.stringify(winner.reply));
+    const winnerUserId = winner.reply.user.id;
+
+    const loser = await registerUser(server.url, 'rank_loser');
+    assert.strictEqual(loser.reply.type, 'AUTH_SUCCESS');
+    const loserUserId = loser.reply.user.id;
+
+    // Host the game on the winner's authenticated socket.
+    const hostWelcome = await winner.client.request({
+        type: 'CreateGameMessage',
+        playerMeta: { name: 'RankWinner', avatarId: 2, gender: 'M' }
+    }, ['WELCOME', 'ERROR']);
+    assert.strictEqual(hostWelcome.type, 'WELCOME', JSON.stringify(hostWelcome));
+    const gameId = hostWelcome.gameState.gameId;
+    const code = hostWelcome.gameState.joinCode;
+    const hostPlayerId = hostWelcome.yourPlayerId;
+
+    // Join on the loser's authenticated socket.
+    const guestWelcome = await loser.client.request({
+        type: 'HELLO',
+        joinCode: code,
+        playerMeta: { name: 'RankLoser', avatarId: 5, gender: 'F' }
+    }, ['WELCOME', 'ERROR']);
+    assert.strictEqual(guestWelcome.type, 'WELCOME', JSON.stringify(guestWelcome));
+
+    await winner.client.settle();
+
+    // Start, then have the host confirm the win.
+    winner.client.send({
+        type: 'EVENT_REQUEST',
+        event: {
+            type: 'GAME_START', eventId: 'r-start',
+            actorId: hostPlayerId, timestamp: Date.now()
+        }
+    });
+    await winner.client.waitFor(['STATE_SNAPSHOT']);
+
+    winner.client.send({ type: 'GAME_OVER', gameId, winnerId: hostPlayerId });
+    const finished = await winner.client.waitFor(['STATE_SNAPSHOT']);
+    assert.strictEqual(finished.gameState.phase, 'FINISHED');
+
+    // Recording happens asynchronously after the snapshot goes out.
+    await new Promise(r => setTimeout(r, 500));
+
+    const board = await winner.client.request({ type: 'GET_LEADERBOARD' }, ['LEADERBOARD_RESULT', 'ERROR']);
+    assert.strictEqual(board.type, 'LEADERBOARD_RESULT', JSON.stringify(board));
+
+    const winnerRow = board.leaderboard.find(e => e.id === winnerUserId);
+    const loserRow = board.leaderboard.find(e => e.id === loserUserId);
+
+    assert.ok(winnerRow, 'the winner must appear in the ranking');
+    assert.strictEqual(winnerRow.wins, 1, 'the winner has one win');
+    assert.strictEqual(winnerRow.gamesPlayed, 1, 'the winner has played one game');
+    assert.strictEqual(winnerRow.avatarId, 0, 'avatarId comes from the account, not the seat');
+
+    // The whole point of joining through participants: a player who lost still
+    // appears, with zero wins. The old winner_id join hid them entirely.
+    assert.ok(loserRow, 'a player who has not won must still appear');
+    assert.strictEqual(loserRow.wins, 0, 'the loser has no wins');
+    assert.strictEqual(loserRow.gamesPlayed, 1, 'the loser has played one game');
+
+    // Ordering: more wins first.
+    const winnerIdx = board.leaderboard.findIndex(e => e.id === winnerUserId);
+    const loserIdx = board.leaderboard.findIndex(e => e.id === loserUserId);
+    assert.ok(winnerIdx < loserIdx, 'the winner must rank above the player with no wins');
+
+    // The authenticated caller gets their own totals back.
+    assert.ok(board.me, 'a signed-in caller receives their own stats');
+    assert.strictEqual(board.me.wins, 1);
+    assert.strictEqual(board.me.gamesPlayed, 1);
+    assert.ok(board.me.rank > 0, 'the caller is inside the returned page');
+
+    await winner.client.close();
+    await loser.client.close();
+});
+
+test('an anonymous caller gets the ranking but no personal stats', async () => {
+    const c = await TestClient.connect(server.url);
+    const board = await c.request({ type: 'GET_LEADERBOARD' }, ['LEADERBOARD_RESULT', 'ERROR']);
+    assert.strictEqual(board.type, 'LEADERBOARD_RESULT');
+    assert.ok(Array.isArray(board.leaderboard), 'the ranking is readable without an account');
+    assert.strictEqual(board.me ?? null, null, 'no personal stats without a session');
+    await c.close();
+});
+
+test('guests never appear in the ranking', async () => {
+    // A guest seat has userId null, so its participant row carries a NULL user_id
+    // and cannot join against users. Only accounts are ranked.
+    const host = await registerUser(server.url, 'rank_host2');
+    const hostUserId = host.reply.user.id;
+
+    const welcome = await host.client.request({
+        type: 'CreateGameMessage',
+        playerMeta: { name: 'AccountHost', avatarId: 0, gender: 'M' }
+    }, ['WELCOME', 'ERROR']);
+    const gameId = welcome.gameState.gameId;
+    const hostPlayerId = welcome.yourPlayerId;
+
+    // Unauthenticated guest.
+    const { client: guest } = await joinGame(server.url, welcome.gameState.joinCode, 'PureGuest');
+    await host.client.settle();
+
+    host.client.send({
+        type: 'EVENT_REQUEST',
+        event: { type: 'GAME_START', eventId: 'g-start', actorId: hostPlayerId, timestamp: Date.now() }
+    });
+    await host.client.waitFor(['STATE_SNAPSHOT']);
+
+    // The guest wins, but has no account to credit.
+    const guestPlayerId = Object.keys(welcome.gameState.players)
+        .concat(Object.keys((await host.client.request(
+            { type: 'EVENT_REQUEST', event: { type: 'COMBAT_START', eventId: 'g-c', actorId: hostPlayerId, timestamp: Date.now(), mainPlayerId: hostPlayerId } },
+            ['STATE_SNAPSHOT']
+        )).gameState.players))
+        .find(id => id !== hostPlayerId);
+
+    host.client.send({ type: 'GAME_OVER', gameId, winnerId: guestPlayerId });
+    await host.client.waitFor(['STATE_SNAPSHOT']);
+    await new Promise(r => setTimeout(r, 500));
+
+    const board = await host.client.request({ type: 'GET_LEADERBOARD' }, ['LEADERBOARD_RESULT']);
+    // The host played, so appears with no win. The guest appears nowhere.
+    const hostRow = board.leaderboard.find(e => e.id === hostUserId);
+    assert.ok(hostRow, 'the account that played must appear');
+    assert.strictEqual(hostRow.wins, 0, 'the win went to a guest, so it credits nobody');
+    assert.ok(
+        board.leaderboard.every(e => e.username !== 'PureGuest'),
+        'a guest must never appear in the ranking'
+    );
+
+    await guest.close();
+    await host.client.close();
+});
+
 // ─────────────────── game listing ───────────────────
 
 test('LIST_GAMES advertises a lobby but hides a started game', async () => {
@@ -577,6 +724,55 @@ test('a non-turn player cannot end the turn', async () => {
 });
 
 // ─────────────────── misc ───────────────────
+
+test('successful joins do not consume the join rate-limit budget', async () => {
+    // The limit is there to stop join-code guessing. It used to charge every
+    // attempt, including successful joins and reconnects, so several players behind
+    // one NAT — or one client retrying a dropped connection up to 15 times — could
+    // lock the whole address out of a game they were legitimately playing.
+    const { client: host, welcome } = await createGame(server.url, 'BudgetHost');
+    const code = welcome.gameState.joinCode;
+
+    const joined = [];
+    // Well past the 10-attempt budget.
+    for (let i = 0; i < 14; i++) {
+        const { client, welcome: reply } = await joinGame(server.url, code, `P${i}`);
+        joined.push(client);
+        if (reply.type === 'ERROR' && reply.code === 'RATE_LIMITED') {
+            // Close what we opened before failing.
+            await Promise.all(joined.map(c => c.close()));
+            await host.close();
+            assert.fail(`a legitimate join was rate limited on attempt ${i + 1}`);
+        }
+        // The room only seats MAX_PLAYERS, so most of these are refused with
+        // GAME_FULL — which is fine. GAME_FULL is not a guessing signal either.
+        assert.ok(
+            reply.type === 'WELCOME' || reply.code === 'GAME_FULL',
+            `unexpected reply on attempt ${i + 1}: ${JSON.stringify(reply)}`
+        );
+    }
+
+    await Promise.all(joined.map(c => c.close()));
+    await host.close();
+});
+
+test('repeated bad join codes are rate limited', async () => {
+    // The other half of the contract: guessing must still be throttled. Uses its
+    // own server so the failures do not leak into the shared instance's budget.
+    const isolated = await startServer();
+    try {
+        let limited = false;
+        for (let i = 0; i < 15; i++) {
+            const { client, welcome } = await joinGame(isolated.url, 'BADCODE1', 'Guesser');
+            await client.close();
+            if (welcome.code === 'RATE_LIMITED') { limited = true; break; }
+            assert.strictEqual(welcome.code, 'INVALID_JOIN_CODE');
+        }
+        assert.ok(limited, 'guessing join codes must eventually be rate limited');
+    } finally {
+        await isolated.stop();
+    }
+});
 
 test('PING is answered with PONG', async () => {
     const c = await TestClient.connect(server.url);

@@ -104,12 +104,25 @@ fun GameViewModel.loadLeaderboard() {
     _uiState.update { it.copy(isLoading = true) }
 
     viewModelScope.launch {
-        GameClient().getLeaderboard(GameViewModel.SERVER_URL)
-            .onSuccess { leaderboard ->
-                _uiState.update { it.copy(leaderboard = leaderboard, isLoading = false) }
+        // Sending the token when we have one lets the server return this player's
+        // own totals alongside the ranking. Reading the ranking itself needs no
+        // account, so an anonymous viewer still gets the list.
+        val token = sessionManager?.getAuthToken()
+
+        GameClient().getLeaderboard(GameViewModel.SERVER_URL, token)
+            .onSuccess { result ->
+                _uiState.update {
+                    it.copy(
+                        leaderboard = result.leaderboard,
+                        leaderboardSelf = result.me,
+                        isLoading = false
+                    )
+                }
             }
             .onFailure { e ->
-                _uiState.update { it.copy(isLoading = false, error = e.message) }
+                _uiState.update {
+                    it.copy(isLoading = false, error = getFriendlyErrorMessage(e))
+                }
             }
     }
 }
