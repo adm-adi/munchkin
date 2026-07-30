@@ -95,4 +95,31 @@ class TieRuleTest {
             GameSettings(allowLevelTenOverride = true).requiresCombatToWin
         )
     }
+
+    @Test
+    fun `only a kill qualifies a player as the winner`() {
+        val settings = GameSettings()
+        val atMax = player(level = settings.maxLevel)
+
+        assertTrue(atMax.copy(reachedMaxLevelViaCombat = true).canBeConfirmedWinner(settings))
+        assertFalse(
+            "tapping up to the winning level must not qualify",
+            atMax.copy(reachedMaxLevelViaCombat = false).canBeConfirmedWinner(settings)
+        )
+        assertFalse(
+            "below the winning level nobody qualifies",
+            player(level = settings.maxLevel - 1)
+                .copy(reachedMaxLevelViaCombat = true)
+                .canBeConfirmedWinner(settings)
+        )
+    }
+
+    @Test
+    fun `a server that does not report the field cannot lock the game`() {
+        // An updated app against a not-yet-updated server sees null here. Treating
+        // that as "killed nothing" would mean no game could ever be won.
+        val settings = GameSettings()
+        val legacy = player(level = settings.maxLevel).copy(reachedMaxLevelViaCombat = null)
+        assertTrue(legacy.canBeConfirmedWinner(settings))
+    }
 }
