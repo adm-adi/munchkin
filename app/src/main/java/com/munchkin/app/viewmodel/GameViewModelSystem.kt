@@ -42,14 +42,20 @@ fun GameViewModel.forceCheckUpdate() {
             when (val result = updateChecker?.checkForUpdate()) {
                 is UpdateResult.UpdateAvailable -> {
                     _updateInfo.value = result.info
-                    _events.emit(GameUiEvent.ShowMessage("Nueva versión ${result.info.version} disponible"))
+                    _events.emit(GameUiEvent.ShowMessage(
+                        MunchkinApp.context.getString(R.string.update_available_version, result.info.version)
+                    ))
                 }
                 is UpdateResult.NoUpdate -> {
                     _updateInfo.value = null
-                    _events.emit(GameUiEvent.ShowMessage("Ya tienes la última versión"))
+                    _events.emit(GameUiEvent.ShowMessage(
+                        MunchkinApp.context.getString(R.string.update_already_latest)
+                    ))
                 }
                 is UpdateResult.Error -> {
-                    _events.emit(GameUiEvent.ShowMessage("Error: ${result.message}"))
+                    _events.emit(GameUiEvent.ShowMessage(
+                        MunchkinApp.context.getString(R.string.error_server_generic, result.message)
+                    ))
                 }
                 null -> {}
             }
@@ -201,7 +207,9 @@ fun GameViewModel.deleteHostedGame(gameId: String) {
 
             if (result.isSuccess) {
                 _hostedGames.update { list -> list.filter { it.gameId != gameId } }
-                _events.emit(GameUiEvent.ShowSuccess("Partida eliminada"))
+                _events.emit(GameUiEvent.ShowSuccess(
+                    MunchkinApp.context.getString(R.string.game_deleted_ok)
+                ))
             } else {
                 _uiState.update { it.copy(error = result.exceptionOrNull()?.message) }
             }
