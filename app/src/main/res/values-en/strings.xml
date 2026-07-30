@@ -12,8 +12,8 @@
     <string name="gender">Gender</string>
     <string name="game_mode">Game Mode</string>
     <string name="game_mode_normal">Normal (Lvl. 10)</string>
-    <string name="game_mode_super">Super Munchkin (Lvl. 20)</string>
-    <string name="game_mode_super_desc">Players must reach level 20 to win!</string>
+    <string name="game_mode_super">Epic (Lvl. 20)</string>
+    <string name="game_mode_super_desc">Players must reach level 20 to win. Unrelated to the Super Munchkin card.</string>
     <string name="mode_badge_normal">🏆 Level 10</string>
     <string name="mode_badge_super">⚡ Super Munchkin — Level 20</string>
     <string name="gender_male">Male</string>
@@ -281,8 +281,8 @@
     <string name="ability_elf_run_away">+1 to your run-away roll.</string>
     <string name="ability_dwarf_big_items">You may carry any number of Big items.</string>
     <string name="ability_dwarf_hand_size">You may hold 6 cards in your hand.</string>
-    <string name="ability_halfling_sell">You may sell one item for double its value.</string>
-    <string name="ability_halfling_hand_size">You may hold 6 cards in your hand.</string>
+    <string name="ability_halfling_sell">Once per turn you may sell one item for double price; every other item keeps its normal price.</string>
+    <string name="ability_halfling_run_away">-1 to the Run Away roll.</string>
 
     <!-- Combat, class and race names -->
     <string name="combat_is_undead">Undead</string>
@@ -313,4 +313,62 @@
     <string name="race_halfling">Halfling</string>
     <string name="race_gnome">Gnome</string>
     <string name="race_orc">Orc</string>
+
+    <!-- Server-rejection feedback (surfaced as a snackbar in MainActivity) -->
+    <string name="error_server_generic">Server error: %1$s</string>
+    <string name="error_not_found">This game no longer exists.</string>
+    <string name="error_player_not_found">Player not found.</string>
+    <string name="error_unauthorized_join">You are not allowed to join this game.</string>
+    <string name="error_invalid_data">Invalid data.</string>
+    <string name="error_rate_limited">Too many attempts. Wait a few seconds.</string>
+    <string name="error_forbidden">Action not allowed.</string>
+    <string name="error_email_exists">That email is already registered.</string>
+    <string name="error_username_exists">That username is already taken.</string>
+    <string name="error_profile_update">Could not save your profile. Please try again.</string>
+    <string name="error_auth_failed">Incorrect email or password.</string>
+    <string name="error_combat_active">A combat is already in progress.</string>
+    <string name="error_no_combat">There is no combat in progress.</string>
+    <string name="error_monster_limit">Monster limit for this combat reached.</string>
+    <string name="error_bonus_limit">Bonus limit reached.</string>
+    <string name="error_invalid_helper">Invalid helper selection.</string>
+    <string name="error_timeout">Could not connect. Check your internet connection and try again.</string>
+    <string name="error_server_unavailable">The server is unavailable. Try again later.</string>
+    <string name="error_host_unresolved">Server not found. Check your connection.</string>
+    <string name="error_connection_lost_retry">Connection lost. Please try again.</string>
+    <string name="error_connection_retry">Connection error. Please try again.</string>
+    <string name="error_save_monster">Could not save the monster.</string>
+    <string name="welcome_user">Welcome, %1$s!</string>
+    <string name="welcome_back_user">Welcome back, %1$s!</string>
+    <string name="monster_created">Monster created: %1$s</string>
+    <string name="update_available_version">Version %1$s is available</string>
+    <string name="update_already_latest">You already have the latest version</string>
+    <string name="game_deleted_by_host">The host deleted this game</string>
+    <string name="game_deleted_ok">Game deleted</string>
+
+    <!-- Game log drawer -->
+    <string name="log_level_up">%1$s reached Level %2$d</string>
+    <string name="log_level_down">%1$s dropped to Level %2$d</string>
+    <string name="log_combat_ended">Combat ended</string>
+
+    <!-- Class / race picker labels -->
+    <string name="label_class">Class</string>
+    <string name="label_race">Race</string>
+    <string name="label_secondary_class">Second class</string>
+    <string name="label_secondary_race">Second race</string>
+    <string name="super_munchkin_two_classes">Super Munchkin (two classes)</string>
+    <string name="half_breed_two_races">Half-Breed (two races)</string>
+
+    <!-- Run away dialog -->
+    <string name="run_away_result">Result: %1$d</string>
+    <string name="run_away_breakdown">%1$d on the die, %2$s</string>
+
+    <!-- Bad Stuff prompt (losing a fight / failing to escape) -->
+    <string name="bad_stuff_title">Bad Stuff happens</string>
+    <string name="bad_stuff_intro">Apply what these cards say at the table. The app cannot know what they do.</string>
+    <string name="bad_stuff_unknown">Check the Bad Stuff on the card.</string>
+    <string name="bad_stuff_done">Got it</string>
+    <!-- Run away threshold -->
+    <string name="run_away_threshold_hint">You escape on %1$d or higher.</string>
+    <string name="run_away_suggestion_escaped">%1$d means you escape.</string>
+    <string name="run_away_suggestion_caught">%1$d means you are caught.</string>
 </resources>

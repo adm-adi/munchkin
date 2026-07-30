@@ -31,6 +31,7 @@ import com.munchkin.app.ui.components.GradientButton
 import com.munchkin.app.ui.components.PlayerAvatar
 import com.munchkin.app.ui.components.QuickModifierButtons
 import com.munchkin.app.ui.components.RunAwayDialog
+import com.munchkin.app.ui.components.labelRes
 import com.munchkin.app.ui.theme.*
 
 /**
@@ -43,7 +44,7 @@ fun CombatScreen(
     myPlayerId: PlayerId,
     monsterSearchResults: List<CatalogMonster>,
     onStartCombat: () -> Unit,
-    onAddMonster: (name: String, level: Int, modifier: Int, isUndead: Boolean) -> Unit,
+    onAddMonster: (name: String, level: Int, modifier: Int, isUndead: Boolean, badStuff: String) -> Unit,
     onSearchMonsters: (String) -> Unit,
     onRequestCreateGlobalMonster: (String, Int, Int, Boolean) -> Unit,
     onAddHelper: (PlayerId) -> Unit,
@@ -65,6 +66,26 @@ fun CombatScreen(
     // Animation State
     var combatAnimation by remember { mutableStateOf<com.munchkin.app.ui.components.CombatAnimationType?>(null) }
     var showRunAwayDialog by remember { mutableStateOf(false) }
+
+    /**
+     * The authoritative action a finished animation is standing in for.
+     *
+     * Resolving a combat only reached the server from the overlay's
+     * onAnimationFinished callback, roughly three seconds after the tap. Anything
+     * that took this screen out of composition in that window — a back press, the
+     * host ending the turn, the app being backgrounded — dropped it silently: the
+     * player had accepted a victory and got no levels, no treasure, and a combat
+     * that was still open. Holding it here lets the disposal path flush it.
+     */
+    val pendingResolution = remember { mutableStateOf<(() -> Unit)?>(null) }
+    val flushPendingResolution = {
+        val action = pendingResolution.value
+        pendingResolution.value = null
+        action?.invoke()
+    }
+    DisposableEffect(Unit) {
+        onDispose { flushPendingResolution() }
+    }
     
     // Dice Result Overlay State
     var showDiceResult by remember { mutableStateOf<DiceRollInfo?>(null) }
@@ -88,6 +109,11 @@ fun CombatScreen(
                 // Show run-away animation to both main player and helper
                 val isParticipant = myPlayerId == combatState.mainPlayerId || myPlayerId == combatState.helperPlayerId
                 if (roll.purpose == DiceRollPurpose.RUN_AWAY && isParticipant) {
+                    // Only the main player resolves the escape server-side; the
+                    // helper just watches the animation.
+                    if (myPlayerId == combatState.mainPlayerId) {
+                        pendingResolution.value = { onResolveRunAway(roll.success) }
+                    }
                     combatAnimation = if (roll.success)
                         com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_SUCCESS
                     else
@@ -432,10 +458,11 @@ fun CombatScreen(
                         result?.let { r ->
                             Button(
                                 onClick = {
-                                    if (r.outcome == CombatOutcome.WIN) {
-                                        combatAnimation = com.munchkin.app.ui.components.CombatAnimationType.VICTORY
+                                    pendingResolution.value = onEndCombat
+                                    combatAnimation = if (r.outcome == CombatOutcome.WIN) {
+                                        com.munchkin.app.ui.components.CombatAnimationType.VICTORY
                                     } else {
-                                        combatAnimation = com.munchkin.app.ui.components.CombatAnimationType.DEFEAT
+                                        com.munchkin.app.ui.components.CombatAnimationType.DEFEAT
                                     }
                                 },
                                 enabled = combatState.monsters.isNotEmpty(),
@@ -482,7 +509,9 @@ fun CombatScreen(
             onDismiss = { showAddMonster = false },
             onSelectMonster = { monster ->
                 // Add local AND ensure it's in catalog (implicit by selection)
-                onAddMonster(monster.name, monster.level, monster.modifier, monster.isUndead)
+                // Carry the Bad Stuff through: the combat screen already renders
+                // it, but nothing ever populated it.
+                onAddMonster(monster.name, monster.level, monster.modifier, monster.isUndead, monster.badStuff)
                 showAddMonster = false
             },
             onCreateNew = { name, level, mod, undead ->
@@ -497,7 +526,9 @@ fun CombatScreen(
     if (showDiceResult != null) {
         val roll = showDiceResult!!
         AlertDialog(
-            onDismissRequest = { /* Auto-dismiss only */ },
+            // Was auto-dismiss only, so every roll blocked the combat screen for a
+            // full three seconds with no way past it.
+            onDismissRequest = { showDiceResult = null },
             icon = { 
                 Text(
                     text = "🎲", 
@@ -533,21 +564,16 @@ fun CombatScreen(
             type = type,
             onAnimationFinished = {
                 combatAnimation = null
-                when (type) {
-                    com.munchkin.app.ui.components.CombatAnimationType.VICTORY,
-                    com.munchkin.app.ui.components.CombatAnimationType.DEFEAT -> onEndCombat()
-                    com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_SUCCESS ->
-                        if (myPlayerId == combatState?.mainPlayerId) onResolveRunAway(true)
-                    com.munchkin.app.ui.components.CombatAnimationType.ESCAPE_FAIL ->
-                        if (myPlayerId == combatState?.mainPlayerId) onResolveRunAway(false)
-                    else -> Unit
-                }
+                flushPendingResolution()
             }
         )
     }
 
     if (showRunAwayDialog) {
         val runner = gameState.players[myPlayerId]
+        // Resolved through the context: the label is built inside a lambda, which
+        // is not a composable scope.
+        val labelContext = androidx.compose.ui.platform.LocalContext.current
         RunAwayDialog(
             onDismiss = { showRunAwayDialog = false },
             onResult = { result, success ->
@@ -555,7 +581,15 @@ fun CombatScreen(
                 onRollCombatDice(DiceRollPurpose.RUN_AWAY, result, success)
             },
             runAwayBonus = runner?.let { Abilities.runAwayBonus(it) } ?: 0,
-            runAwayBonusLabel = "Elfo"
+            // Was hardcoded to "Elfo", so a Halfling's -1 was labelled as an Elf
+            // bonus. Built from whichever races actually contribute.
+            runAwayBonusLabel = runner
+                ?.let { Abilities.runAwayModifiers(it) }
+                ?.takeIf { it.isNotEmpty() }
+                ?.joinToString(", ") { (race, amount) ->
+                    val sign = if (amount >= 0) "+" else ""
+                    "$sign$amount ${labelContext.getString(race.labelRes())}"
+                }
         )
     }
     } // close outer Box

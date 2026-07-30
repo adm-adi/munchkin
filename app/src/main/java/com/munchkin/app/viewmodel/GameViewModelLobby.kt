@@ -45,6 +45,11 @@ fun GameViewModel.resumeSavedGame() {
                 userId = _uiState.value.userProfile?.id
             )
 
+            // Release the previous client first: each one owns a CIO engine with
+            // its own selector and thread pool, and overwriting the field left the
+            // old one running — still holding a socket for this same seat.
+            gameClient?.disconnect()
+
             val client = GameClient()
             val result = client.connect(
                 GameViewModel.SERVER_URL,
@@ -105,12 +110,29 @@ fun GameViewModel.resumeSavedGame() {
     }
 }
 
+/**
+ * Resumes the saved game if — and only if — nothing is already trying to.
+ *
+ * This runs on every ON_RESUME. The old test was "not currently CONNECTED", which
+ * is also true throughout GameClient's own backoff loop, so returning to the app
+ * mid-reconnect started a *second* connection for the same seat. The server closes
+ * the older socket, whose read loop then starts its own reconnect, and the two
+ * take turns evicting each other while the abandoned client leaks its engine.
+ *
+ * CONNECTING and RECONNECTING belong to the existing client; leave them alone.
+ */
 fun GameViewModel.checkReconnection() {
+    val saved = _savedGame.value ?: return
     val client = gameClient
-    val saved = _savedGame.value
 
-    if (saved != null && (client == null || !client.isConnected() ||
-            client.connectionState.value == com.munchkin.app.network.ConnectionState.FAILED_PERMANENTLY)) {
+    val shouldResume = when (client?.connectionState?.value) {
+        null,
+        com.munchkin.app.network.ConnectionState.DISCONNECTED,
+        com.munchkin.app.network.ConnectionState.FAILED_PERMANENTLY -> true
+        else -> false
+    }
+
+    if (shouldResume) {
         android.util.Log.d("GameViewModel", "Auto-reconnecting to saved game...")
         resumeSavedGame()
     }

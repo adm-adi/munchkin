@@ -164,6 +164,15 @@ function initTables() {
                 logger.error("Migration error (turn_ends_at):", err);
             }
         });
+        // GET_HOSTED_GAMES / DELETE_HOSTED_GAME authorize against game.hostUserId,
+        // which was never persisted: after a restart every restored room had it
+        // undefined, so the owner's own games vanished from their menu and could
+        // no longer be deleted from there.
+        db.run(`ALTER TABLE active_games ADD COLUMN host_user_id TEXT DEFAULT NULL`, (err) => {
+            if (err && !err.message.includes("duplicate column name")) {
+                logger.error("Migration error (host_user_id):", err);
+            }
+        });
 
         // Performance indexes
         db.run(`CREATE INDEX IF NOT EXISTS idx_participants_user ON participants(user_id)`);
@@ -350,9 +359,15 @@ function findUserByEmailOrUsername(identifier) {
     });
 }
 
+// A real bcrypt hash of a throwaway value, compared against when the account
+// does not exist so "unknown user" and "wrong password" take the same time.
+// Without it, the fast path was a timing oracle for enumerating accounts.
+const DUMMY_HASH = '$2a$12$zz7NSBzWS6Co.9elJsnbyeD84HpwfaoSQpCWFNVsFvvPP89sY6Nwa';
+
 async function verifyUser(identifier, password) {
     const user = await findUserByEmailOrUsername(identifier);
     if (!user) {
+        await comparePassword(password, DUMMY_HASH).catch(() => false);
         return null; // User not found
     }
 
@@ -414,7 +429,7 @@ function addMonster(monster, userId) {
 
             const id = uuidv4();
             const now = Date.now();
-            const insertSql = `INSERT INTO monsters (id, name, level, modifier, treasures, levels, is_undead, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+            const insertSql = `INSERT INTO monsters (id, name, level, modifier, treasures, levels, is_undead, bad_stuff, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
             db.run(insertSql, [
                 id,
@@ -424,6 +439,7 @@ function addMonster(monster, userId) {
                 monster.treasures || 1,
                 monster.levels || 1,
                 monster.isUndead ? 1 : 0,
+                monster.badStuff || '',
                 userId,
                 now
             ], function (err) {
@@ -605,6 +621,7 @@ function saveActiveGame(game) {
                 secondaryRace: player.secondaryRace || 'HUMAN',
                 hasHalfBreed: player.hasHalfBreed,
                 hasSuperMunchkin: player.hasSuperMunchkin,
+                reachedMaxLevelViaCombat: player.reachedMaxLevelViaCombat === true,
                 isConnected: player.isConnected !== false,
                 joinedAt: player.joinedAt
             };
@@ -612,8 +629,9 @@ function saveActiveGame(game) {
 
         const sql = `INSERT OR REPLACE INTO active_games
             (id, join_code, host_id, host_name, phase, turn_player_id, players_json, player_order_json, combat_json,
-             created_at, last_activity_at, seq, turn_timer_seconds, turn_ends_at, max_level, winner_id, original_host_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+             created_at, last_activity_at, seq, turn_timer_seconds, turn_ends_at, max_level, winner_id, original_host_id,
+             host_user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
         db.run(sql, [
             game.id,
@@ -632,7 +650,8 @@ function saveActiveGame(game) {
             game.turnEndsAt || null,
             game.maxLevel || 10,
             game.winnerId || null,
-            game.originalHostId || game.hostId
+            game.originalHostId || game.hostId,
+            game.hostUserId || null
         ], function (err) {
             if (err) {
                 logger.error('❌ Error saving game:', err);
@@ -688,6 +707,7 @@ function loadActiveGames() {
                     joinCode: row.join_code,
                     hostId: row.host_id,
                     originalHostId: row.original_host_id || row.host_id,
+                    hostUserId: row.host_user_id || null,
                     hostName: row.host_name,
                     phase: row.phase,
                     turnPlayerId: row.turn_player_id,

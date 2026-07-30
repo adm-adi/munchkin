@@ -104,7 +104,17 @@ function createGameAdminManager({
             game.originalHostId || game.hostId
         )
             .then(() => logger.info('Game recorded successfully'))
-            .catch(err => logger.error('Error recording game:', err));
+            .catch(err => logger.error('Error recording game:', err))
+            .finally(() => {
+                // The finished room stayed in active_games, so a restart restored
+                // it as a live game and a second GAME_OVER re-recorded it. Drop
+                // the persisted row once history has settled, but keep the room in
+                // memory so clients still on the results screen keep a consistent
+                // view; the hourly inactivity sweep reclaims it.
+                cancelPendingSave(game.id);
+                db.deleteActiveGame(game.id).catch(err =>
+                    logger.error('Failed to drop finished game from active_games:', err));
+            });
     }
 
     function handleEndTurn(ws) {
@@ -291,12 +301,30 @@ function createGameAdminManager({
             return;
         }
 
+        // Kicking yourself as host left a room with a hostId matching no seat, so
+        // nobody could ever end, delete or administer it again.
+        if (targetPlayerId === clientInfo.playerId) {
+            sendError(ws, 'INVALID_DATA', 'No puedes expulsarte a ti mismo');
+            return;
+        }
+
         const kickedPlayer = game.players.get(targetPlayerId);
 
         if (game.turnPlayerId === targetPlayerId) {
             const nextPlayerId = getNextTurnPlayerId(game);
             game.turnPlayerId = nextPlayerId !== targetPlayerId ? nextPlayerId : null;
             game.combat = null;
+        }
+
+        // Only the combat's main player may end it, so kicking them stranded an
+        // unendable combat that also blocked COMBAT_START for everyone else.
+        // Dropping the helper only needs the reference cleared.
+        if (game.combat) {
+            if (game.combat.mainPlayerId === targetPlayerId) {
+                game.combat = null;
+            } else if (game.combat.helperPlayerId === targetPlayerId) {
+                game.combat.helperPlayerId = null;
+            }
         }
 
         game.players.delete(targetPlayerId);

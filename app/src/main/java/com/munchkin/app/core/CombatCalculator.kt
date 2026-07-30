@@ -65,8 +65,12 @@ object CombatCalculator {
         // Determine outcome (ties go to monsters unless a hero is a Warrior)
         val isWarriorInvolved = mainPlayer.hasClass(CharacterClass.WARRIOR) ||
             helperPlayer?.hasClass(CharacterClass.WARRIOR) == true
-        
-        val outcome = if (heroesPower > monstersPower || (heroesPower == monstersPower && isWarriorInvolved)) {
+
+        // The tie rule was hardcoded while GameSettings declared a switch for it,
+        // so the setting was a lie. It is read here and mirrored server-side.
+        val heroesWinTies = isWarriorInvolved || !gameState.settings.tiesGoToMonsters
+
+        val outcome = if (heroesPower > monstersPower || (heroesPower == monstersPower && heroesWinTies)) {
             CombatOutcome.WIN
         } else {
             CombatOutcome.LOSE

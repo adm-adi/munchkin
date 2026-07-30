@@ -110,10 +110,19 @@ class UpdateChecker(private val context: Context) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
                 val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-                if (id == downloadId) {
-                    context.unregisterReceiver(this)
-                    onComplete()
+                if (id != downloadId) return
+
+                context.unregisterReceiver(this)
+                onComplete()
+
+                // ACTION_DOWNLOAD_COMPLETE fires for failures too. Handing a
+                // partial or empty file to the package installer produced an
+                // opaque "app not installed" dialog with no explanation.
+                if (isDownloadSuccessful(downloadManager, downloadId)) {
                     installApk(apkFile)
+                } else {
+                    Log.e(TAG, "Update download did not complete successfully; not installing")
+                    apkFile.delete()
                 }
             }
         }
@@ -132,6 +141,21 @@ class UpdateChecker(private val context: Context) {
         }
     }
     
+    /** True only when DownloadManager reports the download actually finished. */
+    private fun isDownloadSuccessful(manager: DownloadManager, downloadId: Long): Boolean {
+        return try {
+            manager.query(DownloadManager.Query().setFilterById(downloadId)).use { cursor ->
+                if (cursor == null || !cursor.moveToFirst()) return false
+                val statusColumn = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+                if (statusColumn < 0) return false
+                cursor.getInt(statusColumn) == DownloadManager.STATUS_SUCCESSFUL
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not read download status", e)
+            false
+        }
+    }
+
     private fun installApk(apkFile: File) {
         try {
             val uri = FileProvider.getUriForFile(

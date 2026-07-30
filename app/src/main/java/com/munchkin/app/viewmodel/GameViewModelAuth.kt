@@ -1,6 +1,8 @@
 package com.munchkin.app.viewmodel
 
 import androidx.lifecycle.viewModelScope
+import com.munchkin.app.MunchkinApp
+import com.munchkin.app.R
 import com.munchkin.app.network.GameClient
 import com.munchkin.app.core.Gender
 import com.munchkin.app.ui.theme.AvatarResources
@@ -42,7 +44,9 @@ fun GameViewModel.register(
                         screen = Screen.HOME
                     )
                 }
-                _events.emit(GameUiEvent.ShowSuccess("Bienvenido, ${authData?.user?.username}!"))
+                _events.emit(GameUiEvent.ShowSuccess(
+                    MunchkinApp.context.getString(R.string.welcome_user, authData?.user?.username ?: "")
+                ))
                 fetchHostedGames()
             } else {
                 _uiState.update {
@@ -75,7 +79,9 @@ fun GameViewModel.login(email: String, pass: String) {
                         screen = Screen.HOME
                     )
                 }
-                _events.emit(GameUiEvent.ShowSuccess("Hola de nuevo, ${authData?.user?.username}!"))
+                _events.emit(GameUiEvent.ShowSuccess(
+                    MunchkinApp.context.getString(R.string.welcome_back_user, authData?.user?.username ?: "")
+                ))
                 fetchHostedGames()
             } else {
                 _uiState.update {

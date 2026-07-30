@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  API <= 30 backup rules. The session prefs hold the JWT and per-game reconnect
+  tokens encrypted with an Android Keystore key that never leaves the device, so
+  a restored copy is undecryptable — and EncryptedSharedPreferences crashes when
+  it finds data it cannot decrypt. Excluding the file avoids both leaking the
+  ciphertext and the crash-on-restore.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="munchkin_session.xml" />
+</full-backup-content>

@@ -122,10 +122,13 @@ object Abilities {
                 descriptionRes = R.string.ability_halfling_sell,
                 kind = AbilityKind.MANUAL
             ),
+            // A penalty, not a bonus — and the app applies it to the roll, so it
+            // is automatic like the Elf's. This slot previously held the Dwarf's
+            // hand-size clause, which the Halfling does not have.
             Ability(
                 sourceRes = R.string.race_halfling,
-                descriptionRes = R.string.ability_halfling_hand_size,
-                kind = AbilityKind.MANUAL
+                descriptionRes = R.string.ability_halfling_run_away,
+                kind = AbilityKind.AUTOMATIC
             )
         )
     }
@@ -140,7 +143,23 @@ object Abilities {
         player.activeRaces.forEach { addAll(forRace(it)) }
     }
 
-    /** Bonus to a run-away roll granted automatically by the player's races. */
+    /**
+     * Every race modifier that applies to this player's run-away roll, in the
+     * order they should be shown. An Elf is +1 and a Halfling is -1, so a
+     * Half-Breed holding both cards nets zero — which is why this returns the
+     * breakdown rather than only the total.
+     */
+    fun runAwayModifiers(player: PlayerState): List<Pair<CharacterRace, Int>> = buildList {
+        if (player.hasRace(CharacterRace.ELF)) add(CharacterRace.ELF to 1)
+        if (player.hasRace(CharacterRace.HALFLING)) add(CharacterRace.HALFLING to -1)
+    }
+
+    /**
+     * Net modifier to a run-away roll from the player's races.
+     *
+     * The Halfling's -1 was missing entirely: only the Elf's +1 was ever counted,
+     * so a Halfling saw an unmodified roll.
+     */
     fun runAwayBonus(player: PlayerState): Int =
-        if (player.hasRace(CharacterRace.ELF)) 1 else 0
+        runAwayModifiers(player).sumOf { it.second }
 }
