@@ -40,6 +40,7 @@ const {
     MAX_AVATAR_ID,
     MAX_MONSTERS_PER_COMBAT,
     MAX_BONUSES_PER_COMBAT,
+    MAX_TURN_TIMER_SECONDS,
     MODIFIER_LIMIT,
     clampInt,
     stepAmount,
@@ -292,10 +293,11 @@ async function loadGamesFromDatabase() {
             game.createdAt = saved.createdAt;
             game.seq = saved.seq;
             game.maxLevel = saved.maxLevel || 10;
-            game.turnTimerSeconds = saved.turnTimerSeconds || 0;
+            game.turnTimerSeconds = clampInt(saved.turnTimerSeconds, 0, MAX_TURN_TIMER_SECONDS, 0);
             game.turnEndsAt = saved.turnEndsAt || null;
             game.winnerId = saved.winnerId || null;
             game.originalHostId = saved.originalHostId || saved.hostId; // Fallback for old DB records
+            game.hostUserId = saved.hostUserId || null;
             game.playerOrder = Array.isArray(saved.playerOrder) && saved.playerOrder.length > 0
                 ? saved.playerOrder
                 : Object.keys(saved.players || {});
@@ -304,8 +306,11 @@ async function loadGamesFromDatabase() {
             for (const [playerId, playerData] of Object.entries(saved.players)) {
                 game.players.set(playerId, {
                     ws: null,
-                    name: playerData.name,
-                    avatarId: playerData.avatarId || 0,
+                    // Re-validate on restore as well: a row written before the
+                    // join path was clamped would otherwise resurrect a value
+                    // that breaks every client's decoding.
+                    name: normalizeName(playerData.name) || 'Jugador',
+                    avatarId: clampInt(playerData.avatarId, 0, MAX_AVATAR_ID, 0),
                     gender: normalizeGender(playerData.gender),
                     userId: playerData.userId,
                     reconnectTokenHash: playerData.reconnectTokenHash || null,
@@ -318,6 +323,7 @@ async function loadGamesFromDatabase() {
                     secondaryRace: playerData.secondaryRace || 'HUMAN',
                     hasHalfBreed: playerData.hasHalfBreed || false,
                     hasSuperMunchkin: playerData.hasSuperMunchkin || false,
+                    reachedMaxLevelViaCombat: playerData.reachedMaxLevelViaCombat === true,
                     isConnected: false, // All start disconnected until they reconnect
                     joinedAt: playerData.joinedAt
                 });
@@ -361,7 +367,14 @@ class GameRoom {
         this.turnPlayerId = hostId; // Start with host's turn
         this.playerOrder = [hostId];
         this.combat = null;
-        this.maxLevel = 10; // Default; set to 20 for Super Munchkin mode
+        this.maxLevel = 10; // Default; set to 20 for the 20-level (epic) mode
+        this.minLevel = 1;
+        // Munchkin rules, and the only values the app implements today. They are
+        // sent to the client so both sides agree on which rules are in force
+        // rather than each assuming its own defaults.
+        this.tiesGoToMonsters = true;
+        this.levelTenOnlyCombat = true;
+        this.allowLevelTenOverride = false;
         this.turnTimerSeconds = 0;
         this.turnEndsAt = null;
         this.turnTimerHandle = null;
@@ -406,6 +419,7 @@ class GameRoom {
                 hasSuperMunchkin: player.hasSuperMunchkin || false,
                 lastKnownIp: null,
                 lastRoll: player.lastRoll || null,
+                reachedMaxLevelViaCombat: player.reachedMaxLevelViaCombat === true,
                 isConnected: !!player.isConnected,
                 characterClass: player.characterClass || "NONE",
                 characterRace: player.characterRace || "HUMAN",
@@ -438,11 +452,17 @@ class GameRoom {
                 ? this.playerOrder
                 : Array.from(this.players.keys()),
             createdAt: this.createdAt,
+            // Mirrors the Kotlin GameSettings field for field. It used to send two
+            // keys the client does not have (allowNegativeGear, autoNextTurn) and
+            // omit four that it does, so those four silently sat at their Kotlin
+            // defaults and the room's actual rules were never transmitted.
             settings: {
+                minLevel: this.minLevel,
                 maxLevel: this.maxLevel,
-                turnTimerSeconds: this.turnTimerSeconds || 0,
-                allowNegativeGear: true,
-                autoNextTurn: false
+                tiesGoToMonsters: this.tiesGoToMonsters,
+                levelTenOnlyCombat: this.levelTenOnlyCombat,
+                allowLevelTenOverride: this.allowLevelTenOverride,
+                turnTimerSeconds: this.turnTimerSeconds || 0
             }
         };
     }
@@ -555,7 +575,10 @@ wss.on('connection', (ws, req) => {
         try {
             message = JSON.parse(messageStr);
         } catch (e) {
-            logger.error(`❌ Invalid JSON received: ${e.message}`);
+            // Deliberately not logging e.message: V8's parse errors quote a
+            // snippet of the offending input, and a truncated LOGIN frame would
+            // put the user's plaintext password in the log file.
+            logger.error(`[${ws.connectionId}] ❌ Invalid JSON received (${messageStr.length} bytes), ignoring`);
             return; // Ignore malformed messages
         }
         try {
@@ -685,8 +708,12 @@ function handleMessage(ws, message) {
 function createPlayerState(ws, meta) {
     return {
         ws,
-        name: meta.name,
-        avatarId: meta.avatarId || 0,
+        // SET_NAME/SET_AVATAR validated these, but the join path that first
+        // creates the seat did not, so `avatarId: "pwn"` from any client reached
+        // buildGameState() and broke strict Int decoding for the entire room —
+        // and persisted, so the room stayed broken across restarts.
+        name: normalizeName(meta.name) || 'Jugador',
+        avatarId: clampInt(meta.avatarId, 0, MAX_AVATAR_ID, 0),
         gender: normalizeGender(meta.gender),
         userId: ws.userId || null,
         reconnectTokenHash: null,
@@ -699,6 +726,7 @@ function createPlayerState(ws, meta) {
         secondaryRace: "HUMAN",
         hasHalfBreed: false,
         hasSuperMunchkin: false,
+        reachedMaxLevelViaCombat: false,
         isConnected: true,
         joinedAt: Date.now()
     };
@@ -711,16 +739,32 @@ function handleCreateGame(ws, message) {
         return;
     }
 
+    const hostName = normalizeName(playerMeta.name);
+    if (!hostName) {
+        sendError(ws, 'INVALID_DATA', 'Nombre de jugador inválido');
+        return;
+    }
+
     const joinCode = generateUniqueJoinCode();
     const playerId = uuidv4();
 
-    logger.info(`🎲 Creating game for ${playerMeta.name} with playerId: ${playerId}, superMunchkin: ${!!superMunchkin}`);
+    logger.info(`🎲 Creating game for ${hostName} with playerId: ${playerId}, superMunchkin: ${!!superMunchkin}`);
 
-    const game = new GameRoom(playerId, joinCode, playerMeta.name, playerMeta.avatarId, playerMeta.gender, ws.userId);
+    const game = new GameRoom(
+        playerId,
+        joinCode,
+        hostName,
+        clampInt(playerMeta.avatarId, 0, MAX_AVATAR_ID, 0),
+        normalizeGender(playerMeta.gender),
+        ws.userId
+    );
     if (superMunchkin === true) {
         game.maxLevel = 20;
     }
-    game.turnTimerSeconds = Math.max(0, Number(turnTimerSeconds) || 0);
+    // Bounded, not just non-negative: `Number.MAX_SAFE_INTEGER` here overflowed
+    // setTimeout's 32-bit delay, which fires immediately, so the turn advanced,
+    // broadcast and hit the database in a ~1ms loop for as long as the room lived.
+    game.turnTimerSeconds = clampInt(turnTimerSeconds, 0, MAX_TURN_TIMER_SECONDS, 0);
     const player = createPlayerState(ws, playerMeta);
     const reconnectToken = rotateReconnectToken(player);
     game.players.set(playerId, player);
@@ -997,16 +1041,37 @@ function handleEvent(ws, message) {
     }
 }
 
+/**
+ * Records that a player reached the winning level by killing a monster.
+ *
+ * `GameSettings.levelTenOnlyCombat` says the winning level may only be reached
+ * that way, but nothing tracked *how* a level was gained, so the setting could
+ * never be honoured and tapping +1 up to the maximum triggered the win dialog.
+ */
+function markMaxLevelIfReached(game, player, levelsGained) {
+    if (levelsGained > 0 && player.level >= game.maxLevel) {
+        player.reachedMaxLevelViaCombat = true;
+    }
+}
+
 function applyEvent(game, event, playerId, ws) {
     const player = game.players.get(playerId);
     if (!player) return false;
+
+    // A finished room is a historical record: GAME_OVER has already written it to
+    // history and dropped its active_games row. Continuing to apply gameplay
+    // mutations re-dirtied that state and could re-persist the room.
+    if (game.ended || game.phase === 'FINISHED') {
+        sendError(ws, 'GAME_NOT_FOUND', 'La partida ya ha terminado');
+        return false;
+    }
 
     switch (event.type) {
         case 'INC_LEVEL':
             player.level = Math.min(game.maxLevel, player.level + stepAmount(event.amount));
             break;
         case 'DEC_LEVEL':
-            player.level = Math.max(1, player.level - stepAmount(event.amount));
+            player.level = Math.max(game.minLevel, player.level - stepAmount(event.amount));
             break;
         case 'INC_GEAR':
             player.gear = clampInt(player.gear + stepAmount(event.amount), -GEAR_LIMIT, GEAR_LIMIT, player.gear);
@@ -1015,7 +1080,7 @@ function applyEvent(game, event, playerId, ws) {
             player.gear = clampInt(player.gear - stepAmount(event.amount), -GEAR_LIMIT, GEAR_LIMIT, player.gear);
             break;
         case 'SET_LEVEL':
-            player.level = clampInt(event.level, 1, game.maxLevel, player.level);
+            player.level = clampInt(event.level, game.minLevel, game.maxLevel, player.level);
             break;
         case 'SET_GEAR':
             player.gear = clampInt(event.gear, -GEAR_LIMIT, GEAR_LIMIT, player.gear);
@@ -1188,9 +1253,16 @@ function applyEvent(game, event, playerId, ws) {
                 finalHelperLevels = serverResult ? serverResult.helperLevelsGained : (event.helperLevelsGained || 0);
                 player.level = Math.min(game.maxLevel, player.level + finalLevels);
                 player.treasures = (player.treasures || 0) + finalTreasures;
+                // You may only reach the winning level by killing a monster, so
+                // the win check needs to know how the level was gained. An Elf
+                // levelling up by *helping* kill one counts too.
+                markMaxLevelIfReached(game, player, finalLevels);
                 if (finalHelperLevels > 0 && helperPlayerId) {
                     const helperPlayer = game.players.get(helperPlayerId);
-                    if (helperPlayer) helperPlayer.level = Math.min(game.maxLevel, helperPlayer.level + finalHelperLevels);
+                    if (helperPlayer) {
+                        helperPlayer.level = Math.min(game.maxLevel, helperPlayer.level + finalHelperLevels);
+                        markMaxLevelIfReached(game, helperPlayer, finalHelperLevels);
+                    }
                 }
             }
 
@@ -1198,6 +1270,17 @@ function applyEvent(game, event, playerId, ws) {
             break;
         }
         case 'GAME_START':
+            // Only the host starts the game. The dedicated admin messages
+            // (GAME_OVER, END_TURN) already enforce their authorization; the
+            // event path must match or it becomes the bypass.
+            if (game.hostId !== playerId) {
+                sendError(ws, 'FORBIDDEN', 'Solo el anfitrión puede iniciar la partida');
+                return false;
+            }
+            if (game.phase !== 'LOBBY') {
+                sendError(ws, 'GAME_ALREADY_STARTED', 'La partida ya ha comenzado');
+                return false;
+            }
             game.phase = "IN_GAME";
             break;
         case 'SET_CLASS':
@@ -1233,16 +1316,40 @@ function applyEvent(game, event, playerId, ws) {
             }
             break;
         case 'GAME_END':
-            // Explicit end (e.g. host left)
+            // Explicit end (e.g. host left). Host-only: any seat could previously
+            // close the room for everyone and write an arbitrary winnerId into the
+            // permanent history/leaderboard.
+            if (game.hostId !== playerId) {
+                sendError(ws, 'FORBIDDEN', 'Solo el anfitrión puede finalizar la partida');
+                return false;
+            }
+            if (event.winnerId && !game.players.has(event.winnerId)) {
+                sendError(ws, 'PLAYER_NOT_FOUND', 'Ganador no encontrado');
+                return false;
+            }
             logger.info(`🏁 Game ${game.joinCode} explicit end. Winner: ${event.winnerId}`);
             closeGame(game, event.winnerId);
             break;
-        case 'END_TURN':
+        case 'END_TURN': {
+            // Same rule as the dedicated END_TURN message: only the player whose
+            // turn it is may pass it. Otherwise anyone could steal turns and wipe
+            // the active combat (END_TURN clears game.combat).
+            if (game.turnPlayerId && game.turnPlayerId !== playerId) {
+                sendError(ws, 'FORBIDDEN', 'No es tu turno');
+                return false;
+            }
             const nextPlayerId = getNextTurnPlayerId(game);
             game.turnPlayerId = nextPlayerId;
             game.combat = null; // Clear combat state
             logger.info(`cw Turn passed to ${game.players.get(nextPlayerId)?.name}`);
             break;
+        }
+    }
+
+    // Dropping back below the winning level revokes the claim, so climbing back
+    // up by hand afterwards does not inherit the earlier kill.
+    if (player.level < game.maxLevel) {
+        player.reachedMaxLevelViaCombat = false;
     }
 
     if (player.level >= game.maxLevel && !game.winnerId) {

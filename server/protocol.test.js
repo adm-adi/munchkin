@@ -1071,3 +1071,384 @@ test('a too-long CATALOG_SEARCH query is refused', async () => {
     assert.strictEqual(reply.code, 'INVALID_DATA');
     await c.close();
 });
+
+// ─────────────── event-path authorization ───────────────
+//
+// The dedicated admin messages (GAME_OVER, END_TURN, DELETE_GAME) always checked
+// host/turn ownership, but the EVENT_REQUEST path applied GAME_START, GAME_END
+// and END_TURN with no authorization at all, so any seat could bypass the checks
+// by phrasing the same action as an event.
+
+const ev = (type, actorId, extra = {}) => ({
+    type: 'EVENT_REQUEST',
+    event: { type, eventId: `auth-${type}-${actorId}`, actorId, timestamp: 1, ...extra }
+});
+
+test('a non-host GAME_END event cannot close the room', async () => {
+    const { client: host, welcome } = await createGame(server.url, 'EndHost');
+    const code = welcome.gameState.joinCode;
+    const { client: guest, welcome: guestWelcome } = await joinGame(server.url, code, 'EndGuest');
+    const guestId = guestWelcome.yourPlayerId;
+    await guest.settle();
+
+    const refused = await guest.request(
+        ev('GAME_END', guestId, { winnerId: guestId }),
+        ['ERROR', 'STATE_SNAPSHOT']
+    );
+    assert.strictEqual(refused.type, 'ERROR', 'a guest must not be able to end the game');
+    assert.strictEqual(refused.code, 'FORBIDDEN');
+
+    // The room is still alive: the host can still act in it.
+    await host.settle();
+    const alive = await host.request(
+        ev('COMBAT_START', welcome.yourPlayerId, { mainPlayerId: welcome.yourPlayerId }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    assert.strictEqual(alive.type, 'STATE_SNAPSHOT', 'the game must still be running');
+    assert.notStrictEqual(alive.gameState.phase, 'FINISHED');
+
+    await host.close();
+    await guest.close();
+});
+
+test('GAME_END refuses a winnerId that is not a seat in the room', async () => {
+    const { client: host, welcome } = await createGame(server.url, 'FakeWinHost');
+    const refused = await host.request(
+        ev('GAME_END', welcome.yourPlayerId, { winnerId: 'not-a-real-player' }),
+        ['ERROR', 'STATE_SNAPSHOT']
+    );
+    assert.strictEqual(refused.type, 'ERROR');
+    assert.strictEqual(refused.code, 'PLAYER_NOT_FOUND');
+    await host.close();
+});
+
+test('an END_TURN event from a player out of turn is refused', async () => {
+    const { client: host, welcome } = await createGame(server.url, 'TurnHost');
+    const hostId = welcome.yourPlayerId;
+    const code = welcome.gameState.joinCode;
+    const { client: guest, welcome: guestWelcome } = await joinGame(server.url, code, 'TurnGuest');
+    const guestId = guestWelcome.yourPlayerId;
+
+    // It is the host's turn (turn starts with the host).
+    await guest.settle();
+    const refused = await guest.request(
+        ev('END_TURN', guestId),
+        ['ERROR', 'STATE_SNAPSHOT']
+    );
+    assert.strictEqual(refused.type, 'ERROR', 'stealing a turn must be refused');
+    assert.strictEqual(refused.code, 'FORBIDDEN');
+
+    // The rightful turn player can still pass it.
+    await host.settle();
+    const passed = await host.request(ev('END_TURN', hostId), ['STATE_SNAPSHOT', 'ERROR']);
+    assert.strictEqual(passed.type, 'STATE_SNAPSHOT');
+    assert.strictEqual(passed.gameState.turnPlayerId, guestId, 'the turn must pass to the guest');
+
+    await host.close();
+    await guest.close();
+});
+
+// ─────────── the winning level must come from a kill ───────────
+
+test('the room advertises every rule setting the client knows about', async () => {
+    // The server used to send two keys the client does not have and omit four it
+    // does, so those four silently sat at their Kotlin defaults.
+    const { client, welcome } = await createGame(server.url, 'SettingsHost');
+    const settings = welcome.gameState.settings;
+    for (const key of [
+        'minLevel', 'maxLevel', 'tiesGoToMonsters',
+        'levelTenOnlyCombat', 'allowLevelTenOverride', 'turnTimerSeconds'
+    ]) {
+        assert.ok(key in settings, `settings must carry ${key}`);
+    }
+    assert.strictEqual(settings.levelTenOnlyCombat, true);
+    assert.strictEqual(settings.tiesGoToMonsters, true);
+    await client.close();
+});
+
+test('levelling to the max by hand does not count as a combat win', async () => {
+    const { client: host, welcome } = await createGame(server.url, 'ManualLevelHost');
+    const me = welcome.yourPlayerId;
+    await host.request(ev('GAME_START', me), ['STATE_SNAPSHOT', 'ERROR']);
+
+    host.drain();
+    host.send({
+        type: 'EVENT_REQUEST',
+        event: {
+            type: 'SET_LEVEL', eventId: 'lvl-manual', actorId: me,
+            targetPlayerId: me, timestamp: 1, level: 10
+        }
+    });
+    await host.waitFor(['EVENT_BROADCAST', 'ERROR']);
+
+    // COMBAT_START is snapshot-first, so use it to pull the authoritative view.
+    const snap = await host.request(
+        ev('COMBAT_START', me, { mainPlayerId: me }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    const seat = snap.gameState.players[me];
+    assert.strictEqual(seat.level, 10, 'the level itself is still applied');
+    assert.strictEqual(
+        seat.reachedMaxLevelViaCombat, false,
+        'tapping up to the winning level must not qualify as a kill'
+    );
+    await host.close();
+});
+
+test('killing a monster into the max level qualifies as a combat win', async () => {
+    const { client: host, welcome } = await createGame(server.url, 'CombatWinHost');
+    const me = welcome.yourPlayerId;
+    await host.request(ev('GAME_START', me), ['STATE_SNAPSHOT', 'ERROR']);
+
+    // Sit one level short, then win a fight the player cannot lose.
+    host.drain();
+    host.send({
+        type: 'EVENT_REQUEST',
+        event: {
+            type: 'SET_LEVEL', eventId: 'lvl-9', actorId: me,
+            targetPlayerId: me, timestamp: 1, level: 9
+        }
+    });
+    await host.waitFor(['EVENT_BROADCAST', 'ERROR']);
+
+    await host.request(ev('COMBAT_START', me, { mainPlayerId: me }), ['STATE_SNAPSHOT', 'ERROR']);
+    await host.request(
+        ev('COMBAT_ADD_MONSTER', me, { monster: { id: 'weak', name: 'Rata', baseLevel: 1 } }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    const ended = await host.request(
+        ev('COMBAT_END', me, { outcome: 'WIN' }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+
+    const seat = ended.gameState.players[me];
+    assert.strictEqual(seat.level, 10, 'the kill takes the player to the winning level');
+    assert.strictEqual(
+        seat.reachedMaxLevelViaCombat, true,
+        'a kill must qualify as the way the winning level was reached'
+    );
+    await host.close();
+});
+
+test('dropping back below the max level revokes the combat claim', async () => {
+    const { client: host, welcome } = await createGame(server.url, 'RevokeHost');
+    const me = welcome.yourPlayerId;
+    await host.request(ev('GAME_START', me), ['STATE_SNAPSHOT', 'ERROR']);
+
+    host.drain();
+    host.send({
+        type: 'EVENT_REQUEST',
+        event: {
+            type: 'SET_LEVEL', eventId: 'rv-9', actorId: me,
+            targetPlayerId: me, timestamp: 1, level: 9
+        }
+    });
+    await host.waitFor(['EVENT_BROADCAST', 'ERROR']);
+
+    await host.request(ev('COMBAT_START', me, { mainPlayerId: me }), ['STATE_SNAPSHOT', 'ERROR']);
+    await host.request(
+        ev('COMBAT_ADD_MONSTER', me, { monster: { id: 'weak2', name: 'Rata', baseLevel: 1 } }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    await host.request(ev('COMBAT_END', me, { outcome: 'WIN' }), ['STATE_SNAPSHOT', 'ERROR']);
+
+    // A curse knocks them back down.
+    host.drain();
+    host.send({
+        type: 'EVENT_REQUEST',
+        event: {
+            type: 'DEC_LEVEL', eventId: 'rv-dec', actorId: me,
+            targetPlayerId: me, timestamp: 1, amount: 1
+        }
+    });
+    await host.waitFor(['EVENT_BROADCAST', 'ERROR']);
+
+    const snap = await host.request(
+        ev('COMBAT_START', me, { mainPlayerId: me }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    const seat = snap.gameState.players[me];
+    assert.strictEqual(seat.level, 9);
+    assert.strictEqual(
+        seat.reachedMaxLevelViaCombat, false,
+        'climbing back by hand must not inherit the earlier kill'
+    );
+    await host.close();
+});
+
+// ─────────── snapshot poisoning via the join path ───────────
+
+test('a non-integer avatarId at join cannot reach the broadcast snapshot', async () => {
+    // createPlayerState stored playerMeta.avatarId verbatim, so `"pwn"` landed in
+    // every STATE_SNAPSHOT. PlayerState.avatarId is a strict Kotlin Int, so the
+    // whole room stopped decoding — and the value persisted, surviving restarts.
+    const { client: host, welcome } = await createGame(server.url, 'PoisonHost');
+    const code = welcome.gameState.joinCode;
+
+    const guest = await TestClient.connect(server.url);
+    const guestWelcome = await guest.request(
+        { type: 'HELLO', joinCode: code, playerMeta: { name: 'Pwn', avatarId: 'pwn' } },
+        ['WELCOME', 'ERROR']
+    );
+    assert.strictEqual(guestWelcome.type, 'WELCOME');
+
+    for (const seat of Object.values(guestWelcome.gameState.players)) {
+        assert.strictEqual(typeof seat.avatarId, 'number', 'avatarId must always be a number');
+        assert.ok(Number.isInteger(seat.avatarId), 'avatarId must be an integer');
+    }
+
+    await host.close();
+    await guest.close();
+});
+
+test('an out-of-range or fractional avatarId is clamped rather than broadcast', async () => {
+    const { client: host, welcome } = await createGame(server.url, 'ClampHost');
+    const code = welcome.gameState.joinCode;
+
+    const guest = await TestClient.connect(server.url);
+    const guestWelcome = await guest.request(
+        { type: 'HELLO', joinCode: code, playerMeta: { name: 'Frac', avatarId: 3.7 } },
+        ['WELCOME', 'ERROR']
+    );
+    const seat = guestWelcome.gameState.players[guestWelcome.yourPlayerId];
+    assert.ok(Number.isInteger(seat.avatarId), `avatarId ${seat.avatarId} must be an integer`);
+    assert.ok(seat.avatarId >= 0 && seat.avatarId <= 100, 'avatarId must stay in range');
+
+    await host.close();
+    await guest.close();
+});
+
+test('an over-long join name is bounded instead of stored verbatim', async () => {
+    const { client: host, welcome } = await createGame(server.url, 'NameHost');
+    const code = welcome.gameState.joinCode;
+
+    const guest = await TestClient.connect(server.url);
+    const guestWelcome = await guest.request(
+        { type: 'HELLO', joinCode: code, playerMeta: { name: 'x'.repeat(500), avatarId: 1 } },
+        ['WELCOME', 'ERROR']
+    );
+    const seat = guestWelcome.gameState.players[guestWelcome.yourPlayerId];
+    assert.ok(seat.name.length <= 20, `name length ${seat.name.length} must be bounded`);
+
+    await host.close();
+    await guest.close();
+});
+
+test('an absurd turnTimerSeconds is clamped instead of overflowing setTimeout', async () => {
+    // A delay past setTimeout's 32-bit range fires immediately, turning the turn
+    // timer into a ~1ms advance/broadcast/DB-write loop for the room's lifetime.
+    const { client, welcome } = await createGame(server.url, 'TimerHost', {
+        turnTimerSeconds: Number.MAX_SAFE_INTEGER
+    });
+    assert.strictEqual(welcome.type, 'WELCOME');
+    const configured = welcome.gameState.settings.turnTimerSeconds;
+    assert.ok(configured <= 7200, `turnTimerSeconds ${configured} must be clamped`);
+
+    // If the timer were looping, the room would be flooding us with snapshots.
+    const flood = await client.settle(400);
+    assert.ok(flood.length < 5, `expected a quiet room, saw ${flood.length} broadcasts: ${flood}`);
+
+    await client.close();
+});
+
+test('the host cannot kick themselves into a hostless room', async () => {
+    const { client: host, welcome } = await createGame(server.url, 'SelfKickHost');
+    const hostId = welcome.yourPlayerId;
+    const reply = await host.request(
+        { type: 'KICK_PLAYER', targetPlayerId: hostId },
+        ['ERROR', 'STATE_SNAPSHOT']
+    );
+    assert.strictEqual(reply.type, 'ERROR');
+    assert.strictEqual(reply.code, 'INVALID_DATA');
+    await host.close();
+});
+
+test('kicking the combat main player clears the combat instead of stranding it', async () => {
+    // Only the main player may end a combat, so kicking them left one that could
+    // never be ended and that blocked COMBAT_START for everyone else.
+    const { client: host, welcome } = await createGame(server.url, 'KickCombatHost');
+    const hostId = welcome.yourPlayerId;
+    const code = welcome.gameState.joinCode;
+    const { client: guest, welcome: guestWelcome } = await joinGame(server.url, code, 'Victim');
+    const guestId = guestWelcome.yourPlayerId;
+
+    await host.settle();
+    const started = await host.request(
+        ev('COMBAT_START', hostId, { mainPlayerId: guestId }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    assert.strictEqual(started.type, 'STATE_SNAPSHOT');
+    assert.ok(started.gameState.combat, 'a combat must be active');
+
+    const afterKick = await host.request(
+        { type: 'KICK_PLAYER', targetPlayerId: guestId },
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    assert.strictEqual(afterKick.type, 'STATE_SNAPSHOT');
+    assert.strictEqual(afterKick.gameState.combat, null, 'the orphaned combat must be cleared');
+
+    await host.close();
+    await guest.close();
+});
+
+test('gameplay events are refused once the game is finished', async () => {
+    const { client: host, welcome } = await createGame(server.url, 'FinishedHost');
+    const hostId = welcome.yourPlayerId;
+    const gameId = welcome.gameState.gameId;
+
+    await host.request(ev('GAME_START', hostId), ['STATE_SNAPSHOT', 'ERROR']);
+    const finished = await host.request(
+        { type: 'GAME_OVER', gameId, winnerId: hostId },
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    assert.strictEqual(finished.gameState.phase, 'FINISHED');
+
+    const refused = await host.request(
+        ev('COMBAT_START', hostId, { mainPlayerId: hostId }),
+        ['ERROR', 'STATE_SNAPSHOT']
+    );
+    assert.strictEqual(refused.type, 'ERROR', 'a finished game must not accept gameplay events');
+    await host.close();
+});
+
+test('COMBAT_DICE_ROLL normalises purpose and success before rebroadcasting', async () => {
+    // Both are strictly-typed on the client (DiceRollPurpose enum, Boolean), and
+    // this message goes to the whole room.
+    const { client: host, welcome } = await createGame(server.url, 'DiceHost');
+    const hostId = welcome.yourPlayerId;
+    await host.request(ev('COMBAT_START', hostId, { mainPlayerId: hostId }), ['STATE_SNAPSHOT', 'ERROR']);
+
+    const roll = await host.request(
+        { type: 'COMBAT_DICE_ROLL', result: 4, purpose: 'ASTROLOGY', success: 'yes' },
+        ['COMBAT_DICE_ROLL_RESULT', 'ERROR']
+    );
+    assert.strictEqual(roll.type, 'COMBAT_DICE_ROLL_RESULT');
+    assert.strictEqual(roll.diceRoll.purpose, 'RANDOM', 'an unknown purpose must fall back to a valid enum value');
+    assert.strictEqual(roll.diceRoll.success, false, 'success must be a real boolean');
+    await host.close();
+});
+
+test('only the host can start the game, and only once', async () => {
+    const { client: host, welcome } = await createGame(server.url, 'StartHost');
+    const hostId = welcome.yourPlayerId;
+    const code = welcome.gameState.joinCode;
+    const { client: guest, welcome: guestWelcome } = await joinGame(server.url, code, 'StartGuest');
+    const guestId = guestWelcome.yourPlayerId;
+
+    await guest.settle();
+    const refused = await guest.request(ev('GAME_START', guestId), ['ERROR', 'STATE_SNAPSHOT']);
+    assert.strictEqual(refused.type, 'ERROR', 'a guest must not be able to start the game');
+    assert.strictEqual(refused.code, 'FORBIDDEN');
+
+    await host.settle();
+    const started = await host.request(ev('GAME_START', hostId), ['STATE_SNAPSHOT', 'ERROR']);
+    assert.strictEqual(started.type, 'STATE_SNAPSHOT');
+    assert.strictEqual(started.gameState.phase, 'IN_GAME');
+
+    const again = await host.request(ev('GAME_START', hostId), ['ERROR', 'STATE_SNAPSHOT']);
+    assert.strictEqual(again.type, 'ERROR', 'starting twice must be refused');
+    assert.strictEqual(again.code, 'GAME_ALREADY_STARTED');
+
+    await host.close();
+    await guest.close();
+});

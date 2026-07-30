@@ -58,3 +58,4 @@ gh_log*.txt
 .env
 .env.*
 !.env.example
+*.bak

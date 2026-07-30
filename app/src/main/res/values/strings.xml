@@ -12,8 +12,8 @@
     <string name="gender">Género</string>
     <string name="game_mode">Modo de juego</string>
     <string name="game_mode_normal">Normal (Niv. 10)</string>
-    <string name="game_mode_super">Super Munchkin (Niv. 20)</string>
-    <string name="game_mode_super_desc">¡Los jugadores deben alcanzar el nivel 20 para ganar!</string>
+    <string name="game_mode_super">Épico (Niv. 20)</string>
+    <string name="game_mode_super_desc">Hay que llegar al nivel 20 para ganar. No tiene relación con la carta Súper Munchkin.</string>
     <string name="mode_badge_normal">🏆 Nivel 10</string>
     <string name="mode_badge_super">⚡ Super Munchkin — Nivel 20</string>
     <string name="gender_male">Hombre</string>
@@ -315,6 +315,64 @@
     <string name="ability_elf_run_away">+1 a la tirada de huida.</string>
     <string name="ability_dwarf_big_items">Puedes llevar cualquier número de objetos Grandes.</string>
     <string name="ability_dwarf_hand_size">Puedes tener 6 cartas en la mano.</string>
-    <string name="ability_halfling_sell">Puedes vender un objeto por el doble de su valor.</string>
-    <string name="ability_halfling_hand_size">Puedes tener 6 cartas en la mano.</string>
+    <string name="ability_halfling_sell">Cada turno puedes vender un objeto por el doble de su precio; los demás objetos conservan su precio normal.</string>
+    <string name="ability_halfling_run_away">-1 a la tirada de huida.</string>
+
+    <!-- Server-rejection feedback (surfaced as a snackbar in MainActivity) -->
+    <string name="error_server_generic">Error del servidor: %1$s</string>
+    <string name="error_not_found">La partida ya no existe.</string>
+    <string name="error_player_not_found">Jugador no encontrado.</string>
+    <string name="error_unauthorized_join">No tienes permiso para unirte a esta partida.</string>
+    <string name="error_invalid_data">Datos inválidos.</string>
+    <string name="error_rate_limited">Demasiados intentos. Espera unos segundos.</string>
+    <string name="error_forbidden">Acción no permitida.</string>
+    <string name="error_email_exists">Ese email ya está registrado.</string>
+    <string name="error_username_exists">Ese nombre de usuario ya está en uso.</string>
+    <string name="error_profile_update">No se pudo guardar el perfil. Vuelve a intentarlo.</string>
+    <string name="error_auth_failed">Email o contraseña incorrectos.</string>
+    <string name="error_combat_active">Ya hay un combate activo.</string>
+    <string name="error_no_combat">No hay combate activo.</string>
+    <string name="error_monster_limit">Se alcanzó el límite de monstruos en combate.</string>
+    <string name="error_bonus_limit">Se alcanzó el límite de bonificaciones.</string>
+    <string name="error_invalid_helper">Selección de ayudante inválida.</string>
+    <string name="error_timeout">No se pudo conectar. Comprueba tu conexión a internet y vuelve a intentarlo.</string>
+    <string name="error_server_unavailable">El servidor no está disponible. Inténtalo más tarde.</string>
+    <string name="error_host_unresolved">No se encuentra el servidor. Comprueba tu conexión.</string>
+    <string name="error_connection_lost_retry">Se perdió la conexión. Vuelve a intentarlo.</string>
+    <string name="error_connection_retry">Error de conexión. Vuelve a intentarlo.</string>
+    <string name="error_save_monster">No se pudo guardar el monstruo.</string>
+    <string name="welcome_user">¡Bienvenido, %1$s!</string>
+    <string name="welcome_back_user">¡Hola de nuevo, %1$s!</string>
+    <string name="monster_created">Monstruo creado: %1$s</string>
+    <string name="update_available_version">Nueva versión %1$s disponible</string>
+    <string name="update_already_latest">Ya tienes la última versión</string>
+    <string name="game_deleted_by_host">La partida ha sido eliminada por el anfitrión</string>
+    <string name="game_deleted_ok">Partida eliminada</string>
+
+    <!-- Game log drawer -->
+    <string name="log_level_up">%1$s subió a Nivel %2$d</string>
+    <string name="log_level_down">%1$s bajó a Nivel %2$d</string>
+    <string name="log_combat_ended">Combate finalizado</string>
+
+    <!-- Class / race picker labels -->
+    <string name="label_class">Clase</string>
+    <string name="label_race">Raza</string>
+    <string name="label_secondary_class">Segunda clase</string>
+    <string name="label_secondary_race">Segunda raza</string>
+    <string name="super_munchkin_two_classes">Súper Munchkin (dos clases)</string>
+    <string name="half_breed_two_races">Mestizo (dos razas)</string>
+
+    <!-- Run away dialog -->
+    <string name="run_away_result">Resultado: %1$d</string>
+    <string name="run_away_breakdown">%1$d en el dado, %2$s</string>
+
+    <!-- Bad Stuff prompt (losing a fight / failing to escape) -->
+    <string name="bad_stuff_title">Te toca la Cosa Mala</string>
+    <string name="bad_stuff_intro">Aplica en la mesa lo que indiquen estas cartas. La app no puede saber qué efecto tienen.</string>
+    <string name="bad_stuff_unknown">Consulta la Cosa Mala en la carta.</string>
+    <string name="bad_stuff_done">Entendido</string>
+    <!-- Run away threshold -->
+    <string name="run_away_threshold_hint">Escapas con %1$d o más.</string>
+    <string name="run_away_suggestion_escaped">Con %1$d escapas.</string>
+    <string name="run_away_suggestion_caught">Con %1$d te atrapan.</string>
 </resources>

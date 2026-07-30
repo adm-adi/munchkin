@@ -1,3 +1,16 @@
+const { clampInt, MAX_TURN_TIMER_SECONDS } = require('./validation');
+
+/**
+ * Defence in depth for the timer delay. The value is clamped where it enters
+ * (game creation, DB restore), but a delay past setTimeout's 32-bit range fires
+ * *immediately* rather than never, which turns the turn timer into a ~1ms
+ * advance/broadcast/DB-write loop. Re-clamp at the point of use so no future
+ * write path can reintroduce that.
+ */
+function clampTimerSeconds(value) {
+    return clampInt(value, 0, MAX_TURN_TIMER_SECONDS, 0);
+}
+
 function createTurnManager({ games, db, logger }) {
     function getNextTurnPlayerId(game) {
         if (!game.turnPlayerId) return game.hostId;
@@ -75,7 +88,7 @@ function createTurnManager({ games, db, logger }) {
     function computeTurnTimerKey(game) {
         if (!game || game.ended || game.phase !== "IN_GAME") return null;
 
-        const timerSeconds = Math.max(0, Number(game.turnTimerSeconds) || 0);
+        const timerSeconds = clampTimerSeconds(game.turnTimerSeconds);
         if (timerSeconds <= 0 || !game.turnPlayerId) return null;
 
         const turnPlayer = game.players.get(game.turnPlayerId);
@@ -97,7 +110,7 @@ function createTurnManager({ games, db, logger }) {
             return false;
         }
 
-        const timerSeconds = Math.max(0, Number(game.turnTimerSeconds) || 0);
+        const timerSeconds = clampTimerSeconds(game.turnTimerSeconds);
         const now = Date.now();
         const canReuseDeadline =
             game.turnEndsAt &&

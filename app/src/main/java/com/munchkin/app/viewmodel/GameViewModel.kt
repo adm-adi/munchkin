@@ -13,6 +13,7 @@ import com.munchkin.app.update.UpdateChecker
 import com.munchkin.app.update.UpdateInfo
 import com.munchkin.app.update.UpdateResult
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import io.ktor.client.*
@@ -51,6 +52,13 @@ class GameViewModel : ViewModel() {
 
     internal val _latencyMs = MutableStateFlow(0L)
     val latencyMs: StateFlow<Long> = _latencyMs.asStateFlow()
+
+    /**
+     * Monsters whose Bad Stuff the local player still has to apply, after losing a
+     * fight or failing to escape one. Empty when there is nothing pending.
+     */
+    internal val _pendingBadStuff = MutableStateFlow<List<MonsterInstance>>(emptyList())
+    val pendingBadStuff: StateFlow<List<MonsterInstance>> = _pendingBadStuff.asStateFlow()
 
     // ============== Update State ==============
 
@@ -145,7 +153,9 @@ class GameViewModel : ViewModel() {
                         android.util.Log.i("GameViewModel", "Session no longer valid — signing out")
                         sessionManager?.clearSession()
                         _uiState.update { it.copy(userProfile = null) }
-                        _events.emit(GameUiEvent.ShowMessage("Tu sesión ha caducado. Vuelve a iniciar sesión."))
+                        _events.emit(GameUiEvent.ShowMessage(
+                            MunchkinApp.context.getString(R.string.error_session_expired)
+                        ))
                     } else {
                         android.util.Log.w(
                             "GameViewModel",
@@ -324,6 +334,8 @@ class GameViewModel : ViewModel() {
 
             gameClient?.disconnect()
             gameClient = null
+            // Scoped to a game, not to the app process.
+            hasRecordedGame = false
 
             _uiState.update {
                 GameUiState(screen = Screen.HOME, userProfile = it.userProfile)
@@ -337,11 +349,14 @@ class GameViewModel : ViewModel() {
 
     override fun onCleared() {
         super.onCleared()
-        val client = gameClient
-        if (client != null) {
-            kotlinx.coroutines.runBlocking {
-                client.disconnect()
-            }
+        val client = gameClient ?: return
+        gameClient = null
+        // Not runBlocking: this runs on the main thread during teardown, and
+        // disconnect() closes a socket and shuts down the HTTP engine. A slow or
+        // half-open connection froze the UI thread for as long as it took.
+        // viewModelScope is already cancelled here, so the work needs its own.
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            client.disconnect()
         }
     }
 
@@ -357,116 +372,171 @@ class GameViewModel : ViewModel() {
                 // Network mode: send to server (the server will broadcast)
                 val result = client.sendEvent(event)
                 if (result.isFailure) {
-                    _events.emit(GameUiEvent.ShowError("Error de conexión"))
+                    _events.emit(GameUiEvent.ShowError(
+                        MunchkinApp.context.getString(R.string.connection_failed)
+                    ))
                 }
             }
         }
     }
 
+    /**
+     * Guards against recording the same finished game twice.
+     *
+     * Reset in [leaveGame]: it was only ever set, so the second game hosted in one
+     * app session could never record a winner — confirmWin() returned early and
+     * the result never reached history or the leaderboard.
+     */
     private var hasRecordedGame = false
 
+    /**
+     * Collectors bound to the current [gameClient].
+     *
+     * observeClientState() runs again on every create/join/resume, and each call
+     * used to launch a fresh set of collectors that nothing ever cancelled. They
+     * accumulated across games in one app session: duplicated log entries and
+     * toasts, and — because a collector kept observing the *previous* client —
+     * a stale connection state overwriting the live one.
+     */
+    private var clientObservers: Job? = null
+
     internal fun observeClientState() {
+        clientObservers?.cancel()
+        val client = gameClient ?: return
+        val context = MunchkinApp.context
         var previousState: GameState? = null
 
-        viewModelScope.launch {
-            gameClient?.gameState?.collect { state ->
-                state?.let { s ->
-                    // Log Level Changes
-                    previousState?.let { prev ->
-                        s.players.forEach { (id, player) ->
-                            val prevPlayer = prev.players[id]
-                            if (prevPlayer != null && prevPlayer.level != player.level) {
-                                val diff = player.level - prevPlayer.level
-                                if (diff > 0) {
-                                    addLogEntry("${player.name} subió a Nivel ${player.level}", LogType.LEVEL_UP)
-                                } else {
-                                    addLogEntry("${player.name} bajó a Nivel ${player.level}", LogType.INFO)
+        // One parent job holding every collector, so the next game replaces them
+        // wholesale instead of stacking another set on top.
+        clientObservers = viewModelScope.launch {
+            launch {
+                client.gameState.collect { state ->
+                    state?.let { s ->
+                        // Log Level Changes
+                        previousState?.let { prev ->
+                            s.players.forEach { (id, player) ->
+                                val prevPlayer = prev.players[id]
+                                if (prevPlayer != null && prevPlayer.level != player.level) {
+                                    val diff = player.level - prevPlayer.level
+                                    if (diff > 0) {
+                                        addLogEntry(
+                                            context.getString(R.string.log_level_up, player.name, player.level),
+                                            LogType.LEVEL_UP
+                                        )
+                                    } else {
+                                        addLogEntry(
+                                            context.getString(R.string.log_level_down, player.name, player.level),
+                                            LogType.INFO
+                                        )
+                                    }
                                 }
+                            }
+
+                            // Log Combat Result (Combat property cleared)
+                            if (prev.combat != null && s.combat == null) {
+                                addLogEntry(context.getString(R.string.log_combat_ended), LogType.combat)
+                            }
+                        }
+                        previousState = s
+
+                        _uiState.update { it.copy(gameState = s) }
+
+                        // HOST CHECK: Did someone reach max level?
+                        if (isHost && s.phase == GamePhase.IN_GAME && !hasRecordedGame) {
+                            // In Munchkin the winning level only counts if it came
+                            // from killing a monster, so a player who simply tapped
+                            // their way up to it is not offered as a winner.
+                            val winner = s.players.values.find {
+                                it.canBeConfirmedWinner(s.settings)
+                            }
+                            if (winner != null && _uiState.value.pendingWinnerId != winner.playerId) {
+                                // Show confirmation dialog
+                                _uiState.update { it.copy(pendingWinnerId = winner.playerId) }
+                            } else if (winner == null && _uiState.value.pendingWinnerId != null) {
+                                // Level went back down? Dismiss
+                                _uiState.update { it.copy(pendingWinnerId = null) }
                             }
                         }
 
-                        // Log Combat Result (Combat property cleared)
-                        if (prev.combat != null && s.combat == null) {
-                            addLogEntry("Combate finalizado", LogType.combat)
+                        // Check for Game Over (Server confirmed)
+                        if (s.phase == GamePhase.FINISHED && s.winnerId != null) {
+                            // Ensure we don't record twice if server sent it back
+                            hasRecordedGame = true
+                        }
+
+                        // Check for phase change
+                        if (s.phase == GamePhase.IN_GAME && _uiState.value.screen == Screen.LOBBY) {
+                            _uiState.update { it.copy(screen = Screen.BOARD) }
                         }
                     }
-                    previousState = s
+                }
+            }
 
-                    _uiState.update { it.copy(gameState = s) }
-
-                    // HOST CHECK: Did someone reach max level?
-                    if (isHost && s.phase == GamePhase.IN_GAME && !hasRecordedGame) {
-                        val winner = s.players.values.find { it.level >= s.settings.maxLevel }
-                        if (winner != null && _uiState.value.pendingWinnerId != winner.playerId) {
-                            // Show confirmation dialog
-                            _uiState.update { it.copy(pendingWinnerId = winner.playerId) }
-                        } else if (winner == null && _uiState.value.pendingWinnerId != null) {
-                            // Level went back down? Dismiss
-                            _uiState.update { it.copy(pendingWinnerId = null) }
-                        }
+            launch {
+                var prevConnState: ConnectionState? = null
+                client.connectionState.collect { connState ->
+                    // Emit success toast when we recover from a reconnect
+                    if (prevConnState == ConnectionState.RECONNECTING && connState == ConnectionState.CONNECTED) {
+                        _events.emit(GameUiEvent.Reconnected)
                     }
-
-                    // Check for Game Over (Server confirmed)
-                    if (s.phase == GamePhase.FINISHED && s.winnerId != null) {
-                         // Ensure we don't record twice if server sent it back
-                         hasRecordedGame = true
-                    }
-
-                    // Check for phase change
-                    if (s.phase == GamePhase.IN_GAME && _uiState.value.screen == Screen.LOBBY) {
-                        _uiState.update { it.copy(screen = Screen.BOARD) }
+                    prevConnState = connState
+                    _uiState.update {
+                        it.copy(
+                            connectionState = connState,
+                            isReconnectFailed = connState == ConnectionState.FAILED_PERMANENTLY
+                        )
                     }
                 }
             }
-        }
 
-        viewModelScope.launch {
-            var prevConnState: ConnectionState? = null
-            gameClient?.connectionState?.collect { connState ->
-                // Emit success toast when we recover from a reconnect
-                if (prevConnState == ConnectionState.RECONNECTING && connState == ConnectionState.CONNECTED) {
-                    _events.emit(GameUiEvent.Reconnected)
-                }
-                prevConnState = connState
-                _uiState.update {
-                    it.copy(
-                        connectionState = connState,
-                        isReconnectFailed = connState == ConnectionState.FAILED_PERMANENTLY
-                    )
+            launch {
+                client.reconnectAttempt.collect { attempt ->
+                    _uiState.update { it.copy(reconnectAttempt = attempt) }
                 }
             }
-        }
 
-        viewModelScope.launch {
-            gameClient?.reconnectAttempt?.collect { attempt ->
-                _uiState.update { it.copy(reconnectAttempt = attempt) }
+            // Deadlines like turnEndsAt are server timestamps, so the UI needs the
+            // measured offset to count down against the same clock the server uses.
+            launch {
+                client.serverTimeOffsetMs.collect { offset ->
+                    _uiState.update { it.copy(serverTimeOffsetMs = offset) }
+                }
             }
-        }
 
-        // Deadlines like turnEndsAt are server timestamps, so the UI needs the
-        // measured offset to count down against the same clock the server uses.
-        viewModelScope.launch {
-            gameClient?.serverTimeOffsetMs?.collect { offset ->
-                _uiState.update { it.copy(serverTimeOffsetMs = offset) }
+            launch {
+                client.latencyMs.collect { latency ->
+                    _latencyMs.value = latency
+                }
             }
-        }
 
-        viewModelScope.launch {
-            gameClient?.latencyMs?.collect { latency ->
-                _latencyMs.value = latency
+            launch {
+                client.errors.collect { error ->
+                    _events.emit(GameUiEvent.ShowError(error))
+                }
             }
-        }
 
-        viewModelScope.launch {
-            gameClient?.errors?.collect { error ->
-                if (error == "La partida ha sido eliminada por el anfitrión") {
-                    _events.emit(GameUiEvent.ShowMessage(error))
-                    // Clear local save and state
+            // A dedicated signal rather than matching the error text, which broke
+            // the moment the sentence was reworded or translated.
+            launch {
+                client.gameDeleted.collect {
+                    _events.emit(GameUiEvent.ShowMessage(
+                        context.getString(R.string.game_deleted_by_host)
+                    ))
                     gameRepository?.deleteAllSavedGames()
                     _savedGame.value = null
                     _uiState.update { GameUiState(screen = Screen.HOME, userProfile = it.userProfile) }
-                } else {
-                    _events.emit(GameUiEvent.ShowError(error))
+                }
+            }
+
+            // The server rotates the reconnect token on every WELCOME, including
+            // the ones the client's own backoff loop triggers. Persisting only at
+            // the explicit join call sites left a stale token behind after the
+            // first automatic reconnect, costing the player their seat if the
+            // process died.
+            launch {
+                client.reconnectToken.collect { token ->
+                    val joinCode = _uiState.value.gameState?.joinCode ?: return@collect
+                    if (token != null) sessionManager?.saveReconnectToken(joinCode, token)
                 }
             }
         }
@@ -594,39 +664,54 @@ data class ServerGame(
 )
 
 /**
- * Convert technical error messages to user-friendly Spanish messages.
+ * Convert technical error messages into something a player can act on.
+ *
+ * Resolved through the string resources rather than returning Spanish literals:
+ * these strings reach the user on every failed action, so hardcoding them left
+ * the English and French builds showing Spanish exactly when something had
+ * already gone wrong.
  */
 internal fun getFriendlyErrorMessage(error: Throwable?): String {
+    val context = MunchkinApp.context
+
     if (error is com.munchkin.app.network.ServerErrorException) {
-        return when (error.code) {
-            com.munchkin.app.network.ErrorCode.INVALID_JOIN_CODE -> "Código de partida inválido."
-            com.munchkin.app.network.ErrorCode.GAME_NOT_FOUND -> "La partida ya no existe."
-            com.munchkin.app.network.ErrorCode.GAME_FULL -> "La partida está llena."
-            com.munchkin.app.network.ErrorCode.GAME_ALREADY_STARTED -> "La partida ya ha comenzado."
-            com.munchkin.app.network.ErrorCode.PLAYER_NOT_FOUND -> "Jugador no encontrado."
-            com.munchkin.app.network.ErrorCode.UNAUTHORIZED -> "No tienes permiso para unirte a esta partida."
-            com.munchkin.app.network.ErrorCode.VALIDATION_FAILED, com.munchkin.app.network.ErrorCode.INVALID_DATA -> "Datos inválidos."
-            com.munchkin.app.network.ErrorCode.RATE_LIMITED -> "Demasiados intentos. Espera unos segundos."
-            com.munchkin.app.network.ErrorCode.FORBIDDEN, com.munchkin.app.network.ErrorCode.PERMISSION_DENIED -> "Acción no permitida."
-            com.munchkin.app.network.ErrorCode.EMAIL_EXISTS -> "Ese email ya está registrado."
-            com.munchkin.app.network.ErrorCode.USERNAME_EXISTS -> "Ese nombre de usuario ya está en uso."
-            com.munchkin.app.network.ErrorCode.UPDATE_FAILED -> "No se pudo guardar el perfil. Vuelve a intentarlo."
-            com.munchkin.app.network.ErrorCode.AUTH_FAILED -> "Email o contraseña incorrectos."
-            com.munchkin.app.network.ErrorCode.COMBAT_ALREADY_ACTIVE -> "Ya hay un combate activo."
-            com.munchkin.app.network.ErrorCode.NO_ACTIVE_COMBAT -> "No hay combate activo."
-            com.munchkin.app.network.ErrorCode.COMBAT_MONSTER_LIMIT -> "Se alcanzó el límite de monstruos en combate."
-            com.munchkin.app.network.ErrorCode.INVALID_HELPER -> "Selección de ayudante inválida."
-            com.munchkin.app.network.ErrorCode.COMBAT_BONUS_LIMIT -> "Se alcanzó el límite de bonificaciones."
-            else -> "Error del servidor: ${error.message}"
+        val resId = when (error.code) {
+            com.munchkin.app.network.ErrorCode.INVALID_JOIN_CODE -> R.string.error_invalid_code
+            com.munchkin.app.network.ErrorCode.GAME_NOT_FOUND -> R.string.error_not_found
+            com.munchkin.app.network.ErrorCode.GAME_FULL -> R.string.error_game_full
+            com.munchkin.app.network.ErrorCode.GAME_ALREADY_STARTED -> R.string.error_game_started
+            com.munchkin.app.network.ErrorCode.PLAYER_NOT_FOUND -> R.string.error_player_not_found
+            com.munchkin.app.network.ErrorCode.UNAUTHORIZED -> R.string.error_unauthorized_join
+            com.munchkin.app.network.ErrorCode.VALIDATION_FAILED,
+            com.munchkin.app.network.ErrorCode.INVALID_DATA -> R.string.error_invalid_data
+            com.munchkin.app.network.ErrorCode.RATE_LIMITED -> R.string.error_rate_limited
+            com.munchkin.app.network.ErrorCode.FORBIDDEN,
+            com.munchkin.app.network.ErrorCode.PERMISSION_DENIED -> R.string.error_forbidden
+            com.munchkin.app.network.ErrorCode.EMAIL_EXISTS -> R.string.error_email_exists
+            com.munchkin.app.network.ErrorCode.USERNAME_EXISTS -> R.string.error_username_exists
+            com.munchkin.app.network.ErrorCode.UPDATE_FAILED -> R.string.error_profile_update
+            com.munchkin.app.network.ErrorCode.AUTH_FAILED -> R.string.error_auth_failed
+            com.munchkin.app.network.ErrorCode.COMBAT_ALREADY_ACTIVE -> R.string.error_combat_active
+            com.munchkin.app.network.ErrorCode.NO_ACTIVE_COMBAT -> R.string.error_no_combat
+            com.munchkin.app.network.ErrorCode.COMBAT_MONSTER_LIMIT -> R.string.error_monster_limit
+            com.munchkin.app.network.ErrorCode.INVALID_HELPER -> R.string.error_invalid_helper
+            com.munchkin.app.network.ErrorCode.COMBAT_BONUS_LIMIT -> R.string.error_bonus_limit
+            else -> null
+        }
+        return if (resId != null) {
+            context.getString(resId)
+        } else {
+            context.getString(R.string.error_server_generic, error.message ?: "")
         }
     }
-    
+
     val message = error?.message?.lowercase() ?: ""
-    return when {
-        "timeout" in message -> "No se pudo conectar. Comprueba tu conexión a internet y vuelve a intentarlo."
-        "refused" in message -> "El servidor no está disponible. Inténtalo más tarde."
-        "host" in message && "resolve" in message -> "No se encuentra el servidor. Comprueba tu conexión."
-        "closed" in message || "reset" in message -> "Se perdió la conexión. Vuelve a intentarlo."
-        else -> "Error de conexión. Vuelve a intentarlo."
+    val resId = when {
+        "timeout" in message -> R.string.error_timeout
+        "refused" in message -> R.string.error_server_unavailable
+        "host" in message && "resolve" in message -> R.string.error_host_unresolved
+        "closed" in message || "reset" in message -> R.string.error_connection_lost_retry
+        else -> R.string.error_connection_retry
     }
+    return context.getString(resId)
 }
