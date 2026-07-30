@@ -82,7 +82,17 @@ data class PlayerState(
     val hasSuperMunchkin: Boolean = false,
     val lastKnownIp: String? = null,
     val isConnected: Boolean = true,
-    val lastRoll: Int? = null // For initial roll or others
+    val lastRoll: Int? = null, // For initial roll or others
+    /**
+     * Whether this player's arrival at [GameSettings.maxLevel] came from killing a
+     * monster — including an Elf levelling up by helping kill one.
+     *
+     * The rule is that the winning level may only be reached that way, and
+     * [GameSettings.levelTenOnlyCombat] declares it, but nothing recorded *how* a
+     * level was gained, so the win prompt fired for anyone who tapped +1 up to the
+     * maximum. Cleared by the server if the player drops back below it.
+     */
+    val reachedMaxLevelViaCombat: Boolean = false
 ) {
     /**
      * Combined combat power = level + gear + temp bonus
@@ -254,15 +264,28 @@ data class GameState(
 
 // ============== Game Settings ==============
 
+/**
+ * The rules in force for a room. The server sends every field, so both sides
+ * agree on them rather than each falling back to its own defaults.
+ */
 @Serializable
 data class GameSettings(
     val minLevel: Int = 1,
     val maxLevel: Int = 10,
+    /** Ties go to the monster unless a Warrior is in the fight. */
     val tiesGoToMonsters: Boolean = true,
+    /** The winning level may only be reached by killing a monster. */
     val levelTenOnlyCombat: Boolean = true,
+    /** Lets the host confirm a win that did not come from a kill anyway. */
     val allowLevelTenOverride: Boolean = false,
     val turnTimerSeconds: Int = 0  // 0 = disabled, otherwise seconds per turn
-)
+) {
+    /**
+     * Whether a player at [maxLevel] must have got there through combat for the
+     * win to be offered.
+     */
+    val requiresCombatToWin: Boolean get() = levelTenOnlyCombat && !allowLevelTenOverride
+}
 
 // ============== Player Meta (for joining) ==============
 

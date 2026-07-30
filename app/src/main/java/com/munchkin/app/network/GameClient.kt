@@ -87,6 +87,36 @@ class GameClient {
     val reconnectAttempt: StateFlow<Int> = _reconnectAttempt.asStateFlow()
 
     /**
+     * The seat's current reconnect token, republished every time the server
+     * rotates it (which is on every WELCOME, including the ones the internal
+     * backoff loop triggers).
+     *
+     * Exposed as a flow so persistence happens wherever the token changes. It
+     * used to be saved only at the explicit join call sites, so after the first
+     * automatic reconnect the stored copy was stale and a guest who lost the
+     * process could no longer reclaim their seat.
+     */
+    private val _reconnectToken = MutableStateFlow<String?>(null)
+    val reconnectToken: StateFlow<String?> = _reconnectToken.asStateFlow()
+
+    /**
+     * Set for the whole of [disconnect] so the read loop's `finally` does not
+     * mistake a deliberate teardown for a dropped connection. Without it, closing
+     * the session made the loop exit, call handleDisconnect(), and spawn a
+     * reconnect loop on a scope that [disconnect] does not own — silently
+     * rejoining the game the user had just left.
+     */
+    @Volatile
+    private var isShuttingDown = false
+
+    /** Signals that the host deleted the room. Carries the server's reason. */
+    private val _gameDeleted = MutableSharedFlow<String>(
+        extraBufferCapacity = 4,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val gameDeleted: SharedFlow<String> = _gameDeleted.asSharedFlow()
+
+    /**
      * Estimated difference between the server's clock and this device's, in ms.
      *
      * Deadlines such as `turnEndsAt` are server timestamps. Comparing them against
@@ -117,7 +147,7 @@ class GameClient {
         get() = _myPlayerId.value
 
     val currentReconnectToken: String?
-        get() = lastReconnectToken
+        get() = _reconnectToken.value
     
     fun isConnected(): Boolean = _connectionState.value == ConnectionState.CONNECTED
     
@@ -133,6 +163,7 @@ class GameClient {
     ): Result<GameState> = withContext(Dispatchers.IO) {
         try {
             DLog.i(TAG, "Creating game on $serverUrl")
+            beginSession()
             _connectionState.value = ConnectionState.CONNECTING
             
             // Store for reconnection
@@ -241,6 +272,7 @@ class GameClient {
         try {
             DLog.i(TAG, "Connecting to $wsUrl with code $joinCode")
             Log.i(TAG, "Connecting to $wsUrl with code $joinCode")
+            beginSession()
             _connectionState.value = ConnectionState.CONNECTING
             
             // Store for reconnection
@@ -396,6 +428,7 @@ class GameClient {
                 _gameState.value = message.gameState
                 _myPlayerId.value = message.yourPlayerId
                 lastReconnectToken = message.reconnectToken
+                _reconnectToken.value = message.reconnectToken
                 // (Re-)initialize the persistent engine on every welcome/reconnect
                 val engine = GameEngine()
                 engine.loadState(message.gameState)
@@ -501,7 +534,11 @@ class GameClient {
                 }
             }
             is GameDeletedMessage -> {
-                _errors.emit("La partida ha sido eliminada por el anfitrión")
+                // A dedicated signal, not an error string: the ViewModel used to
+                // recognise this by comparing against the exact Spanish sentence,
+                // so any rewording (or a translation) silently skipped the local
+                // cleanup that follows it.
+                _gameDeleted.emit(message.reason)
                 disconnect()
             }
             else -> {
@@ -565,8 +602,8 @@ class GameClient {
      * Handle disconnection.
      */
     private suspend fun handleDisconnect() {
-        if (_connectionState.value == ConnectionState.DISCONNECTED) return
-        
+        if (isShuttingDown || _connectionState.value == ConnectionState.DISCONNECTED) return
+
         _connectionState.value = ConnectionState.RECONNECTING
         attemptReconnect()
     }
@@ -653,9 +690,14 @@ class GameClient {
      * Disconnect from the server.
      */
     suspend fun disconnect() {
+        // Before anything else: closing the session below makes the read loop
+        // exit into its `finally`, and that must not be read as a dropped link.
+        isShuttingDown = true
+        _connectionState.value = ConnectionState.DISCONNECTED
+
         reconnectJob?.cancel()
         reconnectJob = null
-        
+
         try {
             session?.close(CloseReason(CloseReason.Codes.NORMAL, "Client disconnecting"))
         } catch (e: Exception) {
@@ -674,6 +716,14 @@ class GameClient {
         _latencyMs.value = 0L
 
         _connectionState.value = ConnectionState.DISCONNECTED
+    }
+
+    /**
+     * Clears the teardown guard so a fresh connection can reconnect normally
+     * again. Called at the top of every entry point that opens a session.
+     */
+    private fun beginSession() {
+        isShuttingDown = false
     }
     
     // ============== Auth Methods ==============
