@@ -63,23 +63,52 @@ const JWT_EXPIRY_SECONDS = 48 * 60 * 60; // 48 hours
 
 
 // SSL Configuration
+//
+// The paths are configurable so the service does not have to run as root: a
+// Let's Encrypt private key is readable only by root, but systemd can read it
+// and hand it to an unprivileged process through LoadCredential=, which places
+// it outside the code tree. Unset, these fall back to the previous behaviour of
+// looking for key.pem/cert.pem beside the server.
+const TLS_KEY_PATH = process.env.MUNCHKIN_TLS_KEY || 'key.pem';
+const TLS_CERT_PATH = process.env.MUNCHKIN_TLS_CERT || 'cert.pem';
+const TLS_EXPLICITLY_CONFIGURED = Boolean(process.env.MUNCHKIN_TLS_KEY || process.env.MUNCHKIN_TLS_CERT);
+
 let server;
 let isSsl = false;
 
+/**
+ * Falling back to cleartext when TLS was explicitly configured is not a
+ * fallback, it is a silent downgrade: clients connect over wss:// and fail
+ * anyway, so the room looks broken while the server reports itself healthy.
+ * Fail loudly instead, and let the supervisor retry.
+ */
+function refuseCleartext(reason) {
+    logger.error(
+        `❌ FATAL: TLS was configured (${TLS_KEY_PATH} / ${TLS_CERT_PATH}) but ${reason}. ` +
+        'Refusing to start in cleartext.'
+    );
+    process.exit(1);
+}
+
 try {
-    if (fs.existsSync('key.pem') && fs.existsSync('cert.pem')) {
+    if (fs.existsSync(TLS_KEY_PATH) && fs.existsSync(TLS_CERT_PATH)) {
         const options = {
-            key: fs.readFileSync('key.pem'),
-            cert: fs.readFileSync('cert.pem')
+            key: fs.readFileSync(TLS_KEY_PATH),
+            cert: fs.readFileSync(TLS_CERT_PATH)
         };
         server = https.createServer(options, handleRequest);
         isSsl = true;
         logger.info('🔒 SSL Certificates found. Starting in HTTPS/WSS mode.');
+    } else if (TLS_EXPLICITLY_CONFIGURED) {
+        refuseCleartext('the files are missing or unreadable');
     } else {
         server = http.createServer(handleRequest);
         logger.info('⚠️ No SSL Certificates found (key.pem/cert.pem). Starting in HTTP/WS mode.');
     }
 } catch (e) {
+    if (TLS_EXPLICITLY_CONFIGURED) {
+        refuseCleartext(`loading them failed: ${e.message}`);
+    }
     logger.error('Failed to load SSL certs, falling back to HTTP:', e);
     server = http.createServer(handleRequest);
 }
