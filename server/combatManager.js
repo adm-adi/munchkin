@@ -1,3 +1,8 @@
+const { VALID_CLASSES, VALID_RACES, VALID_GENDERS } = require('./validation');
+
+// Must mirror the Kotlin DiceRollPurpose enum in core/Events.kt.
+const VALID_DICE_PURPOSES = new Set(['COMBAT', 'RUN_AWAY', 'CURSE', 'RANDOM', 'TIE_BREAKER']);
+
 /**
  * Super Munchkin grants the abilities of two classes, Half-Breed of two races, so
  * every ability check has to consider both slots. These mirror
@@ -14,6 +19,74 @@ function playerHasRace(player, target) {
     if (!player) return false;
     if (player.characterRace === target) return true;
     return player.hasHalfBreed === true && player.secondaryRace === target;
+}
+
+/**
+ * Per-monster conditional modifiers ("+4 vs Elfos"), mirrored from the client's
+ * CombatCalculator.matchesCondition/countMatches. The server previously ignored
+ * them entirely, so any combat carrying one was overruled with the wrong total.
+ *
+ * The matching mirrors the Kotlin source exactly, quirks included:
+ *  - RACE_ID/CLASS_ID compare the uppercased value against the enum, and NONE /
+ *    HUMAN match via the "characterX == enum" arm, so a condition can target
+ *    classless or raceless players.
+ *  - The secondary slot only counts with its card, and never when it duplicates
+ *    the primary or holds the empty value (NONE / HUMAN) — that is activeClasses
+ *    / activeRaces on the client, which is narrower than playerHasClass above.
+ *  - GENDER is compared case-sensitively, as Gender.entries.find does.
+ */
+function matchesCondition(modifier, player) {
+    switch (modifier.conditionType) {
+        case 'RACE_ID': {
+            const name = String(modifier.conditionValue || '').toUpperCase();
+            if (!VALID_RACES.has(name)) return false;
+            const secondaryCounts =
+                player.hasHalfBreed === true &&
+                player.secondaryRace === name &&
+                name !== 'HUMAN' &&
+                player.secondaryRace !== player.characterRace;
+            return player.characterRace === name || secondaryCounts;
+        }
+        case 'CLASS_ID': {
+            const name = String(modifier.conditionValue || '').toUpperCase();
+            if (!VALID_CLASSES.has(name)) return false;
+            const secondaryCounts =
+                player.hasSuperMunchkin === true &&
+                player.secondaryClass === name &&
+                name !== 'NONE' &&
+                player.secondaryClass !== player.characterClass;
+            return player.characterClass === name || secondaryCounts;
+        }
+        case 'GENDER':
+            return VALID_GENDERS.has(modifier.conditionValue) &&
+                player.gender === modifier.conditionValue;
+        default:
+            return false;
+    }
+}
+
+function countMatches(modifier, mainPlayer, helperPlayer) {
+    const players =
+        modifier.scope === 'MAIN_ONLY' ? [mainPlayer]
+        : modifier.scope === 'HELPER_ONLY' ? (helperPlayer ? [helperPlayer] : [])
+        : helperPlayer ? [mainPlayer, helperPlayer] : [mainPlayer];
+    return players.filter(p => matchesCondition(modifier, p)).length;
+}
+
+function conditionalBonus(monsters, mainPlayer, helperPlayer, side) {
+    let total = 0;
+    for (const monster of (monsters || [])) {
+        for (const modifier of (monster.conditionalModifiers || [])) {
+            if (modifier.side !== side) continue;
+            const matches = countMatches(modifier, mainPlayer, helperPlayer);
+            if (matches > 0) {
+                total += modifier.applyMode === 'PER_MATCHING_PLAYER'
+                    ? (modifier.amount || 0) * matches
+                    : (modifier.amount || 0);
+            }
+        }
+    }
+    return total;
 }
 
 function createCombatManager({ games, clientGames, sendError, logger }) {
@@ -39,13 +112,19 @@ function createCombatManager({ games, clientGames, sendError, logger }) {
             if (helperPlayer && playerHasClass(helperPlayer, 'CLERIC')) heroesPower += 3;
         }
 
+        heroesPower += conditionalBonus(combat.monsters, mainPlayer, helperPlayer, 'HEROES');
+
         let monstersPower = 0;
         let totalLevels = 0;
         let totalTreasures = 0;
         for (const monster of (combat.monsters || [])) {
             monstersPower += (monster.baseLevel || 0) + (monster.flatModifier || 0);
-            totalLevels += (monster.levels || 1);
-            totalTreasures += (monster.treasures || 1);
+            // `|| 1` treated a legal 0 as absent, so a deliberately treasure-less
+            // monster still paid out one treasure — while the client's
+            // `sumOf { it.treasures }` showed 0. sanitizeMonster already bounds
+            // both fields, so only a genuinely missing value needs a default.
+            totalLevels += Number.isFinite(monster.levels) ? monster.levels : 1;
+            totalTreasures += Number.isFinite(monster.treasures) ? monster.treasures : 1;
         }
         monstersPower += (combat.monsterModifier || 0);
 
@@ -53,13 +132,18 @@ function createCombatManager({ games, clientGames, sendError, logger }) {
             if (bonus.appliesTo === 'MONSTER') monstersPower += (bonus.amount || 0);
         }
 
+        monstersPower += conditionalBonus(combat.monsters, mainPlayer, helperPlayer, 'MONSTER');
+
         // A Warrior on either side of the party wins ties. The client's
         // CombatCalculator already checks both the main player and the helper, so
         // only checking the main player here made the server overrule a tie the
         // client had shown as a win.
         const isWarrior = playerHasClass(mainPlayer, 'WARRIOR')
             || playerHasClass(helperPlayer, 'WARRIOR');
-        const outcome = (heroesPower > monstersPower || (heroesPower === monstersPower && isWarrior)) ? 'WIN' : 'LOSE';
+        // Mirrors CombatCalculator.kt: the room's tiesGoToMonsters setting can
+        // hand ties to the heroes, and a Warrior always does.
+        const heroesWinTies = isWarrior || game.tiesGoToMonsters === false;
+        const outcome = (heroesPower > monstersPower || (heroesPower === monstersPower && heroesWinTies)) ? 'WIN' : 'LOSE';
         const helperLevelsGained =
             (outcome === 'WIN' && playerHasRace(helperPlayer, 'ELF')) ? 1 : 0;
 
@@ -89,14 +173,18 @@ function createCombatManager({ games, clientGames, sendError, logger }) {
             playerId: clientInfo.playerId,
             playerName: player.name,
             result: validResult,
-            purpose: purpose || "RANDOM",
-            success: success || false,
+            // `purpose` is a Kotlin enum on the client and this value is
+            // rebroadcast to the whole room, so an arbitrary string here breaks
+            // decoding for everyone. `success` must be a real boolean for the
+            // same reason.
+            purpose: VALID_DICE_PURPOSES.has(purpose) ? purpose : 'RANDOM',
+            success: success === true,
             timestamp: Date.now()
         };
 
         game.lastCombatDiceRoll = diceRollInfo;
 
-        logger.info(`🎲 ${player.name} rolled ${result} for ${purpose} - ${success ? 'SUCCESS' : 'FAIL'}`);
+        logger.info(`🎲 ${player.name} rolled ${diceRollInfo.result} for ${diceRollInfo.purpose} - ${diceRollInfo.success ? 'SUCCESS' : 'FAIL'}`);
 
         game.broadcast({
             type: "COMBAT_DICE_ROLL_RESULT",
@@ -112,6 +200,10 @@ function createCombatManager({ games, clientGames, sendError, logger }) {
 
 module.exports = {
     createCombatManager,
+    VALID_DICE_PURPOSES,
     playerHasClass,
-    playerHasRace
+    playerHasRace,
+    matchesCondition,
+    countMatches,
+    conditionalBonus
 };

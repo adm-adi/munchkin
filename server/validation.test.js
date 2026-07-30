@@ -22,6 +22,7 @@ const {
     normalizeGender,
     normalizeName,
     sanitizeMonster,
+    sanitizeConditionalModifier,
     sanitizeBonus
 } = require('./validation');
 
@@ -129,9 +130,47 @@ test('sanitizeMonster coerces isUndead strictly', () => {
 });
 
 test('sanitizeMonster bounds the conditional modifier list', () => {
-    const many = Array.from({ length: 50 }, (_, i) => ({ amount: i }));
+    const many = Array.from({ length: 50 }, (_, i) => ({
+        amount: i, side: 'HEROES', conditionType: 'GENDER', conditionValue: 'F'
+    }));
     assert.strictEqual(sanitizeMonster({ conditionalModifiers: many }).conditionalModifiers.length, 10);
     assert.deepStrictEqual(sanitizeMonster({ conditionalModifiers: 'nope' }).conditionalModifiers, []);
+});
+
+test('sanitizeMonster drops conditional modifiers that would break Kotlin decoding', () => {
+    // Bounding the count alone let `{"side":"BANANA"}` through into the broadcast
+    // snapshot, where the strict ModifierSide enum made every client throw.
+    const m = sanitizeMonster({
+        conditionalModifiers: [
+            { side: 'BANANA', conditionType: 'GENDER', conditionValue: 'F', amount: 2 },
+            { side: 'HEROES', conditionType: 'ASTROLOGY', conditionValue: 'F', amount: 2 },
+            'not-an-object',
+            null,
+            { side: 'HEROES', conditionType: 'GENDER', conditionValue: 'F', amount: 2 }
+        ]
+    });
+    assert.strictEqual(m.conditionalModifiers.length, 1, 'only the valid entry survives');
+    assert.strictEqual(m.conditionalModifiers[0].side, 'HEROES');
+});
+
+test('sanitizeConditionalModifier normalises every field the Kotlin type requires', () => {
+    const mod = sanitizeConditionalModifier({
+        side: 'MONSTER',
+        conditionType: 'RACE_ID',
+        conditionValue: 'ELF',
+        amount: '4',
+        scope: 'garbage',
+        applyMode: 'garbage'
+    });
+    assert.ok(mod.id, 'an id is generated so the modifier is addressable');
+    assert.strictEqual(mod.amount, 4);
+    assert.strictEqual(mod.scope, 'ANY_PARTICIPANT', 'unknown scope falls back to a valid enum value');
+    assert.strictEqual(mod.applyMode, 'ONCE_IF_MATCH', 'unknown applyMode falls back to a valid enum value');
+    assert.strictEqual(typeof mod.conditionValue, 'string');
+
+    assert.strictEqual(sanitizeConditionalModifier({ conditionType: 'GENDER' }), null, 'missing side is unsalvageable');
+    assert.strictEqual(sanitizeConditionalModifier({ side: 'HEROES' }), null, 'missing conditionType is unsalvageable');
+    assert.strictEqual(sanitizeConditionalModifier({ side: 'HEROES', conditionType: 'GENDER', amount: 1e9 }).amount, MODIFIER_LIMIT);
 });
 
 test('sanitizeMonster caps the name length', () => {

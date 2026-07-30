@@ -68,7 +68,13 @@ function createCatalogManager({ db, sendError, logger }) {
             modifier: Math.max(-20, Math.min(20, Math.round(Number(monster.modifier) || 0))),
             treasures: Math.max(0, Math.min(10, Math.round(Number(monster.treasures) || 1))),
             levels: Math.max(1, Math.min(5, Math.round(Number(monster.levels) || 1))),
-            isUndead: monster.isUndead === true
+            isUndead: monster.isUndead === true,
+            // Dropped before, so a monster contributed by a player lost its Bad
+            // Stuff on the way into the catalog — and the Bad Stuff is the whole
+            // consequence of losing a fight to it.
+            badStuff: typeof monster.badStuff === 'string'
+                ? monster.badStuff.trim().slice(0, 200)
+                : ''
         };
         monster = sanitizedMonster;
 
