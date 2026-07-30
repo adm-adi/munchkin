@@ -20,6 +20,7 @@ import com.munchkin.app.core.*
 import com.munchkin.app.ui.components.CounterButton
 import com.munchkin.app.ui.components.QuickModifierButtons
 import com.munchkin.app.ui.components.TraitChip
+import com.munchkin.app.ui.components.labelRes
 
 /**
  * Player detail screen for editing own stats.
@@ -42,6 +43,10 @@ fun PlayerDetailScreen(
     maxLevel: Int = 10,
     modifier: Modifier = Modifier
 ) {
+    // labelMapper is a plain lambda, not a composable, so the class/race names
+    // are resolved through the context rather than stringResource().
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -126,13 +131,13 @@ fun PlayerDetailScreen(
             // Class and Race Selectors (Only if not ReadOnly)
             if (!isReadOnly) {
                 // Class Selector
-                Text(text = "Clase", style = MaterialTheme.typography.titleMedium)
+                Text(text = stringResource(R.string.label_class), style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
                 AppDropdown(
                     options = CharacterClass.values().toList(),
                     selectedOption = player.characterClass,
                     onOptionSelected = onSetClass,
-                    labelMapper = { it.name }
+                    labelMapper = { context.getString(it.labelRes()) }
                 )
 
                 // Super Munchkin grants the abilities of two classes. There was no way
@@ -143,7 +148,7 @@ fun PlayerDetailScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "Súper Munchkin (dos clases)",
+                        text = stringResource(R.string.super_munchkin_two_classes),
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.weight(1f)
                     )
@@ -155,26 +160,26 @@ fun PlayerDetailScreen(
 
                 if (player.hasSuperMunchkin) {
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = "Segunda clase", style = MaterialTheme.typography.labelLarge)
+                    Text(text = stringResource(R.string.label_secondary_class), style = MaterialTheme.typography.labelLarge)
                     Spacer(modifier = Modifier.height(4.dp))
                     AppDropdown(
                         options = CharacterClass.values().toList(),
                         selectedOption = player.secondaryClass,
                         onOptionSelected = onSetSecondaryClass,
-                        labelMapper = { it.name }
+                        labelMapper = { context.getString(it.labelRes()) }
                     )
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // Race Selector
-                Text(text = "Raza", style = MaterialTheme.typography.titleMedium)
+                Text(text = stringResource(R.string.label_race), style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
                 AppDropdown(
                     options = CharacterRace.values().toList(),
                     selectedOption = player.characterRace,
                     onOptionSelected = onSetRace,
-                    labelMapper = { it.name }
+                    labelMapper = { context.getString(it.labelRes()) }
                 )
 
                 // Half-Breed is the race equivalent of Super Munchkin.
@@ -184,7 +189,7 @@ fun PlayerDetailScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "Mestizo (dos razas)",
+                        text = stringResource(R.string.half_breed_two_races),
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.weight(1f)
                     )
@@ -196,13 +201,13 @@ fun PlayerDetailScreen(
 
                 if (player.hasHalfBreed) {
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = "Segunda raza", style = MaterialTheme.typography.labelLarge)
+                    Text(text = stringResource(R.string.label_secondary_race), style = MaterialTheme.typography.labelLarge)
                     Spacer(modifier = Modifier.height(4.dp))
                     AppDropdown(
                         options = CharacterRace.values().toList(),
                         selectedOption = player.secondaryRace,
                         onOptionSelected = onSetSecondaryRace,
-                        labelMapper = { it.name }
+                        labelMapper = { context.getString(it.labelRes()) }
                     )
                 }
 

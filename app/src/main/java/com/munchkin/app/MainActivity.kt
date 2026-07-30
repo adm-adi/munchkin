@@ -14,8 +14,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -58,8 +61,12 @@ class MainActivity : ComponentActivity() {
                 val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
                 val scope = rememberCoroutineScope()
 
-                // Collect one-shot UI events (toasts, snackbars)
+                // Collect one-shot UI events. Every branch must be handled: an
+                // unhandled ShowError meant the server's rejection (not your turn,
+                // rate limited, combat limit reached) vanished, and the player saw
+                // their tap simply do nothing.
                 val context = androidx.compose.ui.platform.LocalContext.current
+                val snackbarHostState = remember { SnackbarHostState() }
                 LaunchedEffect(viewModel) {
                     viewModel.events.collect { event ->
                         when (event) {
@@ -69,7 +76,15 @@ class MainActivity : ComponentActivity() {
                                     context.getString(R.string.reconnected),
                                     android.widget.Toast.LENGTH_SHORT
                                 ).show()
-                            else -> { /* other events handled elsewhere */ }
+                            is com.munchkin.app.viewmodel.GameUiEvent.ShowError ->
+                                snackbarHostState.showSnackbar(event.message)
+                            is com.munchkin.app.viewmodel.GameUiEvent.ShowSuccess ->
+                                snackbarHostState.showSnackbar(event.message)
+                            is com.munchkin.app.viewmodel.GameUiEvent.ShowMessage ->
+                                snackbarHostState.showSnackbar(event.message)
+                            is com.munchkin.app.viewmodel.GameUiEvent.PlaySound -> {
+                                // Sound is driven by EventEffects off the game state.
+                            }
                         }
                     }
                 }
@@ -234,8 +249,8 @@ class MainActivity : ComponentActivity() {
                                             myPlayerId = myPlayerId,
                                             monsterSearchResults = uiState.monsterSearchResults,
                                             onStartCombat = { viewModel.startCombat() },
-                                            onAddMonster = { name, level, mod, undead ->
-                                                viewModel.addMonster(name, level, mod, undead)
+                                            onAddMonster = { name, level, mod, undead, badStuff ->
+                                                viewModel.addMonster(name, level, mod, undead, badStuff)
                                             },
                                             onSearchMonsters = { viewModel.searchMonsters(it) },
                                             onRequestCreateGlobalMonster = { name, level, mod, undead ->
@@ -324,8 +339,8 @@ class MainActivity : ComponentActivity() {
                                         myPlayerId = myPlayerId,
                                         monsterSearchResults = uiState.monsterSearchResults,
                                         onStartCombat = { viewModel.startCombat() },
-                                        onAddMonster = { name, level, mod, undead ->
-                                            viewModel.addMonster(name, level, mod, undead)
+                                        onAddMonster = { name, level, mod, undead, badStuff ->
+                                            viewModel.addMonster(name, level, mod, undead, badStuff)
                                         },
                                         onSearchMonsters = { viewModel.searchMonsters(it) },
                                         onRequestCreateGlobalMonster = { name, level, mod, undead ->
@@ -409,6 +424,24 @@ class MainActivity : ComponentActivity() {
                     } // AnimatedContent
                     } // Surface
                     
+                    // Losing a fight or failing to escape hands the player their
+                    // Bad Stuff to resolve. Hosted here so it survives the combat
+                    // screen being replaced by the board when the combat clears.
+                    val pendingBadStuff by viewModel.pendingBadStuff.collectAsState()
+                    com.munchkin.app.ui.components.BadStuffDialog(
+                        monsters = pendingBadStuff,
+                        onDismiss = { viewModel.dismissBadStuff() }
+                    )
+
+                    // Above the screen content so a rejection is readable from any
+                    // screen, including the modal-heavy combat flow.
+                    SnackbarHost(
+                        hostState = snackbarHostState,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding()
+                    )
+
                     // Debug log viewer with floating button
                     DebugLogViewer(showTrigger = BuildConfig.DEBUG)
                 } // Box
