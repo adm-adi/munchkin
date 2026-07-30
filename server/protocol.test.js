@@ -93,6 +93,83 @@ test('an invalid token is rejected with AUTH_FAILED', async () => {
     await c.close();
 });
 
+// ─────────────────── username uniqueness ───────────────────
+//
+// Only email was UNIQUE in the schema, so nothing stopped a second account
+// taking an existing name. Login accepts either identifier and returns the first
+// matching row, so the original owner could then be handed someone else's row
+// and fail their own password check. Production had one name held three times.
+
+test('a second account cannot take an existing username', async () => {
+    const first = await registerUser(server.url, 'unique_name');
+    assert.strictEqual(first.reply.type, 'AUTH_SUCCESS', JSON.stringify(first.reply));
+    await first.client.close();
+
+    const clash = await TestClient.connect(server.url);
+    const reply = await clash.request({
+        type: 'REGISTER',
+        username: 'unique_name',
+        email: 'someone_else@example.com',
+        password: 'test-password-123'
+    }, ['AUTH_SUCCESS', 'ERROR']);
+    assert.strictEqual(reply.type, 'ERROR', 'a duplicate username must be refused');
+    assert.strictEqual(
+        reply.code, 'USERNAME_EXISTS',
+        'and say so — it used to surface as a generic REGISTER_FAILED'
+    );
+    await clash.close();
+});
+
+test('username uniqueness ignores case, so it cannot be sidestepped', async () => {
+    const first = await registerUser(server.url, 'CaseHolder');
+    assert.strictEqual(first.reply.type, 'AUTH_SUCCESS');
+    await first.client.close();
+
+    const clash = await TestClient.connect(server.url);
+    const reply = await clash.request({
+        type: 'REGISTER',
+        username: 'caseholder',
+        email: 'case_clash@example.com',
+        password: 'test-password-123'
+    }, ['AUTH_SUCCESS', 'ERROR']);
+    assert.strictEqual(reply.type, 'ERROR', 'a case variant is the same name to a reader');
+    assert.strictEqual(reply.code, 'USERNAME_EXISTS');
+    await clash.close();
+});
+
+test('login by username is case-insensitive, matching the index', async () => {
+    // Otherwise a name could be blocked from registration yet unusable to log in.
+    const reg = await registerUser(server.url, 'MixedCase', 'test-password-123');
+    assert.strictEqual(reg.reply.type, 'AUTH_SUCCESS');
+    await reg.client.close();
+
+    const c = await TestClient.connect(server.url);
+    const reply = await c.request(
+        { type: 'LOGIN', email: 'mixedcase', password: 'test-password-123' },
+        ['AUTH_SUCCESS', 'ERROR']
+    );
+    assert.strictEqual(reply.type, 'AUTH_SUCCESS', JSON.stringify(reply));
+    assert.strictEqual(reply.user.username, 'MixedCase', 'the stored casing is preserved');
+    await c.close();
+});
+
+test('renaming a profile onto a taken username is refused', async () => {
+    const taken = await registerUser(server.url, 'taken_name');
+    await taken.client.close();
+
+    const mover = await registerUser(server.url, 'mover_name');
+    const reply = await mover.client.request(
+        { type: 'UPDATE_PROFILE', userId: mover.reply.user.id, username: 'taken_name' },
+        ['PROFILE_UPDATED', 'ERROR']
+    );
+    assert.strictEqual(reply.type, 'ERROR');
+    assert.strictEqual(
+        reply.code, 'USERNAME_EXISTS',
+        'the profile path surfaced this as a generic UPDATE_FAILED'
+    );
+    await mover.client.close();
+});
+
 // ─────────────────── access control (the IDOR) ───────────────────
 
 test('GET_HISTORY refuses to read another account\'s history', async () => {

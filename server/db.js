@@ -186,15 +186,25 @@ function initTables() {
         // "which account did I just log into?" ambiguous. Enforce uniqueness going
         // forward; if existing rows already collide the index creation fails and we
         // surface it rather than silently leaving the ambiguity in place.
-        db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)`, (err) => {
-            if (err) {
-                logger.error(
-                    "⚠️ Could not enforce unique usernames — existing duplicates must be " +
-                    "resolved manually. Login by username stays ambiguous until then:",
-                    err.message
-                );
+        //
+        // NOCASE, and matched NOCASE in findUserByEmailOrUsername: a
+        // case-sensitive index would still let "sirpepo" sit next to "SirPepo",
+        // which on a shared leaderboard is impersonation, and would leave a name
+        // that can be registered but never logged in with.
+        db.run(`DROP INDEX IF EXISTS idx_users_username`); // case-sensitive predecessor
+        db.run(
+            `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase
+             ON users(username COLLATE NOCASE)`,
+            (err) => {
+                if (err) {
+                    logger.error(
+                        "⚠️ Could not enforce unique usernames — existing duplicates must be " +
+                        "resolved manually. Login by username stays ambiguous until then:",
+                        err.message
+                    );
+                }
             }
-        });
+        );
 
         // Seed Monsters if empty
         db.get("SELECT count(*) as count FROM monsters", [], (err, row) => {
@@ -347,8 +357,12 @@ async function updateUser(userId, newUsername, newPassword, newAvatarId = null, 
 
 function findUserByEmailOrUsername(identifier) {
     return new Promise((resolve, reject) => {
-        // Search by email OR username
-        const sql = `SELECT * FROM users WHERE email = ? OR username = ?`;
+        // The username side is compared NOCASE to match the unique index, so a
+        // player who registered "SirPepo" can sign in typing "sirpepo". Email is
+        // left exact: its UNIQUE constraint is case-sensitive, and loosening the
+        // comparison without the index to match would reintroduce the same
+        // ambiguity this is fixing.
+        const sql = `SELECT * FROM users WHERE email = ? OR username = ? COLLATE NOCASE`;
         db.get(sql, [identifier, identifier], (err, row) => {
             if (err) {
                 reject(err);
