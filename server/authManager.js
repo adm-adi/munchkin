@@ -202,6 +202,11 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
                 logger.error('Register failed:', err.message);
                 if (err.message === 'EMAIL_EXISTS') {
                     sendError(ws, 'EMAIL_EXISTS', 'El email ya esta registrado');
+                } else if (err.message === 'USERNAME_EXISTS') {
+                    // db.createUser has always raised this, but it fell through to
+                    // the generic branch, so a taken name looked like a server
+                    // fault and the player had no idea what to change.
+                    sendError(ws, 'USERNAME_EXISTS', 'Ese nombre de usuario ya está en uso');
                 } else {
                     sendError(ws, 'REGISTER_FAILED', 'Error al registrar usuario');
                 }
@@ -350,7 +355,11 @@ function createAuthManager({ db, logger, sendError, jwtSecret, jwtExpirySeconds 
             })
             .catch(err => {
                 logger.error('Update profile error:', err);
-                sendError(ws, 'UPDATE_FAILED', 'Error al actualizar perfil');
+                if (err.message === 'USERNAME_EXISTS') {
+                    sendError(ws, 'USERNAME_EXISTS', 'Ese nombre de usuario ya está en uso');
+                } else {
+                    sendError(ws, 'UPDATE_FAILED', 'Error al actualizar perfil');
+                }
             });
     }
 
