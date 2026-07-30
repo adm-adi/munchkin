@@ -677,9 +677,12 @@ private fun CompactButton(
             contentColor = contentColor
         ),
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+        // 48dp is the accessibility minimum, and these are the most tapped
+        // controls in the app: every combat modifier goes through them, often
+        // in a hurry with the table waiting.
         modifier = Modifier
-            .widthIn(min = 40.dp)
-            .height(36.dp),
+            .widthIn(min = 48.dp)
+            .height(48.dp),
         shape = RoundedCornerShape(8.dp)
     ) {
         Text(

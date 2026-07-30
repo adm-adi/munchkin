@@ -313,8 +313,11 @@ fun PlayerAvatarNode(
             maxLines = 1
         )
 
+        // combatPower, not level + gear: it also folds in tempCombatBonus, which
+        // every other view uses, so the same player showed two different strengths
+        // depending on which one you were looking at.
         Text(
-            text = "Nv ${player.level} • ⚔ ${player.level + player.gearBonus}",
+            text = "Nv ${player.level} • ⚔ ${player.combatPower}",
             style = MaterialTheme.typography.bodySmall,
             color = NeonGray400
         )

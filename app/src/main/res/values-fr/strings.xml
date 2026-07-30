@@ -12,8 +12,8 @@
     <string name="gender">Genre</string>
     <string name="game_mode">Mode de jeu</string>
     <string name="game_mode_normal">Normal (Niv. 10)</string>
-    <string name="game_mode_super">Super Munchkin (Niv. 20)</string>
-    <string name="game_mode_super_desc">Les joueurs doivent atteindre le niveau 20 pour gagner !</string>
+    <string name="game_mode_super">Épique (Niv. 20)</string>
+    <string name="game_mode_super_desc">Il faut atteindre le niveau 20 pour gagner. Sans rapport avec la carte Super Munchkin.</string>
     <string name="mode_badge_normal">🏆 Niveau 10</string>
     <string name="mode_badge_super">⚡ Super Munchkin — Niveau 20</string>
     <string name="gender_male">Homme</string>
@@ -281,8 +281,8 @@
     <string name="ability_elf_run_away">+1 au jet de fuite.</string>
     <string name="ability_dwarf_big_items">Vous pouvez porter autant d\'objets Encombrants que vous voulez.</string>
     <string name="ability_dwarf_hand_size">Vous pouvez avoir 6 cartes en main.</string>
-    <string name="ability_halfling_sell">Vous pouvez vendre un objet au double de sa valeur.</string>
-    <string name="ability_halfling_hand_size">Vous pouvez avoir 6 cartes en main.</string>
+    <string name="ability_halfling_sell">Une fois par tour, vous pouvez vendre un objet au double de son prix ; les autres objets conservent leur prix normal.</string>
+    <string name="ability_halfling_run_away">-1 au jet de fuite.</string>
 
     <!-- Combat, class and race names -->
     <string name="combat_is_undead">Mort-vivant</string>
@@ -313,4 +313,62 @@
     <string name="race_halfling">Halfelin</string>
     <string name="race_gnome">Gnome</string>
     <string name="race_orc">Orque</string>
+
+    <!-- Server-rejection feedback (surfaced as a snackbar in MainActivity) -->
+    <string name="error_server_generic">Erreur du serveur : %1$s</string>
+    <string name="error_not_found">Cette partie n\'existe plus.</string>
+    <string name="error_player_not_found">Joueur introuvable.</string>
+    <string name="error_unauthorized_join">Vous n\'êtes pas autorisé à rejoindre cette partie.</string>
+    <string name="error_invalid_data">Données invalides.</string>
+    <string name="error_rate_limited">Trop de tentatives. Attendez quelques secondes.</string>
+    <string name="error_forbidden">Action non autorisée.</string>
+    <string name="error_email_exists">Cet e-mail est déjà enregistré.</string>
+    <string name="error_username_exists">Ce nom d\'utilisateur est déjà pris.</string>
+    <string name="error_profile_update">Impossible d\'enregistrer le profil. Réessayez.</string>
+    <string name="error_auth_failed">E-mail ou mot de passe incorrect.</string>
+    <string name="error_combat_active">Un combat est déjà en cours.</string>
+    <string name="error_no_combat">Aucun combat en cours.</string>
+    <string name="error_monster_limit">Limite de monstres atteinte pour ce combat.</string>
+    <string name="error_bonus_limit">Limite de bonus atteinte.</string>
+    <string name="error_invalid_helper">Sélection d\'assistant invalide.</string>
+    <string name="error_timeout">Connexion impossible. Vérifiez votre connexion Internet et réessayez.</string>
+    <string name="error_server_unavailable">Le serveur est indisponible. Réessayez plus tard.</string>
+    <string name="error_host_unresolved">Serveur introuvable. Vérifiez votre connexion.</string>
+    <string name="error_connection_lost_retry">Connexion perdue. Réessayez.</string>
+    <string name="error_connection_retry">Erreur de connexion. Réessayez.</string>
+    <string name="error_save_monster">Impossible d\'enregistrer le monstre.</string>
+    <string name="welcome_user">Bienvenue, %1$s !</string>
+    <string name="welcome_back_user">Content de vous revoir, %1$s !</string>
+    <string name="monster_created">Monstre créé : %1$s</string>
+    <string name="update_available_version">La version %1$s est disponible</string>
+    <string name="update_already_latest">Vous avez déjà la dernière version</string>
+    <string name="game_deleted_by_host">L\'hôte a supprimé cette partie</string>
+    <string name="game_deleted_ok">Partie supprimée</string>
+
+    <!-- Game log drawer -->
+    <string name="log_level_up">%1$s est passé au niveau %2$d</string>
+    <string name="log_level_down">%1$s est redescendu au niveau %2$d</string>
+    <string name="log_combat_ended">Combat terminé</string>
+
+    <!-- Class / race picker labels -->
+    <string name="label_class">Classe</string>
+    <string name="label_race">Race</string>
+    <string name="label_secondary_class">Deuxième classe</string>
+    <string name="label_secondary_race">Deuxième race</string>
+    <string name="super_munchkin_two_classes">Super Munchkin (deux classes)</string>
+    <string name="half_breed_two_races">Sang-mêlé (deux races)</string>
+
+    <!-- Run away dialog -->
+    <string name="run_away_result">Résultat : %1$d</string>
+    <string name="run_away_breakdown">%1$d au dé, %2$s</string>
+
+    <!-- Bad Stuff prompt (losing a fight / failing to escape) -->
+    <string name="bad_stuff_title">La Sale Chose vous frappe</string>
+    <string name="bad_stuff_intro">Appliquez à table ce qu\'indiquent ces cartes. L\'application ne peut pas en connaître l\'effet.</string>
+    <string name="bad_stuff_unknown">Consultez la Sale Chose sur la carte.</string>
+    <string name="bad_stuff_done">Compris</string>
+    <!-- Run away threshold -->
+    <string name="run_away_threshold_hint">Vous fuyez avec %1$d ou plus.</string>
+    <string name="run_away_suggestion_escaped">Avec %1$d, vous fuyez.</string>
+    <string name="run_away_suggestion_caught">Avec %1$d, vous êtes rattrapé.</string>
 </resources>
