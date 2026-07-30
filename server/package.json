@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "check": "node --check server.js && node --check db.js && node --check validation.js"
+    "check": "node --check server.js && node --check db.js && node --check validation.js && node --check authManager.js && node --check catalogManager.js && node --check combatManager.js && node --check gameAdminManager.js && node --check historyManager.js && node --check turnManager.js && node --check logger.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

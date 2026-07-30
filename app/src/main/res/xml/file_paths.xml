@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Only the update APK is ever shared through the FileProvider (UpdateChecker),
+  so only its directory is exposed. The old external-path/cache-path entries
+  granted any receiving app a readable URI into the whole external storage.
+-->
 <paths>
     <external-files-path name="downloads" path="Download/" />
-    <external-path name="external_files" path="." />
-    <cache-path name="cache" path="." />
 </paths>
