@@ -447,8 +447,7 @@ class GameViewModel : ViewModel() {
                             // from killing a monster, so a player who simply tapped
                             // their way up to it is not offered as a winner.
                             val winner = s.players.values.find {
-                                it.level >= s.settings.maxLevel &&
-                                    (!s.settings.requiresCombatToWin || it.reachedMaxLevelViaCombat)
+                                it.canBeConfirmedWinner(s.settings)
                             }
                             if (winner != null && _uiState.value.pendingWinnerId != winner.playerId) {
                                 // Show confirmation dialog

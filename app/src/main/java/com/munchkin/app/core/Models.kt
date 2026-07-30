@@ -91,8 +91,13 @@ data class PlayerState(
      * [GameSettings.levelTenOnlyCombat] declares it, but nothing recorded *how* a
      * level was gained, so the win prompt fired for anyone who tapped +1 up to the
      * maximum. Cleared by the server if the player drops back below it.
+     *
+     * Nullable on purpose: `null` means the server does not report this at all.
+     * A non-null default would make an updated app talking to a not-yet-updated
+     * server read every player as "did not kill anything", and nobody could ever
+     * win. See [canBeConfirmedWinner].
      */
-    val reachedMaxLevelViaCombat: Boolean = false
+    val reachedMaxLevelViaCombat: Boolean? = null
 ) {
     /**
      * Combined combat power = level + gear + temp bonus
@@ -143,6 +148,18 @@ data class PlayerState(
     fun hasClass(target: CharacterClass): Boolean = activeClasses.contains(target)
 
     fun hasRace(target: CharacterRace): Boolean = activeRaces.contains(target)
+
+    /**
+     * Whether this player may be offered to the host as the winner.
+     *
+     * Only a server that reports [reachedMaxLevelViaCombat] can enforce "the
+     * winning level only counts if you killed something"; an older one says
+     * nothing, and then the pre-existing behaviour applies rather than locking
+     * the game so it can never end.
+     */
+    fun canBeConfirmedWinner(settings: GameSettings): Boolean =
+        level >= settings.maxLevel &&
+            (!settings.requiresCombatToWin || reachedMaxLevelViaCombat != false)
 
     /**
      * Check if player can add another race

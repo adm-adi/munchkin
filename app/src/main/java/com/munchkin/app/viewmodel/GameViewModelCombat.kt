@@ -98,14 +98,21 @@ fun GameViewModel.searchMonsters(query: String) {
     }
 }
 
+/**
+ * Adds a hand-typed monster to the current fight, and contributes it to the
+ * shared catalog when the player has an account.
+ *
+ * The fight comes first. Signed out, this used to write an error into
+ * `uiState.error` and return — but the combat screen never renders that field,
+ * so the dialog just closed and no monster appeared, with nothing said. And
+ * contributing to a global catalog is the part that needs an account; adding a
+ * monster to your own combat never did.
+ */
 fun GameViewModel.requestCreateGlobalMonster(name: String, level: Int, modifier: Int, isUndead: Boolean) {
-    val token = sessionManager?.getAuthToken()
-    if (token == null) {
-        _uiState.update {
-            it.copy(error = MunchkinApp.context.getString(R.string.error_session_expired))
-        }
-        return
-    }
+    // Always put it in the fight, whoever you are.
+    addMonster(name, level, modifier, isUndead)
+
+    val token = sessionManager?.getAuthToken() ?: return
     val user = _uiState.value.userProfile
 
     val monster = CatalogMonster(
@@ -124,12 +131,12 @@ fun GameViewModel.requestCreateGlobalMonster(name: String, level: Int, modifier:
             if (result.isSuccess) {
                 val created = result.getOrNull()
                 if (created != null) {
-                    addMonster(created.name, created.level, created.modifier, created.isUndead)
                     _events.emit(GameUiEvent.ShowSuccess(
                         MunchkinApp.context.getString(R.string.monster_created, created.name)
                     ))
                 }
             } else {
+                // The monster is already in the fight; only the shared copy failed.
                 _events.emit(GameUiEvent.ShowError(
                     MunchkinApp.context.getString(R.string.error_save_monster)
                 ))
