@@ -9,9 +9,11 @@ const WebSocket = require('ws');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
+const path = require('path');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
+const { createStaticFileServer } = require('./staticFiles');
 const { createAuthManager } = require('./authManager');
 const { createCatalogManager } = require('./catalogManager');
 const { createCombatManager } = require('./combatManager');
@@ -138,9 +140,42 @@ function recordApiRequest(ip) {
 }
 
 // HTTP/HTTPS Request Handler
+//
+// The helmet instance is created once, not per request, and its CSP is written
+// out explicitly because this server now serves a browser app (server/public):
+//  - script-src 'self' allows only our own ES modules; no inline scripts.
+//  - connect-src names ws:/wss: explicitly. CSP3 says 'self' covers same-origin
+//    WebSockets, but older Safari builds disagreed, and the web client's whole
+//    job is opening a WebSocket back to this host.
+//  - upgrade-insecure-requests is deliberately omitted: in cleartext HTTP/WS
+//    deployments (no certs present) it would force ws:// up to wss:// and break
+//    the socket while the pages still load fine.
+const applyHelmet = helmet({
+    contentSecurityPolicy: {
+        useDefaults: false,
+        directives: {
+            'default-src': ["'self'"],
+            'script-src': ["'self'"],
+            'style-src': ["'self'", "'unsafe-inline'"],
+            'img-src': ["'self'", 'data:'],
+            'connect-src': ["'self'", 'ws:', 'wss:'],
+            'manifest-src': ["'self'"],
+            'base-uri': ["'self'"],
+            'form-action': ["'self'"],
+            'frame-ancestors': ["'none'"],
+            'object-src': ["'none'"]
+        }
+    }
+});
+
+const serveStatic = createStaticFileServer({
+    rootDir: path.join(__dirname, 'public'),
+    logger
+});
+
 function handleRequest(req, res) {
     // Apply Helmet Security Headers
-    helmet()(req, res, () => {
+    applyHelmet(req, res, () => {
         // Continue with normal handling
         processRequest(req, res);
     });
@@ -205,6 +240,13 @@ function processRequest(req, res) {
     if (req.method === 'GET' && parsedUrl.pathname === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ status: 'ok', games: games.size, uptime: process.uptime() }));
+        return;
+    }
+
+    // Web client (server/public): index.html, JS modules, styles, icons. The
+    // handler owns the reply only for safe, known asset paths — anything else
+    // falls through to the 404 below.
+    if (serveStatic(req, res, parsedUrl.pathname)) {
         return;
     }
 

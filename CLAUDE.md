@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Munchkin Mesa Tracker** is an Android client plus a Node.js backend for synchronized Munchkin sessions. The current product uses a remote authoritative WebSocket server; the old LAN/embedded-host path is no longer part of the active codebase.
+**Munchkin Mesa Tracker** is an Android client plus a Node.js backend for synchronized Munchkin sessions, plus a web client (`server/public/`) served by the backend itself so iPhone/desktop players can join the same rooms. The current product uses a remote authoritative WebSocket server; the old LAN/embedded-host path is no longer part of the active codebase.
 
 ## Build Commands
 
@@ -73,6 +73,8 @@ UI <- GameViewModel <- GameClient <- authoritative server state
 | `server/authManager.js` | Login/register/profile handlers |
 | `server/historyManager.js` | History and leaderboard handlers |
 | `server/gameAdminManager.js` | Game-over/delete/kick/swap/admin handlers |
+| `server/staticFiles.js` | Safe static serving for the web client (path-traversal proof) |
+| `server/public/` | Web client (PWA, no build step): `js/protocol.mjs` mirrors `Protocol.kt`/`Events.kt`, `js/engine.mjs` mirrors `GameEngine.kt`, `js/combat.mjs` mirrors `CombatCalculator.kt`, `js/net.mjs` mirrors `GameClient.kt`, `js/app.mjs` is the UI |
 
 ### Serialization Constraints
 
@@ -133,6 +135,10 @@ install. There are two layers:
   against a temporary database (`testServer.js`) and drive it over a real
   WebSocket. This is the layer that covers the handlers, which is where the bugs
   have actually been.
+- `webclient.test.mjs` — static-file serving (MIME types, traversal attempts) plus
+  the same boot-a-real-server pattern driven through the web client's own modules
+  (`public/js/protocol.mjs`, `net.mjs`, `engine.mjs`, `combat.mjs`), proving the
+  web client and the server stay wire-compatible.
 
 When writing protocol tests, use `client.drain()` / `await client.settle()` before
 asserting on a reply. Joins, another player's actions, and timer changes all
@@ -152,7 +158,13 @@ Test-only environment knobs, all with production-safe defaults: `PORT`,
   `DebugLogViewer` makes client-side logs user-visible.
 - **bcrypt must stay async.** The sync variants block Node's single event loop for the
   full cost-12 hash, freezing every active game on each login.
-- **Client-side combat math must match `combatManager.js`.** Both compute the outcome;
-  the server wins. Divergence shows up as the `COMBAT_END mismatch` warning.
+- **Client-side combat math must match `combatManager.js`.** Three implementations
+  compute the outcome — `core/CombatCalculator.kt`, `server/combatManager.js`, and
+  `server/public/js/combat.mjs` — and the server wins. A rule change must land in
+  all three. Divergence shows up as the `COMBAT_END mismatch` warning.
+- **The web client speaks the Android dialect.** Events built in
+  `public/js/protocol.mjs` are re-broadcast verbatim to Android clients, whose
+  kotlinx decoding throws on a missing field with no default — builders must send
+  every field, defaults included (`webclient.test.mjs` asserts the shapes).
 - **Requests carrying a `userId` must authorize it against `ws.userId`.** Trusting the
   client-supplied id is how `GET_HISTORY` became an IDOR.

@@ -5,6 +5,7 @@ Aplicacion Android para gestionar partidas de Munchkin con sincronizacion en tie
 ## Estado actual
 
 - Cliente Android en Kotlin + Jetpack Compose
+- Cliente web (PWA) servido por el propio backend — para iPhone y escritorio
 - Backend Node.js + SQLite
 - La app apunta por defecto al servidor remoto configurado en [ServerConfig.kt](/D:/IA/Project/Munchkin/munchkin/app/src/main/java/com/munchkin/app/network/ServerConfig.kt:1)
 - El flujo activo es siempre `UI -> ViewModel -> GameClient -> server.js -> snapshot/evento -> cliente`
@@ -26,6 +27,19 @@ La pila antigua de LAN/host local ya no forma parte del producto.
 - Red cliente: Ktor WebSockets
 - Backend: Node.js, ws, SQLite
 - Serializacion: `kotlinx.serialization` en cliente, JSON plano en servidor
+
+## Cliente web
+
+El servidor sirve una versión web del tracker en `server/public/` (sin paso de
+build: HTML + módulos ES). Habla exactamente el mismo protocolo WebSocket que la
+app, así que jugadores de Android y de navegador comparten mesa. En iPhone:
+abrir la URL del servidor en Safari y "Añadir a pantalla de inicio" — queda
+instalada como una app (PWA).
+
+```bash
+cd server && JWT_SECRET=... npm start
+# abrir http://localhost:8765
+```
 
 ## Compilar
 
