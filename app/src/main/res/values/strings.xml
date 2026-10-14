@@ -375,4 +375,29 @@
     <string name="run_away_threshold_hint">Escapas con %1$d o más.</string>
     <string name="run_away_suggestion_escaped">Con %1$d escapas.</string>
     <string name="run_away_suggestion_caught">Con %1$d te atrapan.</string>
+
+    <!-- Enhancements: Combat, Death, Victory, QR, Turn, Catalog -->
+    <string name="death_reset_gear">Muerte (Equipo a 0)</string>
+    <string name="death_confirm_title">¿Aplicar Muerte?</string>
+    <string name="death_confirm_message">Perderás todo tu equipo (+0), pero conservarás tu Nivel, Raza y Clase actuales.</string>
+    <string name="treasures_label">Tesoros</string>
+    <string name="levels_reward_label">Niveles</string>
+    <string name="warrior_tie_win_badge">⚔️ Victoria por empate (Guerrero)</string>
+    <string name="remove_monster">Eliminar monstruo</string>
+    <string name="your_turn">¡Es tu turno!</string>
+    <string name="player_turn">Turno de %1$s</string>
+    <string name="confirm_victory_title">Confirmar victoria</string>
+    <string name="confirm_victory_message">%1$s ha alcanzado el nivel máximo. ¿Quieres finalizar la partida y registrar la victoria?</string>
+    <string name="confirm_action">Confirmar</string>
+    <string name="delete_game_title">Borrar Partida</string>
+    <string name="delete_game_confirm">¿Estás seguro de que quieres borrar la partida? Todos los jugadores serán desconectados.</string>
+    <string name="delete_action">Borrar</string>
+    <string name="victory_dialog_title">🏆 ¡Partida Finalizada!</string>
+    <string name="victory_dialog_winner">¡%1$s ha ganado la partida!</string>
+    <string name="return_to_home">Volver al Inicio</string>
+    <string name="scan_qr_button">Escanear QR</string>
+    <string name="resume_hosted_game">Retomar</string>
+    <string name="lobby_tie_message">⚔️ ¡Empate! Los jugadores empatados deben volver a lanzar.</string>
+    <string name="lobby_waiting_rolls">🎲 Esperando a que todos lancen los dados…</string>
+    <string name="modifiers_label">Modificadores (Bonus/Malus): %1$s</string>
 </resources>

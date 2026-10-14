@@ -11,6 +11,7 @@ import com.munchkin.app.core.CombatAddMonster
 import com.munchkin.app.core.CombatEnd
 import com.munchkin.app.core.CombatOutcome
 import com.munchkin.app.core.CombatRemoveHelper
+import com.munchkin.app.core.CombatRemoveMonster
 import com.munchkin.app.core.CombatSetModifier
 import com.munchkin.app.core.CombatStart
 import com.munchkin.app.network.GameClient
@@ -69,12 +70,13 @@ fun GameViewModel.modifyCombatModifier(target: BonusTarget, delta: Int) {
 
 fun GameViewModel.startCombat() {
     val playerId = myPlayerId ?: return
+    val mainId = _uiState.value.gameState?.turnPlayerId ?: playerId
     sendPlayerEvent { pid ->
         CombatStart(
             eventId = UUID.randomUUID().toString(),
             actorId = pid,
             timestamp = System.currentTimeMillis(),
-            mainPlayerId = playerId
+            mainPlayerId = mainId
         )
     }
 }
@@ -101,16 +103,26 @@ fun GameViewModel.searchMonsters(query: String) {
 /**
  * Adds a hand-typed monster to the current fight, and contributes it to the
  * shared catalog when the player has an account.
- *
- * The fight comes first. Signed out, this used to write an error into
- * `uiState.error` and return — but the combat screen never renders that field,
- * so the dialog just closed and no monster appeared, with nothing said. And
- * contributing to a global catalog is the part that needs an account; adding a
- * monster to your own combat never did.
  */
-fun GameViewModel.requestCreateGlobalMonster(name: String, level: Int, modifier: Int, isUndead: Boolean) {
+fun GameViewModel.requestCreateGlobalMonster(
+    name: String,
+    level: Int,
+    modifier: Int,
+    isUndead: Boolean,
+    treasures: Int = 1,
+    levels: Int = 1,
+    badStuff: String = ""
+) {
     // Always put it in the fight, whoever you are.
-    addMonster(name, level, modifier, isUndead)
+    addMonster(
+        name = name,
+        level = level,
+        modifier = modifier,
+        isUndead = isUndead,
+        badStuff = badStuff,
+        treasures = treasures,
+        levels = levels
+    )
 
     val token = sessionManager?.getAuthToken() ?: return
     val user = _uiState.value.userProfile
@@ -120,6 +132,9 @@ fun GameViewModel.requestCreateGlobalMonster(name: String, level: Int, modifier:
         level = level,
         modifier = modifier,
         isUndead = isUndead,
+        badStuff = badStuff,
+        treasures = treasures,
+        levels = levels,
         createdBy = user?.username
     )
 
@@ -152,10 +167,14 @@ fun GameViewModel.addMonster(
     level: Int,
     modifier: Int,
     isUndead: Boolean,
-    badStuff: String = ""
+    badStuff: String = "",
+    treasures: Int = 1,
+    levels: Int = 1
 ) {
     val clampedLevel = level.coerceIn(1, 20)
     val clampedModifier = modifier.coerceIn(-10, 10)
+    val clampedTreasures = treasures.coerceIn(0, 10)
+    val clampedLevels = levels.coerceIn(1, 5)
     sendPlayerEvent { playerId ->
         CombatAddMonster(
             eventId = UUID.randomUUID().toString(),
@@ -166,11 +185,41 @@ fun GameViewModel.addMonster(
                 name = name,
                 baseLevel = clampedLevel,
                 flatModifier = clampedModifier,
+                treasures = clampedTreasures,
+                levels = clampedLevels,
                 isUndead = isUndead,
-                // Losing a fight means suffering this monster's Bad Stuff, so it
-                // has to travel with the monster into the combat.
                 badStuff = badStuff
             )
+        )
+    }
+}
+
+fun GameViewModel.removeMonster(monsterId: String) {
+    sendPlayerEvent { playerId ->
+        CombatRemoveMonster(
+            eventId = UUID.randomUUID().toString(),
+            actorId = playerId,
+            timestamp = System.currentTimeMillis(),
+            monsterId = monsterId
+        )
+    }
+}
+
+/**
+ * Cancels/closes an active combat without awarding rewards or triggering Bad Stuff
+ * (e.g. opened by mistake, Wizard charm spell, Pollymorph potion, etc.).
+ */
+fun GameViewModel.cancelCombat() {
+    if (_uiState.value.gameState?.combat == null) return
+    sendPlayerEvent { playerId ->
+        CombatEnd(
+            eventId = UUID.randomUUID().toString(),
+            actorId = playerId,
+            timestamp = System.currentTimeMillis(),
+            outcome = CombatOutcome.ESCAPE,
+            levelsGained = 0,
+            treasuresGained = 0,
+            helperLevelsGained = 0
         )
     }
 }

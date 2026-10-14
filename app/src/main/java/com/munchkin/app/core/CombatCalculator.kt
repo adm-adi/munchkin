@@ -85,9 +85,9 @@ object CombatCalculator {
             levels = combatState.monsters.sumOf { it.levels }
             treasures = combatState.monsters.sumOf { it.treasures }
             
-            // Elf Helper Bonus: Helper gains 1 level if they help and win
-            if (helperPlayer?.hasRace(CharacterRace.ELF) == true) {
-                helperLevels = 1
+            // Elf Helper Bonus: Helper gains 1 level per monster defeated if they help and win
+            if (combatState.monsters.isNotEmpty() && helperPlayer?.hasRace(CharacterRace.ELF) == true) {
+                helperLevels = combatState.monsters.size
             }
         }
         

@@ -635,6 +635,7 @@ function saveActiveGame(game) {
                 secondaryRace: player.secondaryRace || 'HUMAN',
                 hasHalfBreed: player.hasHalfBreed,
                 hasSuperMunchkin: player.hasSuperMunchkin,
+                lastRoll: player.lastRoll ?? null,
                 reachedMaxLevelViaCombat: player.reachedMaxLevelViaCombat === true,
                 isConnected: player.isConnected !== false,
                 joinedAt: player.joinedAt

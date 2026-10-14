@@ -144,8 +144,11 @@ function createCombatManager({ games, clientGames, sendError, logger }) {
         // hand ties to the heroes, and a Warrior always does.
         const heroesWinTies = isWarrior || game.tiesGoToMonsters === false;
         const outcome = (heroesPower > monstersPower || (heroesPower === monstersPower && heroesWinTies)) ? 'WIN' : 'LOSE';
+        const monsterCount = (combat.monsters || []).length;
         const helperLevelsGained =
-            (outcome === 'WIN' && playerHasRace(helperPlayer, 'ELF')) ? 1 : 0;
+            (outcome === 'WIN' && monsterCount > 0 && playerHasRace(helperPlayer, 'ELF'))
+                ? monsterCount
+                : 0;
 
         return { outcome, heroesPower, monstersPower, totalLevels, totalTreasures, helperLevelsGained };
     }

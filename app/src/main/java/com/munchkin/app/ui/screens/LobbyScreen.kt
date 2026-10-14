@@ -347,6 +347,7 @@ fun LobbyScreen(
                                             Text("🎲 ${player.lastRoll} ⟳", fontWeight = FontWeight.Bold)
                                         }
                                     } else {
+                                        val rollDisplay = if (player.lastRoll == 0) "🎲 -" else "🎲 ${player.lastRoll}"
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(8.dp))
@@ -355,10 +356,10 @@ fun LobbyScreen(
                                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                                         ) {
                                             Text(
-                                                text = "🎲 ${player.lastRoll}",
+                                                text = rollDisplay,
                                                 style = MaterialTheme.typography.titleMedium,
                                                 fontWeight = FontWeight.Bold,
-                                                color = NeonSecondary
+                                                color = if (player.lastRoll == 0) NeonGray400 else NeonSecondary
                                             )
                                         }
                                     }
@@ -396,7 +397,7 @@ fun LobbyScreen(
                                 .padding(16.dp)
                         ) {
                             Text(
-                                text = "⚔️ ¡Empate! Los jugadores empatados deben volver a lanzar.",
+                                text = stringResource(R.string.lobby_tie_message),
                                 modifier = Modifier.fillMaxWidth(),
                                 textAlign = TextAlign.Center,
                                 style = MaterialTheme.typography.bodyMedium,
@@ -420,7 +421,7 @@ fun LobbyScreen(
                         ) {
                             val waitingText = when {
                                 gameState.players.size < 2 -> stringResource(R.string.waiting_players)
-                                !gameState.allPlayersRolled -> "🎲 Esperando a que todos lancen los dados..."
+                                !gameState.allPlayersRolled -> stringResource(R.string.lobby_waiting_rolls)
                                 else -> stringResource(R.string.waiting_players)
                             }
                             Text(
@@ -446,13 +447,13 @@ fun LobbyScreen(
             containerColor = NeonSurface,
             title = {
                 Text(
-                    if (isHost) "Borrar Partida" else stringResource(R.string.leave_game),
+                    if (isHost) stringResource(R.string.delete_game_title) else stringResource(R.string.leave_game),
                     color = NeonGray100
                 )
             },
             text = {
                 Text(
-                    if (isHost) "¿Estás seguro de que quieres borrar la partida? Todos los jugadores serán desconectados."
+                    if (isHost) stringResource(R.string.delete_game_confirm)
                     else stringResource(R.string.confirm_leave),
                     color = NeonGray300
                 )
@@ -463,7 +464,7 @@ fun LobbyScreen(
                     if (isHost) onDeleteGame() else onLeaveGame()
                 }) {
                     Text(
-                        if (isHost) "Borrar" else stringResource(R.string.yes),
+                        if (isHost) stringResource(R.string.delete_action) else stringResource(R.string.yes),
                         color = if (isHost) NeonError else NeonPrimary
                     )
                 }

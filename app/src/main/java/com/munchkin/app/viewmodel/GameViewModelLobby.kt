@@ -403,3 +403,85 @@ fun GameViewModel.joinDiscoveredGame(
 ) {
     joinGame(GameViewModel.SERVER_URL, game.joinCode, name, avatarId, gender)
 }
+
+fun GameViewModel.resumeHostedGame(joinCode: String) {
+    viewModelScope.launch {
+        try {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+
+            val user = _uiState.value.userProfile
+            val existingPlayerIdStr = sessionManager?.getPlayerId(joinCode)
+            val playerId = if (existingPlayerIdStr != null) {
+                PlayerId(existingPlayerIdStr)
+            } else {
+                PlayerId(UUID.randomUUID().toString())
+            }
+
+            val playerMeta = PlayerMeta(
+                playerId = playerId,
+                name = user?.username ?: "Host",
+                avatarId = user?.avatarId ?: 0,
+                gender = Gender.M,
+                userId = user?.id
+            )
+
+            gameClient?.disconnect()
+
+            val client = GameClient()
+            val result = client.connect(
+                GameViewModel.SERVER_URL,
+                joinCode,
+                playerMeta,
+                reconnectToken = sessionManager?.getReconnectToken(joinCode),
+                authToken = sessionManager?.getAuthToken()
+            )
+
+            if (result.isFailure) {
+                val friendlyError = getFriendlyErrorMessage(result.exceptionOrNull())
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = friendlyError
+                    )
+                }
+                return@launch
+            }
+
+            gameClient = client
+            val gameState = result.getOrNull() ?: return@launch
+            val actualPlayerId = client.currentPlayerId ?: playerId
+            val actualIsHost = gameState.hostId == actualPlayerId
+            myPlayerId = actualPlayerId
+            isHost = actualIsHost
+
+            client.currentReconnectToken?.let {
+                sessionManager?.saveReconnectToken(gameState.joinCode, it)
+            }
+            sessionManager?.savePlayerId(gameState.joinCode, actualPlayerId.value)
+            gameRepository?.saveGame(gameState, actualPlayerId, actualIsHost)
+
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    screen = if (gameState.phase == GamePhase.LOBBY) {
+                        Screen.LOBBY
+                    } else if (gameState.combat != null) {
+                        Screen.COMBAT
+                    } else {
+                        Screen.BOARD
+                    },
+                    gameState = gameState,
+                    myPlayerId = actualPlayerId,
+                    isHost = actualIsHost
+                )
+            }
+
+            observeClientState()
+        } catch (e: Exception) {
+            val friendlyError = getFriendlyErrorMessage(e)
+            _uiState.update {
+                it.copy(isLoading = false, error = friendlyError)
+            }
+        }
+    }
+}

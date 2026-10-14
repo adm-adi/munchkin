@@ -336,6 +336,8 @@ class GameViewModel : ViewModel() {
             gameClient = null
             // Scoped to a game, not to the app process.
             hasRecordedGame = false
+            gameRepository?.deleteAllSavedGames()
+            _savedGame.value = null
 
             _uiState.update {
                 GameUiState(screen = Screen.HOME, userProfile = it.userProfile)
@@ -462,6 +464,8 @@ class GameViewModel : ViewModel() {
                         if (s.phase == GamePhase.FINISHED && s.winnerId != null) {
                             // Ensure we don't record twice if server sent it back
                             hasRecordedGame = true
+                            gameRepository?.deleteAllSavedGames()
+                            _savedGame.value = null
                         }
 
                         // Check for phase change

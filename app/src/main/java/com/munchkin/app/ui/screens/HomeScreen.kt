@@ -51,6 +51,7 @@ fun HomeScreen(
     onProfileClick: () -> Unit,
     userProfile: com.munchkin.app.network.UserProfile?,
     hostedGames: List<com.munchkin.app.network.HostedGame> = emptyList(),
+    onResumeHostedGame: (String) -> Unit = {},
     onDeleteHostedGame: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -220,7 +221,7 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.height(12.dp))
                             
                             GradientButton(
-                                text = if (isLoading) "Conectando..." else "Continuar",
+                                text = if (isLoading) stringResource(R.string.connecting) else "Continuar",
                                 onClick = onResumeGame,
                                 modifier = Modifier.fillMaxWidth(),
                                 icon = if (isLoading) null else Icons.Default.PlayArrow,
@@ -268,6 +269,7 @@ fun HomeScreen(
                     hostedGames.forEach { game ->
                         HostedGameCard(
                             game = game,
+                            onResume = { onResumeHostedGame(game.joinCode) },
                             onDelete = { onDeleteHostedGame(game.gameId) }
                         )
                         Spacer(modifier = Modifier.height(8.dp))
@@ -314,7 +316,7 @@ fun HomeScreen(
                         )
                     } else {
                         Text(
-                            text = "Iniciar Sesión",
+                            text = stringResource(R.string.login_title),
                             color = NeonGray400
                         )
                     }
@@ -405,6 +407,7 @@ fun HomeScreen(
 @Composable
 private fun HostedGameCard(
     game: com.munchkin.app.network.HostedGame,
+    onResume: () -> Unit,
     onDelete: () -> Unit
 ) {
     var showConfirm by remember { mutableStateOf(false) }
@@ -412,8 +415,8 @@ private fun HostedGameCard(
     if (showConfirm) {
         AlertDialog(
             onDismissRequest = { showConfirm = false },
-            title = { Text("¿Borrar partida?") },
-            text = { Text("Esto eliminará la partida para todos los jugadores. No se puede deshacer.") },
+            title = { Text(stringResource(R.string.delete_game_title)) },
+            text = { Text(stringResource(R.string.delete_game_confirm)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -422,18 +425,21 @@ private fun HostedGameCard(
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Eliminar")
+                    Text(stringResource(R.string.delete_action))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showConfirm = false }) {
-                    Text("Cancelar")
+                    Text(stringResource(R.string.cancel))
                 }
             }
         )
     }
 
-    GlassCard(modifier = Modifier.fillMaxWidth()) {
+    GlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onResume
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -447,16 +453,24 @@ private fun HostedGameCard(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "${game.playerCount} jugadores • ${game.phase}",
+                    text = "${game.playerCount} ${stringResource(R.string.players).lowercase()} • ${game.phase}",
                     style = MaterialTheme.typography.bodySmall,
                     color = NeonGray400
+                )
+            }
+
+            IconButton(onClick = onResume) {
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription = stringResource(R.string.resume_hosted_game),
+                    tint = NeonPrimary
                 )
             }
             
             IconButton(onClick = { showConfirm = true }) {
                 Icon(
                     Icons.Default.Delete,
-                    contentDescription = "Borrar partida",
+                    contentDescription = stringResource(R.string.delete_game_title),
                     tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
                 )
             }

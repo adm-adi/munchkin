@@ -174,6 +174,26 @@ data class DecGear(
 ) : GameEvent()
 
 @Serializable
+@SerialName("SET_LEVEL")
+data class SetLevel(
+    override val eventId: String,
+    override val actorId: PlayerId,
+    override val timestamp: Long,
+    override val targetPlayerId: PlayerId,
+    val level: Int
+) : GameEvent()
+
+@Serializable
+@SerialName("SET_GEAR")
+data class SetGear(
+    override val eventId: String,
+    override val actorId: PlayerId,
+    override val timestamp: Long,
+    override val targetPlayerId: PlayerId,
+    val gear: Int
+) : GameEvent()
+
+@Serializable
 @SerialName("SET_HALF_BREED")
 data class SetHalfBreed(
     override val eventId: String,
