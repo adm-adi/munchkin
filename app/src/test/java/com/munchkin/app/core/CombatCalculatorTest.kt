@@ -190,4 +190,92 @@ class CombatCalculatorTest {
         assertEquals(6, result.monstersPower) // 1 + 5
         assertEquals(CombatOutcome.LOSE, result.outcome)
     }
+
+    @Test
+    fun `test elf helper gains one level per monster defeated`() {
+        val p1 = createPlayer("p1", 10, 5)
+        val p2 = createPlayer("p2", 5, 5).copy(characterRace = CharacterRace.ELF)
+        val m1 = createMonster(4, 0)
+        val m2 = createMonster(6, 0).copy(id = "m2")
+
+        val gameState = GameState(
+            gameId = GameId("g1"),
+            joinCode = "1234",
+            hostId = PlayerId("p1"),
+            players = mapOf(PlayerId("p1") to p1, PlayerId("p2") to p2)
+        )
+
+        val combatState = CombatState(
+            mainPlayerId = PlayerId("p1"),
+            helperPlayerId = PlayerId("p2"),
+            monsters = listOf(m1, m2)
+        )
+
+        val result = CombatCalculator.calculateResult(combatState, gameState)
+        assertEquals(CombatOutcome.WIN, result.outcome)
+        assertEquals(2, result.helperLevelsGained)
+    }
+
+    @Test
+    fun `test game engine secondary class race and death gear reset`() {
+        val engine = GameEngine()
+        val p1Id = PlayerId("p1")
+        val p1 = createPlayer("p1", 5, 8).copy(
+            characterClass = CharacterClass.WARRIOR,
+            characterRace = CharacterRace.DWARF,
+            hasSuperMunchkin = true,
+            hasHalfBreed = true
+        )
+        engine.loadState(
+            GameState(
+                gameId = GameId("g1"),
+                joinCode = "1234",
+                hostId = p1Id,
+                players = mapOf(PlayerId("p1") to p1)
+            )
+        )
+
+        engine.applyRemoteEvent(
+            SetClass(
+                eventId = "e1",
+                actorId = p1Id,
+                timestamp = 1L,
+                targetPlayerId = p1Id,
+                newClass = CharacterClass.WIZARD,
+                isSecondary = true
+            )
+        )
+        engine.applyRemoteEvent(
+            SetRace(
+                eventId = "e2",
+                actorId = p1Id,
+                timestamp = 2L,
+                targetPlayerId = p1Id,
+                newRace = CharacterRace.ELF,
+                isSecondary = true
+            )
+        )
+
+        val afterSecondary = engine.gameState.value!!.players[p1Id]!!
+        assertEquals(CharacterClass.WARRIOR, afterSecondary.characterClass)
+        assertEquals(CharacterClass.WIZARD, afterSecondary.secondaryClass)
+        assertEquals(CharacterRace.DWARF, afterSecondary.characterRace)
+        assertEquals(CharacterRace.ELF, afterSecondary.secondaryRace)
+
+        // Death resets gearBonus to 0 while keeping level, race, and class
+        engine.applyRemoteEvent(
+            SetGear(
+                eventId = "e3",
+                actorId = p1Id,
+                timestamp = 3L,
+                targetPlayerId = p1Id,
+                gear = 0
+            )
+        )
+        val afterDeath = engine.gameState.value!!.players[p1Id]!!
+        assertEquals(0, afterDeath.gearBonus)
+        assertEquals(5, afterDeath.level)
+        assertEquals(CharacterClass.WARRIOR, afterDeath.characterClass)
+        assertEquals(CharacterRace.DWARF, afterDeath.characterRace)
+    }
 }

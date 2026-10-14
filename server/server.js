@@ -394,6 +394,7 @@ async function loadGamesFromDatabase() {
                     secondaryRace: playerData.secondaryRace || 'HUMAN',
                     hasHalfBreed: playerData.hasHalfBreed || false,
                     hasSuperMunchkin: playerData.hasSuperMunchkin || false,
+                    lastRoll: playerData.lastRoll ?? null,
                     reachedMaxLevelViaCombat: playerData.reachedMaxLevelViaCombat === true,
                     isConnected: false, // All start disconnected until they reconnect
                     joinedAt: playerData.joinedAt
@@ -489,7 +490,7 @@ class GameRoom {
                 hasHalfBreed: player.hasHalfBreed || false,
                 hasSuperMunchkin: player.hasSuperMunchkin || false,
                 lastKnownIp: null,
-                lastRoll: player.lastRoll || null,
+                lastRoll: player.lastRoll ?? null,
                 reachedMaxLevelViaCombat: player.reachedMaxLevelViaCombat === true,
                 isConnected: !!player.isConnected,
                 characterClass: player.characterClass || "NONE",
@@ -1125,6 +1126,14 @@ function markMaxLevelIfReached(game, player, levelsGained) {
     }
 }
 
+function canTouchCombat(game, playerId) {
+    if (!game.combat) return false;
+    return playerId === game.combat.mainPlayerId ||
+           playerId === game.combat.helperPlayerId ||
+           playerId === game.turnPlayerId ||
+           playerId === game.hostId;
+}
+
 function applyEvent(game, event, playerId, ws) {
     const player = game.players.get(playerId);
     if (!player) return false;
@@ -1187,9 +1196,39 @@ function applyEvent(game, event, playerId, ws) {
             player.hasSuperMunchkin = event.enabled === true;
             if (!player.hasSuperMunchkin) player.secondaryClass = 'NONE';
             break;
-        case 'PLAYER_ROLL':
-            player.lastRoll = clampInt(event.result, 1, 6, 1);
+        case 'PLAYER_ROLL': {
+            const rollResult = clampInt(event.result, 1, 6, 1);
+            if (game.phase === 'LOBBY') {
+                const allPlayers = Array.from(game.players.values());
+                const allRolled = allPlayers.length > 1 && allPlayers.every(p => p.lastRoll !== null && p.lastRoll !== undefined);
+                if (allRolled) {
+                    const maxRoll = Math.max(...allPlayers.map(p => p.lastRoll || 0));
+                    const tiedAtMax = allPlayers.filter(p => p.lastRoll === maxRoll);
+                    if (tiedAtMax.length > 1 && player.lastRoll === maxRoll) {
+                        for (const p of allPlayers) {
+                            if (p === player) continue;
+                            if (p.lastRoll === maxRoll) {
+                                p.lastRoll = null;
+                            } else {
+                                p.lastRoll = 0;
+                            }
+                        }
+                    }
+                }
+            }
+            player.lastRoll = rollResult;
+            if (game.combat && (event.purpose === 'COMBAT' || event.purpose === 'RUN_AWAY')) {
+                game.combat.lastDiceRoll = {
+                    playerId: playerId,
+                    playerName: player.name || 'Jugador',
+                    result: rollResult,
+                    purpose: event.purpose,
+                    success: event.success === true,
+                    timestamp: Date.now()
+                };
+            }
             break;
+        }
         case 'COMBAT_START': {
             if (game.combat) {
                 sendError(ws, 'COMBAT_ALREADY_ACTIVE', 'Ya hay un combate activo');
@@ -1200,6 +1239,10 @@ function applyEvent(game, event, playerId, ws) {
             const mainPlayerId = event.mainPlayerId;
             if (!mainPlayerId || !game.players.has(mainPlayerId)) {
                 sendError(ws, 'PLAYER_NOT_FOUND', 'Jugador principal no encontrado');
+                return false;
+            }
+            if (playerId !== mainPlayerId && playerId !== game.turnPlayerId && playerId !== game.hostId) {
+                sendError(ws, 'FORBIDDEN', 'Solo el jugador en turno o el anfitrión pueden iniciar el combate');
                 return false;
             }
             const initialMonsters = Array.isArray(event.monsters) ? event.monsters : [];
@@ -1216,12 +1259,14 @@ function applyEvent(game, event, playerId, ws) {
                 tempBonuses: [],
                 heroModifier: 0,
                 monsterModifier: 0,
+                lastDiceRoll: null,
                 isActive: true
             };
             break;
         }
         case 'COMBAT_UPDATE_MONSTER': {
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
+            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
             const incoming = event.monster;
             if (!incoming || !incoming.id) {
                 sendError(ws, 'INVALID_DATA', 'Monstruo inválido');
@@ -1237,6 +1282,7 @@ function applyEvent(game, event, playerId, ws) {
         }
         case 'COMBAT_ADD_MONSTER': {
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
+            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
             if (game.combat.monsters.length >= MAX_MONSTERS_PER_COMBAT) {
                 sendError(ws, 'COMBAT_MONSTER_LIMIT', `Máximo ${MAX_MONSTERS_PER_COMBAT} monstruos por combate`);
                 return false;
@@ -1246,10 +1292,12 @@ function applyEvent(game, event, playerId, ws) {
         }
         case 'COMBAT_REMOVE_MONSTER':
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
+            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
             game.combat.monsters = game.combat.monsters.filter(m => m.id !== event.monsterId);
             break;
         case 'COMBAT_ADD_HELPER': {
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
+            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
             if (event.helperId === game.combat.mainPlayerId) {
                 sendError(ws, 'INVALID_HELPER', 'No puedes ayudarte a ti mismo');
                 return false;
@@ -1263,10 +1311,12 @@ function applyEvent(game, event, playerId, ws) {
         }
         case 'COMBAT_REMOVE_HELPER':
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
+            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
             game.combat.helperPlayerId = null;
             break;
         case 'COMBAT_MODIFY_MODIFIER': {
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
+            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
             // Munchkin bonus items have no upper bound, so these stay unclamped —
             // but they must still be finite integers to survive serialisation.
             const delta = clampInt(event.delta, -MODIFIER_LIMIT, MODIFIER_LIMIT, 0);
@@ -1279,6 +1329,7 @@ function applyEvent(game, event, playerId, ws) {
         }
         case 'COMBAT_SET_MODIFIER': {
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
+            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
             const value = clampInt(event.value, -MODIFIER_LIMIT, MODIFIER_LIMIT, 0);
             if (event.target === 'HEROES') game.combat.heroModifier = value;
             else game.combat.monsterModifier = value;
@@ -1286,6 +1337,7 @@ function applyEvent(game, event, playerId, ws) {
         }
         case 'COMBAT_ADD_BONUS': {
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
+            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
             if (game.combat.tempBonuses.length >= MAX_BONUSES_PER_COMBAT) {
                 sendError(ws, 'COMBAT_BONUS_LIMIT', `Máximo ${MAX_BONUSES_PER_COMBAT} bonificaciones por combate`);
                 return false;
@@ -1295,18 +1347,20 @@ function applyEvent(game, event, playerId, ws) {
         }
         case 'COMBAT_REMOVE_BONUS':
             if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
+            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
             game.combat.tempBonuses = game.combat.tempBonuses.filter(b => b.id !== event.bonusId);
             break;
         case 'COMBAT_END': {
-            if (!game.combat || event.actorId !== game.combat.mainPlayerId) {
-                sendError(ws, 'UNAUTHORIZED', 'Solo el jugador principal puede terminar el combate');
+            if (!game.combat || !canTouchCombat(game, playerId)) {
+                sendError(ws, 'UNAUTHORIZED', 'Solo el jugador en turno, su ayudante o el anfitrión pueden terminar el combate');
                 return false;
             }
+            const mainPlayer = game.players.get(game.combat.mainPlayerId) || player;
             const helperPlayerId = game.combat.helperPlayerId ?? null;
 
             // Server recalculates combat result — do not trust client-supplied values
             const serverResult = calculateCombatResult(game);
-            let finalOutcome = event.outcome; // Trust ESCAPE (run-away flow)
+            let finalOutcome = event.outcome; // Trust ESCAPE (run-away or cancel flow)
             let finalLevels = 0;
             let finalTreasures = 0;
             let finalHelperLevels = 0;
@@ -1322,12 +1376,12 @@ function applyEvent(game, event, playerId, ws) {
                 finalLevels = serverResult ? serverResult.totalLevels : (event.levelsGained || 0);
                 finalTreasures = serverResult ? serverResult.totalTreasures : (event.treasuresGained || 0);
                 finalHelperLevels = serverResult ? serverResult.helperLevelsGained : (event.helperLevelsGained || 0);
-                player.level = Math.min(game.maxLevel, player.level + finalLevels);
-                player.treasures = (player.treasures || 0) + finalTreasures;
+                mainPlayer.level = Math.min(game.maxLevel, mainPlayer.level + finalLevels);
+                mainPlayer.treasures = (mainPlayer.treasures || 0) + finalTreasures;
                 // You may only reach the winning level by killing a monster, so
                 // the win check needs to know how the level was gained. An Elf
                 // levelling up by *helping* kill one counts too.
-                markMaxLevelIfReached(game, player, finalLevels);
+                markMaxLevelIfReached(game, mainPlayer, finalLevels);
                 if (finalHelperLevels > 0 && helperPlayerId) {
                     const helperPlayer = game.players.get(helperPlayerId);
                     if (helperPlayer) {
@@ -1340,7 +1394,7 @@ function applyEvent(game, event, playerId, ws) {
             game.combat = null;
             break;
         }
-        case 'GAME_START':
+        case 'GAME_START': {
             // Only the host starts the game. The dedicated admin messages
             // (GAME_OVER, END_TURN) already enforce their authorization; the
             // event path must match or it becomes the bypass.
@@ -1352,8 +1406,22 @@ function applyEvent(game, event, playerId, ws) {
                 sendError(ws, 'GAME_ALREADY_STARTED', 'La partida ya ha comenzado');
                 return false;
             }
+            const order = (Array.isArray(game.playerOrder) && game.playerOrder.length > 0)
+                ? game.playerOrder
+                : Array.from(game.players.keys());
+            let highestPlayerId = null;
+            let highestRoll = 0;
+            for (const pid of order) {
+                const p = game.players.get(pid);
+                if (p && (p.lastRoll || 0) > highestRoll) {
+                    highestRoll = p.lastRoll;
+                    highestPlayerId = pid;
+                }
+            }
+            game.turnPlayerId = highestPlayerId || order[0] || game.hostId;
             game.phase = "IN_GAME";
             break;
+        }
         case 'SET_CLASS':
             if (!VALID_CLASSES.has(event.newClass)) {
                 sendError(ws, 'INVALID_DATA', 'Clase inválida');

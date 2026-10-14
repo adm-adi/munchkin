@@ -252,6 +252,48 @@ fun BoardScreen(
                         }
                     }
 
+                    val currentTurnPlayer = gameState.turnPlayerId?.let { gameState.players[it] }
+                    val timerDuration = gameState.settings.turnTimerSeconds
+                    val turnEndsAt = gameState.turnEndsAt
+
+                    // turnEndsAt is a server timestamp, so compare it
+                    // against server time rather than the device clock.
+                    var currentTimeMs by remember(turnEndsAt, gameState.turnPlayerId) {
+                        mutableLongStateOf(System.currentTimeMillis() + serverTimeOffsetMs)
+                    }
+                    val remainingSeconds = if (timerDuration > 0 && currentTurnPlayer != null && turnEndsAt != null) {
+                        (((turnEndsAt - currentTimeMs).coerceAtLeast(0L) + 999L) / 1000L).toInt()
+                    } else {
+                        0
+                    }
+
+                    if (timerDuration > 0 && currentTurnPlayer != null && turnEndsAt != null) {
+                        LaunchedEffect(turnEndsAt, gameState.turnPlayerId, timerDuration) {
+                            var lastAnnouncedSecond: Int? = null
+                            while (isActive) {
+                                currentTimeMs = System.currentTimeMillis() + serverTimeOffsetMs
+                                val secondsLeft = (((turnEndsAt - currentTimeMs).coerceAtLeast(0L) + 999L) / 1000L).toInt()
+
+                                if (secondsLeft != lastAnnouncedSecond) {
+                                    if (secondsLeft == 10) {
+                                        com.munchkin.app.ui.components.SoundManager.playTurnStart()
+                                    }
+                                    if (secondsLeft in 1..5) {
+                                        com.munchkin.app.ui.components.SoundManager.playButtonClick()
+                                    }
+                                    lastAnnouncedSecond = secondsLeft
+                                }
+
+                                if (secondsLeft <= 0) {
+                                    break
+                                }
+
+                                kotlinx.coroutines.delay(250)
+                            }
+                            currentTimeMs = System.currentTimeMillis()
+                        }
+                    }
+
                     if (isTableView) {
                         val canEndTurn = gameState.turnPlayerId == myPlayerId &&
                                 gameState.phase == com.munchkin.app.core.GamePhase.IN_GAME
@@ -259,6 +301,8 @@ fun BoardScreen(
                             players = gameState.playerList,
                             currentUser = myPlayerId,
                             turnPlayerId = gameState.turnPlayerId,
+                            remainingSeconds = remainingSeconds,
+                            showTimer = timerDuration > 0 && turnEndsAt != null,
                             onPlayerClick = onPlayerClick,
                             onEndTurn = if (canEndTurn) onEndTurn else null,
                             modifier = Modifier.weight(1f).fillMaxWidth()
@@ -273,48 +317,6 @@ fun BoardScreen(
                         ) {
                             item {
                                 Spacer(modifier = Modifier.height(8.dp))
-
-                                val currentTurnPlayer = gameState.turnPlayerId?.let { gameState.players[it] }
-                                val timerDuration = gameState.settings.turnTimerSeconds
-                                val turnEndsAt = gameState.turnEndsAt
-
-                                // turnEndsAt is a server timestamp, so compare it
-                                // against server time rather than the device clock.
-                                var currentTimeMs by remember(turnEndsAt, gameState.turnPlayerId) {
-                                    mutableLongStateOf(System.currentTimeMillis() + serverTimeOffsetMs)
-                                }
-                                val remainingSeconds = if (timerDuration > 0 && currentTurnPlayer != null && turnEndsAt != null) {
-                                    (((turnEndsAt - currentTimeMs).coerceAtLeast(0L) + 999L) / 1000L).toInt()
-                                } else {
-                                    0
-                                }
-
-                                if (timerDuration > 0 && currentTurnPlayer != null && turnEndsAt != null) {
-                                    LaunchedEffect(turnEndsAt, gameState.turnPlayerId, timerDuration) {
-                                        var lastAnnouncedSecond: Int? = null
-                                        while (isActive) {
-                                            currentTimeMs = System.currentTimeMillis() + serverTimeOffsetMs
-                                            val secondsLeft = (((turnEndsAt - currentTimeMs).coerceAtLeast(0L) + 999L) / 1000L).toInt()
-
-                                            if (secondsLeft != lastAnnouncedSecond) {
-                                                if (secondsLeft == 10) {
-                                                    com.munchkin.app.ui.components.SoundManager.playTurnStart()
-                                                }
-                                                if (secondsLeft in 1..5) {
-                                                    com.munchkin.app.ui.components.SoundManager.playButtonClick()
-                                                }
-                                                lastAnnouncedSecond = secondsLeft
-                                            }
-
-                                            if (secondsLeft <= 0) {
-                                                break
-                                            }
-
-                                            kotlinx.coroutines.delay(250)
-                                        }
-                                        currentTimeMs = System.currentTimeMillis()
-                                    }
-                                }
 
                                 if (currentTurnPlayer != null) {
                                     val isMyTurn = gameState.turnPlayerId == myPlayerId
@@ -361,7 +363,7 @@ fun BoardScreen(
                                                 )
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
-                                                    text = if (isMyTurn) "¡Tu turno!" else "Turno de ${currentTurnPlayer.name}",
+                                                    text = if (isMyTurn) stringResource(R.string.your_turn) else stringResource(R.string.player_turn, currentTurnPlayer.name),
                                                     style = MaterialTheme.typography.titleMedium,
                                                     fontWeight = if (isMyTurn) FontWeight.Bold else FontWeight.Normal,
                                                     color = if (isMyTurn) NeonGray100 else NeonGray300
@@ -530,27 +532,94 @@ fun BoardScreen(
     }
 
     val pendingWinner = pendingWinnerId?.let { gameState.players[it] }
-    if (pendingWinner != null && isHost) {
+    if (pendingWinner != null && isHost && gameState.phase != com.munchkin.app.core.GamePhase.FINISHED) {
         AlertDialog(
             onDismissRequest = onDismissWin,
             containerColor = NeonSurface,
             title = {
-                Text("Confirmar victoria", color = NeonGray100)
+                Text(stringResource(R.string.confirm_victory_title), color = NeonGray100)
             },
             text = {
                 Text(
-                    "${pendingWinner.name} ha alcanzado el nivel máximo. ¿Quieres cerrar la partida y registrar la victoria?",
+                    stringResource(R.string.confirm_victory_message, pendingWinner.name),
                     color = NeonGray300
                 )
             },
             confirmButton = {
                 TextButton(onClick = { onConfirmWin(pendingWinner.playerId) }) {
-                    Text("Confirmar", color = NeonPrimary)
+                    Text(stringResource(R.string.confirm_action), color = NeonPrimary)
                 }
             },
             dismissButton = {
                 TextButton(onClick = onDismissWin) {
                     Text(stringResource(R.string.cancel), color = NeonGray400)
+                }
+            }
+        )
+    }
+
+    // Victory / Game Over Dialog when phase == FINISHED
+    if (gameState.phase == com.munchkin.app.core.GamePhase.FINISHED) {
+        val winner = gameState.winnerId?.let { gameState.players[it] }
+            ?: gameState.playerList.maxByOrNull { it.level }
+        val standings = remember(gameState.players) {
+            gameState.playerList.sortedWith(
+                compareByDescending<com.munchkin.app.core.PlayerState> { it.playerId == gameState.winnerId }
+                    .thenByDescending { it.level }
+                    .thenByDescending { it.combatPower }
+            )
+        }
+        AlertDialog(
+            onDismissRequest = {},
+            containerColor = NeonSurface,
+            title = {
+                Text(
+                    stringResource(R.string.victory_dialog_title),
+                    color = NeonWarning,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = stringResource(R.string.victory_dialog_winner, winner?.name ?: "?"),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = NeonGray100,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    HorizontalDivider(color = GlassBorder)
+                    standings.forEachIndexed { idx, p ->
+                        val medal = when (idx) {
+                            0 -> "🥇"
+                            1 -> "🥈"
+                            2 -> "🥉"
+                            else -> "#${idx + 1}"
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "$medal ${p.name}",
+                                color = if (idx == 0) NeonWarning else NeonGray200,
+                                fontWeight = if (idx == 0) FontWeight.Bold else FontWeight.Normal
+                            )
+                            Text(
+                                text = "${stringResource(R.string.level)} ${p.level} • ⚔️ ${p.combatPower}",
+                                color = NeonGray400,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = onLeaveGame,
+                    colors = ButtonDefaults.buttonColors(containerColor = NeonPrimary)
+                ) {
+                    Text(stringResource(R.string.return_to_home), color = Color.White, fontWeight = FontWeight.Bold)
                 }
             }
         )
@@ -563,13 +632,13 @@ fun BoardScreen(
             containerColor = NeonSurface,
             title = {
                 Text(
-                    if (isHost) "Borrar Partida" else stringResource(R.string.leave_game),
+                    if (isHost) stringResource(R.string.delete_game_title) else stringResource(R.string.leave_game),
                     color = NeonGray100
                 )
             },
             text = {
                 Text(
-                    if (isHost) "¿Estás seguro de que quieres borrar la partida? Todos los jugadores serán desconectados."
+                    if (isHost) stringResource(R.string.delete_game_confirm)
                     else stringResource(R.string.confirm_leave),
                     color = NeonGray300
                 )
@@ -582,7 +651,7 @@ fun BoardScreen(
                     }
                 ) {
                     Text(
-                        if (isHost) "Borrar" else stringResource(R.string.yes),
+                        if (isHost) stringResource(R.string.delete_action) else stringResource(R.string.yes),
                         color = if (isHost) NeonError else NeonPrimary
                     )
                 }

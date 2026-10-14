@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -61,35 +62,46 @@ class CatalogViewModel : ViewModel() {
     private val client = GameClient()
     private var searchJob: Job? = null
 
-    fun search(query: String) {
+    fun search(query: String, debounceMs: Long = 350L) {
         searchJob?.cancel()
 
-        if (query.isBlank()) {
-            searchResults = emptyList()
-            isLoading = false
-            error = null
+        val trimmed = query.trim()
+        if (trimmed.length == 1) {
+            // Wait until at least 2 characters or blank
             return
         }
 
-        isLoading = true
-        error = null
         searchJob = viewModelScope.launch(Dispatchers.IO) {
+            if (debounceMs > 0) {
+                kotlinx.coroutines.delay(debounceMs)
+            }
+            withContext(Dispatchers.Main) {
+                isLoading = true
+                error = null
+            }
             try {
-                val results = client
-                    .searchMonsters(ServerConfig.WS_URL, query.trim())
+                val effectiveQuery = if (trimmed.isBlank()) "__ALL__" else trimmed
+                var rawMonsters = client
+                    .searchMonsters(ServerConfig.WS_URL, effectiveQuery)
                     .getOrElse { emptyList() }
-                    .map { monster ->
-                        MonsterResult(
-                            id = monster.id,
-                            name = monster.name,
-                            level = monster.level,
-                            modifier = monster.modifier,
-                            treasures = monster.treasures,
-                            levels = monster.levels,
-                            bad_stuff = monster.badStuff,
-                            expansion = monster.expansion
-                        )
-                    }
+                // Fallback for older servers that don't support __ALL__ yet
+                if (rawMonsters.isEmpty() && trimmed.isBlank()) {
+                    rawMonsters = client
+                        .searchMonsters(ServerConfig.WS_URL, "an")
+                        .getOrElse { emptyList() }
+                }
+                val results = rawMonsters.map { monster ->
+                    MonsterResult(
+                        id = monster.id,
+                        name = monster.name,
+                        level = monster.level,
+                        modifier = monster.modifier,
+                        treasures = monster.treasures,
+                        levels = monster.levels,
+                        bad_stuff = monster.badStuff,
+                        expansion = monster.expansion
+                    )
+                }
 
                 withContext(Dispatchers.Main) {
                     searchResults = results
@@ -114,12 +126,28 @@ class CatalogViewModel : ViewModel() {
 @Composable
 fun MonsterCatalogScreen(
     onBack: () -> Unit,
+    onCreateMonster: ((name: String, level: Int, modifier: Int, isUndead: Boolean, treasures: Int, levels: Int, badStuff: String) -> Unit)? = null,
     viewModel: CatalogViewModel = viewModel()
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    var showCreateDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        viewModel.search("drag")
+        viewModel.search("", debounceMs = 0L)
+    }
+
+    if (showCreateDialog && onCreateMonster != null) {
+        MonsterSearchDialog(
+            searchResults = emptyList(),
+            onSearch = {},
+            onDismiss = { showCreateDialog = false },
+            onSelectMonster = {},
+            onCreateNew = { name, level, mod, undead, treasures, levels, badStuff ->
+                onCreateMonster(name, level, mod, undead, treasures, levels, badStuff)
+                showCreateDialog = false
+                viewModel.search(searchQuery, debounceMs = 500L)
+            }
+        )
     }
 
     Scaffold(
@@ -135,6 +163,18 @@ fun MonsterCatalogScreen(
                     }
                 }
             )
+        },
+        floatingActionButton = {
+            if (onCreateMonster != null) {
+                androidx.compose.material3.FloatingActionButton(
+                    onClick = { showCreateDialog = true }
+                ) {
+                    Icon(
+                        androidx.compose.material.icons.Icons.Default.Add,
+                        contentDescription = stringResource(R.string.create_new)
+                    )
+                }
+            }
         }
     ) { padding ->
         Column(
@@ -147,7 +187,7 @@ fun MonsterCatalogScreen(
                 value = searchQuery,
                 onValueChange = {
                     searchQuery = it
-                    viewModel.search(it)
+                    viewModel.search(it, debounceMs = 350L)
                 },
                 label = { Text(stringResource(R.string.search_monster_placeholder)) },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
@@ -207,7 +247,8 @@ fun MonsterCard(monster: MonsterResult) {
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "$levelLabel ${monster.level}",
+                    text = "$levelLabel ${monster.level}" +
+                        if (monster.modifier != 0) " (${if (monster.modifier > 0) "+" else ""}${monster.modifier})" else "",
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary
                 )

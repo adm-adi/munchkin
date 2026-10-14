@@ -371,4 +371,29 @@
     <string name="run_away_threshold_hint">Vous fuyez avec %1$d ou plus.</string>
     <string name="run_away_suggestion_escaped">Avec %1$d, vous fuyez.</string>
     <string name="run_away_suggestion_caught">Avec %1$d, vous êtes rattrapé.</string>
+
+    <!-- Enhancements: Combat, Death, Victory, QR, Turn, Catalog -->
+    <string name="death_reset_gear">Mort (Équip. à 0)</string>
+    <string name="death_confirm_title">Appliquer la Mort ?</string>
+    <string name="death_confirm_message">Vous perdrez tout votre équipement (+0), mais conserverez votre Niveau, Race et Classe.</string>
+    <string name="treasures_label">Trésors</string>
+    <string name="levels_reward_label">Niveaux</string>
+    <string name="warrior_tie_win_badge">⚔️ Victoire par égalité (Guerrier)</string>
+    <string name="remove_monster">Retirer le monstre</string>
+    <string name="your_turn">C\'est votre tour !</string>
+    <string name="player_turn">Tour de %1$s</string>
+    <string name="confirm_victory_title">Confirmer la victoire</string>
+    <string name="confirm_victory_message">%1$s a atteint le niveau maximum. Terminer la partie et enregistrer la victoire ?</string>
+    <string name="confirm_action">Confirmer</string>
+    <string name="delete_game_title">Supprimer la partie</string>
+    <string name="delete_game_confirm">Voulez-vous vraiment supprimer cette partie ? Tous les joueurs seront déconnectés.</string>
+    <string name="delete_action">Supprimer</string>
+    <string name="victory_dialog_title">🏆 Partie Terminée !</string>
+    <string name="victory_dialog_winner">%1$s a gagné la partie !</string>
+    <string name="return_to_home">Retour à l\'accueil</string>
+    <string name="scan_qr_button">Scanner QR</string>
+    <string name="resume_hosted_game">Reprendre</string>
+    <string name="lobby_tie_message">⚔️ Égalité ! Les joueurs à égalité doivent relancer.</string>
+    <string name="lobby_waiting_rolls">🎲 En attente que tout le monde lance les dés…</string>
+    <string name="modifiers_label">Modificateurs (Bonus/Malus) : %1$s</string>
 </resources>

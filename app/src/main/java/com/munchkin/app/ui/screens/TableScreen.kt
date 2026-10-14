@@ -48,6 +48,8 @@ fun TableScreen(
     players: List<PlayerState>,
     currentUser: PlayerId?,
     turnPlayerId: PlayerId? = null,
+    remainingSeconds: Int = 0,
+    showTimer: Boolean = false,
     onPlayerClick: (PlayerId) -> Unit,
     onEndTurn: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -79,38 +81,73 @@ fun TableScreen(
         if (turnPlayer != null) {
             val isMyTurn = turnPlayer.playerId == currentUser
             val bannerColor = if (isMyTurn) NeonPrimary else NeonGray500
+            val timerColor = when {
+                remainingSeconds <= 10 -> NeonError
+                remainingSeconds <= 30 -> NeonWarning
+                else -> NeonPrimary
+            }
 
-            Box(
+            Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 16.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(
-                        if (isMyTurn) NeonPrimary.copy(alpha = 0.12f)
-                        else GlassBase
-                    )
-                    .border(
-                        1.dp,
-                        Brush.linearGradient(
-                            listOf(bannerColor.copy(alpha = 0.6f), bannerColor.copy(alpha = 0.1f))
-                        ),
-                        RoundedCornerShape(14.dp)
-                    )
+                    .padding(top = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            if (isMyTurn) NeonPrimary.copy(alpha = 0.12f)
+                            else GlassBase
+                        )
+                        .border(
+                            1.dp,
+                            Brush.linearGradient(
+                                listOf(bannerColor.copy(alpha = 0.6f), bannerColor.copy(alpha = 0.1f))
+                            ),
+                            RoundedCornerShape(14.dp)
+                        )
                 ) {
-                    if (!isMyTurn) {
-                        Text(text = "⏳", fontSize = 16.sp)
+                    Row(
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (!isMyTurn) {
+                            Text(text = "⏳", fontSize = 16.sp)
+                        }
+                        Text(
+                            text = if (isMyTurn) stringResource(R.string.your_turn) else stringResource(R.string.player_turn, turnPlayer.name),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isMyTurn) NeonGray100 else NeonGray300
+                        )
+                        if (showTimer) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "⏱ %d:%02d".format(remainingSeconds / 60, remainingSeconds % 60),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = timerColor
+                            )
+                        }
                     }
-                    Text(
-                        text = if (isMyTurn) "¡Es tu turno!" else "Turno de ${turnPlayer.name}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isMyTurn) NeonGray100 else NeonGray300
-                    )
+                }
+                if (!turnPlayer.isConnected) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(NeonWarning.copy(alpha = 0.12f))
+                            .border(1.dp, NeonWarning.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.waiting_for_player, turnPlayer.name),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = NeonWarning
+                        )
+                    }
                 }
             }
         }

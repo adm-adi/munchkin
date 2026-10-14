@@ -13,6 +13,7 @@ import com.munchkin.app.core.IncLevel
 import com.munchkin.app.core.RemoveClass
 import com.munchkin.app.core.RemoveRace
 import com.munchkin.app.core.SetClass
+import com.munchkin.app.core.SetGear
 import com.munchkin.app.core.SetGender
 import com.munchkin.app.core.SetHalfBreed
 import com.munchkin.app.core.SetRace
@@ -74,6 +75,22 @@ fun GameViewModel.decrementGear(amount: Int = 1) {
             timestamp = System.currentTimeMillis(),
             targetPlayerId = playerId,
             amount = amount
+        )
+    }
+}
+
+/**
+ * Munchkin Death rule: player loses all equipped gear (gearBonus = 0),
+ * keeping their current Level, Race, and Class intact.
+ */
+fun GameViewModel.applyDeath() {
+    sendPlayerEvent { playerId ->
+        SetGear(
+            eventId = UUID.randomUUID().toString(),
+            actorId = playerId,
+            timestamp = System.currentTimeMillis(),
+            targetPlayerId = playerId,
+            gear = 0
         )
     }
 }

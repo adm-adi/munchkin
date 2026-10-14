@@ -76,15 +76,37 @@ class GameEngine {
             is IncLevel -> updatePlayer(state, event.targetPlayerId) { 
                 it.copy(level = (it.level + event.amount).coerceIn(state.settings.minLevel, state.settings.maxLevel))
             }
-            is DecLevel -> updatePlayer(state, event.targetPlayerId) { 
-                it.copy(level = (it.level - event.amount).coerceIn(state.settings.minLevel, state.settings.maxLevel))
+            is DecLevel -> updatePlayer(state, event.targetPlayerId) {
+                val newLevel = (it.level - event.amount).coerceIn(state.settings.minLevel, state.settings.maxLevel)
+                it.copy(
+                    level = newLevel,
+                    reachedMaxLevelViaCombat = if (newLevel < state.settings.maxLevel) false else it.reachedMaxLevelViaCombat
+                )
+            }
+            is SetLevel -> updatePlayer(state, event.targetPlayerId) {
+                val newLevel = event.level.coerceIn(state.settings.minLevel, state.settings.maxLevel)
+                it.copy(
+                    level = newLevel,
+                    reachedMaxLevelViaCombat = if (newLevel < state.settings.maxLevel) false else it.reachedMaxLevelViaCombat
+                )
             }
             
             is IncGear -> updatePlayer(state, event.targetPlayerId) { it.copy(gearBonus = it.gearBonus + event.amount) }
             is DecGear -> updatePlayer(state, event.targetPlayerId) { it.copy(gearBonus = it.gearBonus - event.amount) }
+            is SetGear -> updatePlayer(state, event.targetPlayerId) { it.copy(gearBonus = event.gear) }
             
-            is SetHalfBreed -> updatePlayer(state, event.targetPlayerId) { it.copy(hasHalfBreed = event.enabled) }
-            is SetSuperMunchkin -> updatePlayer(state, event.targetPlayerId) { it.copy(hasSuperMunchkin = event.enabled) }
+            is SetHalfBreed -> updatePlayer(state, event.targetPlayerId) {
+                it.copy(
+                    hasHalfBreed = event.enabled,
+                    secondaryRace = if (!event.enabled) CharacterRace.HUMAN else it.secondaryRace
+                )
+            }
+            is SetSuperMunchkin -> updatePlayer(state, event.targetPlayerId) {
+                it.copy(
+                    hasSuperMunchkin = event.enabled,
+                    secondaryClass = if (!event.enabled) CharacterClass.NONE else it.secondaryClass
+                )
+            }
             
             is SetClass -> applySetClass(event, state)
             is SetRace -> applySetRace(event, state)
@@ -258,13 +280,21 @@ class GameEngine {
 
     private fun applySetClass(event: SetClass, state: GameState): GameState {
         return updatePlayer(state, event.targetPlayerId) {
-            it.copy(characterClass = event.newClass)
+            if (event.isSecondary) {
+                if (it.hasSuperMunchkin) it.copy(secondaryClass = event.newClass) else it
+            } else {
+                it.copy(characterClass = event.newClass)
+            }
         }
     }
 
     private fun applySetRace(event: SetRace, state: GameState): GameState {
         return updatePlayer(state, event.targetPlayerId) {
-            it.copy(characterRace = event.newRace)
+            if (event.isSecondary) {
+                if (it.hasHalfBreed) it.copy(secondaryRace = event.newRace) else it
+            } else {
+                it.copy(characterRace = event.newRace)
+            }
         }
     }
     
@@ -350,17 +380,21 @@ class GameEngine {
             
             // Update Main Player
             newState = updatePlayer(newState, combat.mainPlayerId) { player ->
+                val newLevel = (player.level + event.levelsGained).coerceAtMost(state.settings.maxLevel)
                 player.copy(
-                    level = (player.level + event.levelsGained).coerceAtMost(state.settings.maxLevel),
-                    treasures = player.treasures + event.treasuresGained
+                    level = newLevel,
+                    treasures = player.treasures + event.treasuresGained,
+                    reachedMaxLevelViaCombat = if (event.levelsGained > 0 && newLevel >= state.settings.maxLevel) true else player.reachedMaxLevelViaCombat
                 )
             }
             
             // Update Helper Player (if applicable)
             if (combat.helperPlayerId != null && event.helperLevelsGained > 0) {
                  newState = updatePlayer(newState, combat.helperPlayerId) { player ->
+                    val newLevel = (player.level + event.helperLevelsGained).coerceAtMost(state.settings.maxLevel)
                     player.copy(
-                        level = (player.level + event.helperLevelsGained).coerceAtMost(state.settings.maxLevel)
+                        level = newLevel,
+                        reachedMaxLevelViaCombat = if (newLevel >= state.settings.maxLevel) true else player.reachedMaxLevelViaCombat
                     )
                 }
             }
@@ -372,8 +406,23 @@ class GameEngine {
     
     private fun applyPlayerRoll(event: PlayerRoll, state: GameState): GameState {
         val player = state.players[event.actorId] ?: return state
-        val updatedPlayer = player.copy(lastRoll = event.result)
-        val stateWithPlayer = state.copy(players = state.players + (player.playerId to updatedPlayer))
+        val clampedRoll = event.result.coerceIn(1, 6)
+
+        val basePlayers = if (state.phase == GamePhase.LOBBY && state.allPlayersRolled && state.hasRollTie && state.tiedPlayerIds.contains(event.actorId)) {
+            val maxRoll = state.players.values.maxOfOrNull { it.lastRoll ?: 0 } ?: 0
+            state.players.mapValues { (pid, p) ->
+                when {
+                    pid == event.actorId -> p
+                    p.lastRoll == maxRoll -> p.copy(lastRoll = null)
+                    else -> p.copy(lastRoll = 0)
+                }
+            }
+        } else {
+            state.players
+        }
+
+        val updatedPlayer = (basePlayers[event.actorId] ?: player).copy(lastRoll = clampedRoll)
+        val stateWithPlayer = state.copy(players = basePlayers + (player.playerId to updatedPlayer))
         
         // If in combat or purpose implies combat, update combat state
         return if (stateWithPlayer.combat != null && 
@@ -383,26 +432,13 @@ class GameEngine {
              val rollInfo = DiceRollInfo(
                  playerId = event.actorId,
                  playerName = stateWithPlayer.players[event.actorId]?.name ?: "Unknown",
-                 result = event.result,
+                 result = clampedRoll,
                  purpose = event.purpose,
                  success = event.success
              )
              
              val updatedCombat = stateWithPlayer.combat.copy(lastDiceRoll = rollInfo)
              stateWithPlayer.copy(combat = updatedCombat)
-        } else if (stateWithPlayer.phase == GamePhase.LOBBY && stateWithPlayer.allPlayersRolled) {
-            // In lobby: check for ties among highest rollers
-            val maxRoll = stateWithPlayer.players.values.maxOfOrNull { it.lastRoll ?: 0 } ?: 0
-            val tiedPlayers = stateWithPlayer.players.values.filter { it.lastRoll == maxRoll }
-            if (tiedPlayers.size > 1) {
-                // Reset tied players' rolls so they must re-roll
-                val resetPlayers = stateWithPlayer.players.mapValues { (_, p) ->
-                    if (p.lastRoll == maxRoll) p.copy(lastRoll = null) else p
-                }
-                stateWithPlayer.copy(players = resetPlayers)
-            } else {
-                stateWithPlayer
-            }
         } else {
             stateWithPlayer
         }

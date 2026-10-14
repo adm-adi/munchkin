@@ -25,7 +25,7 @@ function createCatalogManager({ db, sendError, logger }) {
     function handleCatalogSearch(ws, message) {
         const { query } = message;
 
-        if (!query || query.length < 2) {
+        if (query !== '__ALL__' && (!query || query.length < 2)) {
             ws.send(JSON.stringify({ type: "CATALOG_SEARCH_RESULT", results: [] }));
             return;
         }
@@ -35,7 +35,8 @@ function createCatalogManager({ db, sendError, logger }) {
             return;
         }
 
-        db.searchMonsters(query)
+        const effectiveQuery = query === '__ALL__' ? '' : query;
+        db.searchMonsters(effectiveQuery)
             .then(results => {
                 logger.info(`🔍 Search '${query}' returned ${results.length} monsters`);
                 ws.send(JSON.stringify({

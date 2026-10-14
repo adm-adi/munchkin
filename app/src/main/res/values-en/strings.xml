@@ -371,4 +371,29 @@
     <string name="run_away_threshold_hint">You escape on %1$d or higher.</string>
     <string name="run_away_suggestion_escaped">%1$d means you escape.</string>
     <string name="run_away_suggestion_caught">%1$d means you are caught.</string>
+
+    <!-- Enhancements: Combat, Death, Victory, QR, Turn, Catalog -->
+    <string name="death_reset_gear">Death (Gear to 0)</string>
+    <string name="death_confirm_title">Apply Death?</string>
+    <string name="death_confirm_message">You will lose all your equipped gear (+0), but keep your current Level, Race, and Class.</string>
+    <string name="treasures_label">Treasures</string>
+    <string name="levels_reward_label">Levels</string>
+    <string name="warrior_tie_win_badge">⚔️ Winning on tie (Warrior)</string>
+    <string name="remove_monster">Remove monster</string>
+    <string name="your_turn">It\'s your turn!</string>
+    <string name="player_turn">%1$s\'s turn</string>
+    <string name="confirm_victory_title">Confirm Victory</string>
+    <string name="confirm_victory_message">%1$s has reached the maximum level. End the game and record the victory?</string>
+    <string name="confirm_action">Confirm</string>
+    <string name="delete_game_title">Delete Game</string>
+    <string name="delete_game_confirm">Are you sure you want to delete this game? All players will be disconnected.</string>
+    <string name="delete_action">Delete</string>
+    <string name="victory_dialog_title">🏆 Game Over!</string>
+    <string name="victory_dialog_winner">%1$s won the game!</string>
+    <string name="return_to_home">Return Home</string>
+    <string name="scan_qr_button">Scan QR</string>
+    <string name="resume_hosted_game">Resume</string>
+    <string name="lobby_tie_message">⚔️ Tie! Tied players must roll again.</string>
+    <string name="lobby_waiting_rolls">🎲 Waiting for everyone to roll the dice…</string>
+    <string name="modifiers_label">Modifiers (Bonus/Malus): %1$s</string>
 </resources>

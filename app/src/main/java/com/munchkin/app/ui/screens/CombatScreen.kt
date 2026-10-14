@@ -44,20 +44,28 @@ fun CombatScreen(
     myPlayerId: PlayerId,
     monsterSearchResults: List<CatalogMonster>,
     onStartCombat: () -> Unit,
-    onAddMonster: (name: String, level: Int, modifier: Int, isUndead: Boolean, badStuff: String) -> Unit,
+    onAddMonster: (name: String, level: Int, modifier: Int, isUndead: Boolean, badStuff: String, treasures: Int, levels: Int) -> Unit,
+    onRemoveMonster: (monsterId: String) -> Unit,
     onSearchMonsters: (String) -> Unit,
-    onRequestCreateGlobalMonster: (String, Int, Int, Boolean) -> Unit,
+    onRequestCreateGlobalMonster: (name: String, level: Int, modifier: Int, isUndead: Boolean, treasures: Int, levels: Int, badStuff: String) -> Unit,
     onAddHelper: (PlayerId) -> Unit,
     onRemoveHelper: () -> Unit,
     onModifyModifier: (target: BonusTarget, delta: Int) -> Unit,
     onRollCombatDice: (DiceRollPurpose, Int?, Boolean) -> Unit,
     onEndCombat: () -> Unit,
+    onCancelCombat: () -> Unit,
     onResolveRunAway: (success: Boolean) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val combatState = gameState.combat
-    // myPlayer removed - was unused
+    val canTouchCombat = combatState != null && (
+        myPlayerId == combatState.mainPlayerId ||
+        myPlayerId == combatState.helperPlayerId ||
+        myPlayerId == gameState.turnPlayerId ||
+        myPlayerId == gameState.hostId
+    )
+    val canStartCombat = myPlayerId == gameState.turnPlayerId || myPlayerId == gameState.hostId
     
     // Monster input state
     var showAddMonster by remember { mutableStateOf(false) }
@@ -93,25 +101,17 @@ fun CombatScreen(
     // Listen for global dice rolls
     LaunchedEffect(combatState?.lastDiceRoll) {
         combatState?.lastDiceRoll?.let { roll ->
-            // Relaxed check: Show if within last 20 seconds (to handle minor clock skews)
-            // But usually LaunchedEffect triggers on change, so we trust it's new.
-            // We mainly want to avoid showing very old info on rejoin.
             val age = System.currentTimeMillis() - roll.timestamp
             if (age < 20000) { // 20 seconds tolerance
-                // Play sound
                 com.munchkin.app.ui.components.SoundManager.playDiceRoll()
                 
                 showDiceResult = roll
-                // Auto hide after 3 seconds
                 kotlinx.coroutines.delay(3000)
                 showDiceResult = null
                 
-                // Show run-away animation to both main player and helper
-                val isParticipant = myPlayerId == combatState.mainPlayerId || myPlayerId == combatState.helperPlayerId
-                if (roll.purpose == DiceRollPurpose.RUN_AWAY && isParticipant) {
-                    // Only the main player resolves the escape server-side; the
-                    // helper just watches the animation.
-                    if (myPlayerId == combatState.mainPlayerId) {
+                if (roll.purpose == DiceRollPurpose.RUN_AWAY && canTouchCombat) {
+                    // The player who rolled resolves the escape server-side (or main player as fallback)
+                    if (myPlayerId == roll.playerId) {
                         pendingResolution.value = { onResolveRunAway(roll.success) }
                     }
                     combatAnimation = if (roll.success)
@@ -138,7 +138,7 @@ fun CombatScreen(
                         items(candidates) { player ->
                             ListItem(
                                 headlineContent = { Text(player.name) },
-                                supportingContent = { Text("Nivel ${player.level} | Fuerza ${player.combatPower}") },
+                                supportingContent = { Text(stringResource(R.string.level_power_format, player.level, player.combatPower)) },
                                 leadingContent = { PlayerAvatar(player, size = 40) },
                                 modifier = Modifier.clickable {
                                     onAddHelper(player.playerId)
@@ -199,9 +199,9 @@ fun CombatScreen(
                     )
                 ),
                 actions = {
-                    if (combatState != null && myPlayerId == combatState.mainPlayerId) {
+                    if (canTouchCombat) {
                         IconButton(onClick = {
-                            onEndCombat()
+                            onCancelCombat()
                             onBack()
                         }) {
                             Icon(
@@ -211,9 +211,7 @@ fun CombatScreen(
                             )
                         }
                     }
-                    val canRunAway = combatState != null &&
-                        combatState.monsters.isNotEmpty() &&
-                        myPlayerId == combatState.mainPlayerId
+                    val canRunAway = canTouchCombat && combatState?.monsters?.isNotEmpty() == true
                     if (canRunAway) {
                         IconButton(onClick = { showRunAwayDialog = true }) {
                             Icon(
@@ -243,12 +241,14 @@ fun CombatScreen(
                         color = NeonGray200
                     )
                     Spacer(modifier = Modifier.height(24.dp))
-                    GradientButton(
-                        text = stringResource(R.string.start_combat),
-                        onClick = onStartCombat,
-                        modifier = Modifier,
-                        gradientColors = GradientNeonFire
-                    )
+                    if (canStartCombat) {
+                        GradientButton(
+                            text = stringResource(R.string.start_combat),
+                            onClick = onStartCombat,
+                            modifier = Modifier,
+                            gradientColors = GradientNeonFire
+                        )
+                    }
                 }
             }
         } else {
@@ -265,11 +265,41 @@ fun CombatScreen(
                 if (combatState.monsters.isNotEmpty()) {
                     result?.let { r ->
                         item {
-                            CombatResultBanner(
-                                isWin = r.outcome == CombatOutcome.WIN,
-                                difference = r.diff,
-                                marginToWin = r.marginToWin
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                CombatResultBanner(
+                                    isWin = r.outcome == CombatOutcome.WIN,
+                                    difference = r.diff,
+                                    marginToWin = r.marginToWin
+                                )
+                                if (r.warriorTieBreak) {
+                                    Surface(
+                                        color = NeonWarning.copy(alpha = 0.2f),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.border(1.dp, NeonWarning.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.warrior_tie_win_badge),
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = NeonWarning,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                        )
+                                    }
+                                }
+                                if (r.outcome == CombatOutcome.WIN) {
+                                    Text(
+                                        text = "💰 ${stringResource(R.string.treasures_format, r.totalTreasures)} • ⭐ ${stringResource(R.string.levels_format, r.totalLevels)}" +
+                                            if (r.helperLevelsGained > 0) " (+${r.helperLevelsGained} ${stringResource(R.string.race_elf)})" else "",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = NeonSuccess,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -285,7 +315,7 @@ fun CombatScreen(
                         mainPlayer?.let { player ->
                             Column {
                                 Text(
-                                    text = "${player.name} (Nivel ${player.level})",
+                                    text = "${player.name} (${stringResource(R.string.level)} ${player.level})",
                                     style = MaterialTheme.typography.titleMedium
                                 )
                                 Text(
@@ -294,7 +324,7 @@ fun CombatScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = "⚔️ Fuerza Total: ${player.combatPower}",
+                                    text = "⚔️ ${stringResource(R.string.power)}: ${player.combatPower}",
                                     style = MaterialTheme.typography.bodyLarge,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -330,14 +360,15 @@ fun CombatScreen(
                                         )
                                     }
                                 }
-                                IconButton(onClick = onRemoveHelper) {
-                                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.combat_remove_helper), tint = MaterialTheme.colorScheme.error)
+                                if (canTouchCombat) {
+                                    IconButton(onClick = onRemoveHelper) {
+                                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.combat_remove_helper), tint = MaterialTheme.colorScheme.error)
+                                    }
                                 }
                             }
                         }
 
-                        // Only main player can add helper
-                        if (combatState.helperPlayerId == null && myPlayerId == combatState.mainPlayerId) {
+                        if (combatState.helperPlayerId == null && canTouchCombat) {
                             Spacer(modifier = Modifier.height(8.dp))
                             OutlinedButton(
                                 onClick = { showAddHelper = true },
@@ -349,14 +380,11 @@ fun CombatScreen(
                             }
                         }
                         
-                        // Quick modifier buttons (Only Main Player + Helper)
-                        val isParticipant = myPlayerId == combatState.mainPlayerId || myPlayerId == combatState.helperPlayerId
-                        
-                        if (isParticipant) {
+                        if (canTouchCombat) {
                             Spacer(modifier = Modifier.height(16.dp))
-                            
+                            val modStr = "${if (combatState.heroModifier >= 0) "+" else ""}${combatState.heroModifier}"
                             Text(
-                                text = "Modificadores (Bonus/Malus): ${if (combatState.heroModifier >= 0) "+" else ""}${combatState.heroModifier}", 
+                                text = stringResource(R.string.modifiers_label, modStr),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
@@ -393,19 +421,37 @@ fun CombatScreen(
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = monster.name + if (monster.isUndead) " 🧟" else "",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = "💰 ${stringResource(R.string.treasures_format, monster.treasures)} • ⭐ ${stringResource(R.string.levels_format, monster.levels)}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                     Text(
-                                        text = monster.name,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Text(
-                                        text = "Nivel ${monster.baseLevel}" + 
+                                        text = "${stringResource(R.string.level)} ${monster.baseLevel}" + 
                                             if (monster.flatModifier != 0) " (${if (monster.flatModifier > 0) "+" else ""}${monster.flatModifier})" 
                                             else "",
-                                        style = MaterialTheme.typography.bodyMedium
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold
                                     )
+                                    if (canTouchCombat) {
+                                        IconButton(onClick = { onRemoveMonster(monster.id) }) {
+                                            Icon(
+                                                Icons.Default.Delete,
+                                                contentDescription = stringResource(R.string.remove_monster),
+                                                tint = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    }
                                 }
                                 // Show mal rollo if available
                                 if (monster.badStuff.isNotEmpty()) {
@@ -418,8 +464,7 @@ fun CombatScreen(
                             }
                         }
                         
-                        // Only main player can add monsters
-                        if (myPlayerId == combatState.mainPlayerId) {
+                        if (canTouchCombat) {
                             Spacer(modifier = Modifier.height(8.dp))
                             OutlinedButton(
                                 onClick = { showAddMonster = true },
@@ -431,14 +476,11 @@ fun CombatScreen(
                             }
                         }
                         
-                        // Quick modifier buttons for monsters (Only Main Player + Helper)
-                        val isParticipant = myPlayerId == combatState.mainPlayerId || myPlayerId == combatState.helperPlayerId
-                        
-                        if (isParticipant && combatState.monsters.isNotEmpty()) {
+                        if (canTouchCombat && combatState.monsters.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(16.dp))
-                            
+                            val modStr = "${if (combatState.monsterModifier >= 0) "+" else ""}${combatState.monsterModifier}"
                             Text(
-                                text = "Modificadores (Bonus/Malus): ${if (combatState.monsterModifier >= 0) "+" else ""}${combatState.monsterModifier}", 
+                                text = stringResource(R.string.modifiers_label, modStr),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
@@ -452,8 +494,8 @@ fun CombatScreen(
                     }
                 }
                 
-                // End combat button (Only main player)
-                if (myPlayerId == combatState.mainPlayerId) {
+                // End combat button
+                if (canTouchCombat) {
                     item {
                         result?.let { r ->
                             Button(
@@ -484,10 +526,7 @@ fun CombatScreen(
                     }
                 }
                 
-                // Reminders of what the participants' classes and races do. Most
-                // Munchkin abilities depend on discarding cards or on inventory,
-                // neither of which this app models, so it cannot apply them — but it
-                // can at least stop the player having to remember them.
+                // Reminders of what the participants' classes and races do.
                 item {
                     val participants = listOfNotNull(
                         gameState.players[combatState.mainPlayerId],
@@ -508,26 +547,27 @@ fun CombatScreen(
             onSearch = onSearchMonsters,
             onDismiss = { showAddMonster = false },
             onSelectMonster = { monster ->
-                // Add local AND ensure it's in catalog (implicit by selection)
-                // Carry the Bad Stuff through: the combat screen already renders
-                // it, but nothing ever populated it.
-                onAddMonster(monster.name, monster.level, monster.modifier, monster.isUndead, monster.badStuff)
+                onAddMonster(
+                    monster.name,
+                    monster.level,
+                    monster.modifier,
+                    monster.isUndead,
+                    monster.badStuff,
+                    monster.treasures,
+                    monster.levels
+                )
                 showAddMonster = false
             },
-            onCreateNew = { name, level, mod, undead ->
-                // Create global then add local (handled by ViewModel on success)
-                onRequestCreateGlobalMonster(name, level, mod, undead)
+            onCreateNew = { name, level, mod, undead, treasures, levels, badStuff ->
+                onRequestCreateGlobalMonster(name, level, mod, undead, treasures, levels, badStuff)
                 showAddMonster = false
             }
         )
     }
-    // Run Dice Logic
     // Dice Result Overlay
     if (showDiceResult != null) {
         val roll = showDiceResult!!
         AlertDialog(
-            // Was auto-dismiss only, so every roll blocked the combat screen for a
-            // full three seconds with no way past it.
             onDismissRequest = { showDiceResult = null },
             icon = { 
                 Text(
@@ -570,9 +610,7 @@ fun CombatScreen(
     }
 
     if (showRunAwayDialog) {
-        val runner = gameState.players[myPlayerId]
-        // Resolved through the context: the label is built inside a lambda, which
-        // is not a composable scope.
+        val runner = gameState.players[combatState?.mainPlayerId ?: myPlayerId]
         val labelContext = androidx.compose.ui.platform.LocalContext.current
         RunAwayDialog(
             onDismiss = { showRunAwayDialog = false },
@@ -581,8 +619,6 @@ fun CombatScreen(
                 onRollCombatDice(DiceRollPurpose.RUN_AWAY, result, success)
             },
             runAwayBonus = runner?.let { Abilities.runAwayBonus(it) } ?: 0,
-            // Was hardcoded to "Elfo", so a Halfling's -1 was labelled as an Elf
-            // bonus. Built from whichever races actually contribute.
             runAwayBonusLabel = runner
                 ?.let { Abilities.runAwayModifiers(it) }
                 ?.takeIf { it.isNotEmpty() }
@@ -601,11 +637,14 @@ fun MonsterSearchDialog(
     onSearch: (String) -> Unit,
     onDismiss: () -> Unit,
     onSelectMonster: (CatalogMonster) -> Unit,
-    onCreateNew: (String, Int, Int, Boolean) -> Unit
+    onCreateNew: (name: String, level: Int, modifier: Int, isUndead: Boolean, treasures: Int, levels: Int, badStuff: String) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
     var level by remember { mutableStateOf("1") }
     var modifier by remember { mutableStateOf("0") }
+    var treasures by remember { mutableStateOf("1") }
+    var levels by remember { mutableStateOf("1") }
+    var badStuff by remember { mutableStateOf("") }
     var isUndead by remember { mutableStateOf(false) }
 
     // Debounce search
@@ -642,10 +681,18 @@ fun MonsterSearchDialog(
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(monster.name, fontWeight = FontWeight.Bold)
-                                    Text("Lvl ${monster.level}")
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(monster.name, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            "💰 ${monster.treasures} • ⭐ ${monster.levels}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Text("${stringResource(R.string.level)} ${monster.level}")
                                 }
                             }
                         }
@@ -665,7 +712,8 @@ fun MonsterSearchDialog(
                         },
                         label = { Text(stringResource(R.string.level)) },
                         modifier = Modifier.weight(1f),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true
                     )
                     OutlinedTextField(
                         value = modifier,
@@ -677,9 +725,43 @@ fun MonsterSearchDialog(
                         },
                         label = { Text(stringResource(R.string.modifier)) },
                         modifier = Modifier.weight(1f),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true
                     )
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = treasures,
+                        onValueChange = { v ->
+                            val digits = v.filter { c -> c.isDigit() }.take(2)
+                            val n = digits.toIntOrNull()
+                            treasures = if (n != null) n.coerceIn(0, 10).toString() else digits
+                        },
+                        label = { Text(stringResource(R.string.treasures_label)) },
+                        modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = levels,
+                        onValueChange = { v ->
+                            val digits = v.filter { c -> c.isDigit() }.take(1)
+                            val n = digits.toIntOrNull()
+                            levels = if (n != null) n.coerceIn(1, 2).toString() else digits
+                        },
+                        label = { Text(stringResource(R.string.levels_reward_label)) },
+                        modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true
+                    )
+                }
+                OutlinedTextField(
+                    value = badStuff,
+                    onValueChange = { badStuff = it.take(150) },
+                    label = { Text(stringResource(R.string.combat_bad_stuff_label)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -698,7 +780,10 @@ fun MonsterSearchDialog(
                             query,
                             (level.toIntOrNull() ?: 1).coerceIn(1, 20),
                             (modifier.toIntOrNull() ?: 0).coerceIn(-10, 10),
-                            isUndead
+                            isUndead,
+                            (treasures.toIntOrNull() ?: 1).coerceIn(0, 10),
+                            (levels.toIntOrNull() ?: 1).coerceIn(1, 2),
+                            badStuff.trim()
                         )
                     }
                 },
@@ -711,7 +796,7 @@ fun MonsterSearchDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         }
     )
-    }
+}
 
 
 

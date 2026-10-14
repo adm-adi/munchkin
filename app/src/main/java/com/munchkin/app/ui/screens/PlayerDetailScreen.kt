@@ -32,6 +32,7 @@ fun PlayerDetailScreen(
     onIncrementLevel: () -> Unit,
     onDecrementLevel: () -> Unit,
     onModifyGear: (Int) -> Unit,
+    onApplyDeath: (() -> Unit)? = null,
     onSetClass: (CharacterClass) -> Unit = {},
     onSetRace: (CharacterRace) -> Unit = {},
     onSetSecondaryClass: (CharacterClass) -> Unit = {},
@@ -43,15 +44,41 @@ fun PlayerDetailScreen(
     maxLevel: Int = 10,
     modifier: Modifier = Modifier
 ) {
-    // labelMapper is a plain lambda, not a composable, so the class/race names
-    // are resolved through the context rather than stringResource().
     val context = androidx.compose.ui.platform.LocalContext.current
+    var showDeathConfirm by remember { mutableStateOf(false) }
+
+    if (showDeathConfirm && onApplyDeath != null) {
+        AlertDialog(
+            onDismissRequest = { showDeathConfirm = false },
+            title = { Text(stringResource(R.string.death_confirm_title)) },
+            text = { Text(stringResource(R.string.death_confirm_message)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeathConfirm = false
+                        onApplyDeath()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text(stringResource(R.string.confirm_action))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeathConfirm = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
 
     Scaffold(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text(if (isReadOnly) stringResource(R.string.player_details) else stringResource(R.string.edit_player)) },
+                title = { Text(if (isReadOnly) "${stringResource(R.string.player_details)}: ${player.name}" else stringResource(R.string.edit_player)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
@@ -96,6 +123,20 @@ fun PlayerDetailScreen(
             if (!isReadOnly) {
                 Spacer(modifier = Modifier.height(16.dp))
                 QuickModifierButtons(onModify = onModifyGear)
+
+                if (onApplyDeath != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = { showDeathConfirm = true },
+                        enabled = player.gearBonus != 0,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text("💀 ${stringResource(R.string.death_reset_gear)}")
+                    }
+                }
             }
             
             Spacer(modifier = Modifier.height(32.dp))
@@ -128,7 +169,6 @@ fun PlayerDetailScreen(
             
             Spacer(modifier = Modifier.height(32.dp))
             
-            // Class and Race Selectors (Only if not ReadOnly)
             if (!isReadOnly) {
                 // Class Selector
                 Text(text = stringResource(R.string.label_class), style = MaterialTheme.typography.titleMedium)
@@ -140,8 +180,6 @@ fun PlayerDetailScreen(
                     labelMapper = { context.getString(it.labelRes()) }
                 )
 
-                // Super Munchkin grants the abilities of two classes. There was no way
-                // to turn it on from the UI at all, which is why the flag looked inert.
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -182,7 +220,6 @@ fun PlayerDetailScreen(
                     labelMapper = { context.getString(it.labelRes()) }
                 )
 
-                // Half-Breed is the race equivalent of Super Munchkin.
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -210,15 +247,72 @@ fun PlayerDetailScreen(
                         labelMapper = { context.getString(it.labelRes()) }
                     )
                 }
+            } else {
+                // Read-only view of player's Classes and Races
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        val classesText = buildList {
+                            add(context.getString(player.characterClass.labelRes()))
+                            if (player.hasSuperMunchkin && player.secondaryClass != CharacterClass.NONE) {
+                                add(context.getString(player.secondaryClass.labelRes()))
+                            }
+                        }.joinToString(" + ")
 
-                Spacer(modifier = Modifier.height(24.dp))
+                        val racesText = buildList {
+                            add(context.getString(player.characterRace.labelRes()))
+                            if (player.hasHalfBreed && player.secondaryRace != CharacterRace.HUMAN) {
+                                add(context.getString(player.secondaryRace.labelRes()))
+                            }
+                        }.joinToString(" + ")
 
-                // Same reminders as in combat: which abilities the app applies and
-                // which the player has to resolve at the table.
-                AbilityReminders(listOf(player))
-
-                Spacer(modifier = Modifier.height(32.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = stringResource(R.string.classes),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = classesText + if (player.hasSuperMunchkin) " (${stringResource(R.string.super_munchkin)})" else "",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                        HorizontalDivider()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = stringResource(R.string.races),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = racesText + if (player.hasHalfBreed) " (${stringResource(R.string.half_breed)})" else "",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    }
+                }
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Same reminders as in combat: shown for both owner and read-only inspection
+            AbilityReminders(listOf(player))
+
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }

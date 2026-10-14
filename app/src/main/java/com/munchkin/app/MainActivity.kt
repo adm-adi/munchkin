@@ -164,6 +164,7 @@ class MainActivity : ComponentActivity() {
                                     onCreateGame = { viewModel.navigateTo(Screen.CREATE_GAME) },
                                     onJoinGame = { viewModel.navigateTo(Screen.JOIN_GAME) },
                                     onResumeGame = { viewModel.resumeSavedGame() },
+                                    onResumeHostedGame = { viewModel.resumeHostedGame(it) },
                                     onDeleteSavedGame = { viewModel.deleteSavedGame() },
                                     onDeleteHostedGame = { viewModel.deleteHostedGame(it) },
                                     onClearError = { viewModel.clearError() },
@@ -249,27 +250,35 @@ class MainActivity : ComponentActivity() {
                                             myPlayerId = myPlayerId,
                                             monsterSearchResults = uiState.monsterSearchResults,
                                             onStartCombat = { viewModel.startCombat() },
-                                            onAddMonster = { name, level, mod, undead, badStuff ->
-                                                viewModel.addMonster(name, level, mod, undead, badStuff)
+                                            onAddMonster = { name, level, mod, undead, badStuff, treasures, levels ->
+                                                viewModel.addMonster(name, level, mod, undead, badStuff, treasures, levels)
                                             },
+                                            onRemoveMonster = { viewModel.removeMonster(it) },
                                             onSearchMonsters = { viewModel.searchMonsters(it) },
-                                            onRequestCreateGlobalMonster = { name, level, mod, undead ->
-                                                viewModel.requestCreateGlobalMonster(name, level, mod, undead)
+                                            onRequestCreateGlobalMonster = { name, level, mod, undead, treasures, levels, badStuff ->
+                                                viewModel.requestCreateGlobalMonster(name, level, mod, undead, treasures, levels, badStuff)
                                             },
                                             onAddHelper = { viewModel.addHelper(it) },
                                             onRemoveHelper = { viewModel.removeHelper() },
                                             onModifyModifier = { target, delta -> viewModel.modifyCombatModifier(target, delta) },
-                                        onRollCombatDice = { purpose, result, success ->
-                                            viewModel.rollForCombat(purpose, result, success)
-                                        },
-                                        onEndCombat = { viewModel.endCombat() },
-                                        onResolveRunAway = { success -> viewModel.resolveRunAway(success) },
-                                        onBack = {
-                                            // Only main player can cancel combat via back
-                                            if (myPlayerId == gameState.combat?.mainPlayerId) {
-                                                viewModel.endCombat()
+                                            onRollCombatDice = { purpose, result, success ->
+                                                viewModel.rollForCombat(purpose, result, success)
+                                            },
+                                            onEndCombat = { viewModel.endCombat() },
+                                            onCancelCombat = { viewModel.cancelCombat() },
+                                            onResolveRunAway = { success -> viewModel.resolveRunAway(success) },
+                                            onBack = {
+                                                val combat = gameState.combat
+                                                val canCancel = combat != null && (
+                                                    myPlayerId == combat.mainPlayerId ||
+                                                    myPlayerId == combat.helperPlayerId ||
+                                                    myPlayerId == gameState.turnPlayerId ||
+                                                    myPlayerId == gameState.hostId
+                                                )
+                                                if (canCancel && combat?.monsters?.isEmpty() == true) {
+                                                    viewModel.cancelCombat()
+                                                }
                                             }
-                                        }
                                         )
                                     } else {
                                         BoardScreen(
@@ -312,6 +321,7 @@ class MainActivity : ComponentActivity() {
                                             if (amount > 0) viewModel.incrementGear(amount)
                                             else viewModel.decrementGear(-amount) // Pass positive magnitude
                                         },
+                                        onApplyDeath = { viewModel.applyDeath() },
                                         onSetClass = { viewModel.setCharacterClass(it) },
                                         onSetRace = { viewModel.setCharacterRace(it) },
                                         onSetSecondaryClass = {
@@ -339,12 +349,13 @@ class MainActivity : ComponentActivity() {
                                         myPlayerId = myPlayerId,
                                         monsterSearchResults = uiState.monsterSearchResults,
                                         onStartCombat = { viewModel.startCombat() },
-                                        onAddMonster = { name, level, mod, undead, badStuff ->
-                                            viewModel.addMonster(name, level, mod, undead, badStuff)
+                                        onAddMonster = { name, level, mod, undead, badStuff, treasures, levels ->
+                                            viewModel.addMonster(name, level, mod, undead, badStuff, treasures, levels)
                                         },
+                                        onRemoveMonster = { viewModel.removeMonster(it) },
                                         onSearchMonsters = { viewModel.searchMonsters(it) },
-                                        onRequestCreateGlobalMonster = { name, level, mod, undead ->
-                                            viewModel.requestCreateGlobalMonster(name, level, mod, undead)
+                                        onRequestCreateGlobalMonster = { name, level, mod, undead, treasures, levels, badStuff ->
+                                            viewModel.requestCreateGlobalMonster(name, level, mod, undead, treasures, levels, badStuff)
                                         },
                                         onAddHelper = { viewModel.addHelper(it) },
                                         onRemoveHelper = { viewModel.removeHelper() },
@@ -353,6 +364,7 @@ class MainActivity : ComponentActivity() {
                                             viewModel.rollForCombat(purpose, result, success)
                                         },
                                         onEndCombat = { viewModel.endCombat() },
+                                        onCancelCombat = { viewModel.cancelCombat() },
                                         onResolveRunAway = { success -> viewModel.resolveRunAway(success) },
                                         onBack = { viewModel.goBack() }
                                     )
@@ -361,7 +373,12 @@ class MainActivity : ComponentActivity() {
                             
                             Screen.CATALOG -> {
                                 MonsterCatalogScreen(
-                                    onBack = { viewModel.goBack() }
+                                    onBack = { viewModel.goBack() },
+                                    onCreateMonster = if (uiState.userProfile != null && uiState.gameState != null) {
+                                        { name, level, mod, undead, treasures, levels, badStuff ->
+                                            viewModel.requestCreateGlobalMonster(name, level, mod, undead, treasures, levels, badStuff)
+                                        }
+                                    } else null
                                 )
                             }
                             
@@ -430,7 +447,9 @@ class MainActivity : ComponentActivity() {
                     val pendingBadStuff by viewModel.pendingBadStuff.collectAsState()
                     com.munchkin.app.ui.components.BadStuffDialog(
                         monsters = pendingBadStuff,
-                        onDismiss = { viewModel.dismissBadStuff() }
+                        onDismiss = { viewModel.dismissBadStuff() },
+                        onDecrementLevel = { viewModel.decrementLevel() },
+                        onApplyDeath = { viewModel.applyDeath() }
                     )
 
                     // Above the screen content so a rejection is readable from any

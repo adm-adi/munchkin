@@ -15,14 +15,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
+import com.munchkin.app.R
 
 /**
  * QR Code display component for game joining.
@@ -43,11 +44,11 @@ fun QRCodeDisplay(
             foregroundColor = foregroundColor.toArgb()
         )
     }
-    
+
     bitmap?.let {
         Image(
             bitmap = it.asImageBitmap(),
-            contentDescription = "Código QR",
+            contentDescription = stringResource(R.string.scan_to_join),
             modifier = modifier
                 .size(size.dp)
                 .clip(RoundedCornerShape(12.dp))
@@ -72,13 +73,21 @@ fun JoinCodeCard(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "Comparte este código",
+            text = stringResource(R.string.scan_to_join),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        
+
         Spacer(modifier = Modifier.height(16.dp))
-        
+
+        if (joinCode.isNotBlank()) {
+            QRCodeDisplay(
+                content = joinCode,
+                size = 160
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
         // Join code (large and prominent)
         Text(
             text = joinCode,
@@ -106,20 +115,19 @@ private fun generateQRCode(
             EncodeHintType.MARGIN to 1,
             EncodeHintType.CHARACTER_SET to "UTF-8"
         )
-        
+
         val writer = QRCodeWriter()
         val bitMatrix = writer.encode(content, BarcodeFormat.QR_CODE, size, size, hints)
-        
+
         val pixels = IntArray(size * size)
         for (y in 0 until size) {
             for (x in 0 until size) {
                 pixels[y * size + x] = if (bitMatrix[x, y]) foregroundColor else backgroundColor
             }
         }
-        
+
         Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
     } catch (e: Exception) {
         null
     }
 }
-
