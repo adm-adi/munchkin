@@ -255,6 +255,15 @@ export function applyEvent(prevState, event) {
         case 'DEC_LEVEL':
             updatePlayer(state, event.targetPlayerId, p => {
                 p.level = clamp(p.level - (event.amount ?? 1), minLevel, maxLevel);
+                if (p.level < maxLevel) p.reachedMaxLevelViaCombat = false;
+            });
+            break;
+        case 'SET_LEVEL':
+            updatePlayer(state, event.targetPlayerId, p => {
+                const prev = p.level;
+                p.level = clamp(event.level ?? 1, minLevel, maxLevel);
+                if (p.level < maxLevel) p.reachedMaxLevelViaCombat = false;
+                else if (prev < maxLevel) p.reachedMaxLevelViaCombat = false;
             });
             break;
         case 'INC_GEAR':
@@ -262,6 +271,9 @@ export function applyEvent(prevState, event) {
             break;
         case 'DEC_GEAR':
             updatePlayer(state, event.targetPlayerId, p => { p.gearBonus -= event.amount ?? 1; });
+            break;
+        case 'SET_GEAR':
+            updatePlayer(state, event.targetPlayerId, p => { p.gearBonus = event.gear ?? 0; });
             break;
         case 'SET_HALF_BREED':
             updatePlayer(state, event.targetPlayerId, p => {

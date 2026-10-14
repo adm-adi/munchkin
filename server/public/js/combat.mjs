@@ -119,11 +119,14 @@ export function calculateResult(combat, state) {
     let totalTreasures = 0;
     let helperLevelsGained = 0;
     if (outcome === 'WIN') {
-        for (const monster of combat.monsters || []) {
+        const monsters = combat.monsters || [];
+        for (const monster of monsters) {
             totalLevels += monster.levels ?? 1;
             totalTreasures += monster.treasures ?? 1;
         }
-        if (helperPlayer && hasRace(helperPlayer, 'ELF')) helperLevelsGained = 1;
+        if (helperPlayer && hasRace(helperPlayer, 'ELF') && monsters.length > 0) {
+            helperLevelsGained = monsters.length;
+        }
     }
 
     const gap = monstersPower - heroesPower;
