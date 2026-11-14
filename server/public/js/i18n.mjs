@@ -1,99 +1,1471 @@
 /**
- * UI strings, Spanish first (the app's default resource language). Kept in one
- * flat dictionary so adding EN/FR later means adding a dictionary, not touching
- * views. Class/race/error labels mirror the Android string resources.
+ * Localization (ES / EN / FR), canonical 8-avatar table (0..7), class/race
+ * abilities, expansion names, and complete server ErrorCode mappings.
  */
 
-export const CLASS_LABELS = {
-    NONE: 'Sin clase',
-    WARRIOR: 'Guerrero',
-    WIZARD: 'Mago',
-    THIEF: 'Ladrón',
-    CLERIC: 'Clérigo'
-};
+export const SUPPORTED_LANGS = ['es', 'en', 'fr'];
+export const LANG_LABELS = { es: 'ES', en: 'EN', fr: 'FR' };
+const LANG_KEY = 'munchkin.lang';
 
-export const RACE_LABELS = {
-    HUMAN: 'Humano',
-    ELF: 'Elfo',
-    DWARF: 'Enano',
-    HALFLING: 'Mediano'
-};
+export const EXPANSIONS = [
+    'base',
+    'hacha_descomunal',
+    'pifias_clericales',
+    'anda_que_ojo',
+    'exploradores',
+    'mazmorras',
+    'trampas',
+    'centauros',
+    'jurasico',
+    'extra'
+];
 
-export const GENDER_LABELS = { M: 'Hombre', F: 'Mujer', NA: 'Otro' };
-
-export const CLASS_ICONS = { NONE: '∅', WARRIOR: '⚔️', WIZARD: '🪄', THIEF: '🗡️', CLERIC: '✝️' };
-export const RACE_ICONS = { HUMAN: '👤', ELF: '🧝', DWARF: '🧔', HALFLING: '🍄' };
-
-/** Avatar slots mirror AvatarResources.kt: 8 portraits, gendered variants. */
+/** Canonical 8-avatar mapping matching AvatarResources.kt and DESIGN.md (0..7). */
 export const AVATARS = [
-    { id: 0, name: 'Guerrero', m: '🧑‍🚒', f: '👩‍🚒', emoji: '⚔️' },
-    { id: 1, name: 'Clérigo', m: '🧑‍⚕️', f: '👩‍⚕️', emoji: '✝️' },
-    { id: 2, name: 'Mago', m: '🧙‍♂️', f: '🧙‍♀️', emoji: '🪄' },
-    { id: 3, name: 'Ladrón', m: '🕵️‍♂️', f: '🕵️‍♀️', emoji: '🗡️' },
-    { id: 4, name: 'Elfo', m: '🧝‍♂️', f: '🧝‍♀️', emoji: '🏹' },
-    { id: 5, name: 'Enano', m: '🧔', f: '👩‍🦰', emoji: '⛏️' },
-    { id: 6, name: 'Humano', m: '🧑', f: '👩', emoji: '🛡️' },
-    { id: 7, name: 'Mediano', m: '🧑‍🌾', f: '👩‍🌾', emoji: '🍄' }
+    { id: 0, key: 'WARRIOR', m: '💂‍♂️', f: '💂‍♀️', emoji: '⚔️', accent: '#CC2020' },
+    { id: 1, key: 'WIZARD', m: '🧙‍♂️', f: '🧙‍♀️', emoji: '🪄', accent: '#D4960A' },
+    { id: 2, key: 'THIEF', m: '🕵️‍♂️', f: '🕵️‍♀️', emoji: '🗡️', accent: '#E85D00' },
+    { id: 3, key: 'CLERIC', m: '🧑‍⚖️', f: '👩‍⚖️', emoji: '✝️', accent: '#00E676' },
+    { id: 4, key: 'HUMAN', m: '🧑', f: '👩', emoji: '🛡️', accent: '#8B6914' },
+    { id: 5, key: 'ELF', m: '🧝‍♂️', f: '🧝‍♀️', emoji: '🏹', accent: '#FFD600' },
+    { id: 6, key: 'DWARF', m: '🧔', f: '👩‍🦰', emoji: '⛏️', accent: '#E5534B' },
+    { id: 7, key: 'HALFLING', m: '🧑‍🌾', f: '👩‍🌾', emoji: '🍄', accent: '#8D4025' }
 ];
 
 export function avatarEmoji(avatarId, gender) {
-    const slot = AVATARS[Math.abs(avatarId ?? 0) % AVATARS.length];
+    const idx = ((Math.trunc(Number(avatarId) || 0) % AVATARS.length) + AVATARS.length) % AVATARS.length;
+    const slot = AVATARS[idx];
     return gender === 'F' ? slot.f : slot.m;
 }
 
-/** Ability reminders (Abilities.kt): automatic = the app applies it. */
-export const ABILITIES = {
-    WARRIOR: [
-        { text: 'Ganas los empates en combate.', auto: true },
-        { text: 'Berserk: descarta hasta 3 cartas para +1 al combate cada una.', auto: false }
-    ],
-    WIZARD: [
-        { text: 'Hechizo de encanto: descarta tu mano para encantar un monstruo y llevarte su tesoro.', auto: false },
-        { text: 'Hechizo de vuelo: descarta hasta 3 cartas para +1 a la huida cada una.', auto: false }
-    ],
-    THIEF: [
-        { text: 'Puñalada por la espalda: descarta una carta para dar -2 al combate de otro jugador.', auto: false },
-        { text: 'Robar: descarta una carta y tira el dado para robar un objeto.', auto: false }
-    ],
-    CLERIC: [
-        { text: '+3 al combate contra No-Muertos.', auto: true },
-        { text: 'Resurrección: al descartar, puedes descartar 2 cartas más y robar otras 2.', auto: false }
-    ],
-    ELF: [
-        { text: 'Subes un nivel cada vez que ayudas a matar un monstruo.', auto: true },
-        { text: '+1 a la tirada de huida.', auto: true }
-    ],
-    DWARF: [
-        { text: 'Puedes llevar cualquier número de objetos Grandes.', auto: false },
-        { text: 'Puedes tener 6 cartas en la mano.', auto: false }
-    ],
-    HALFLING: [
-        { text: 'Cada turno puedes vender un objeto por el doble de su precio.', auto: false },
-        { text: '-1 a la tirada de huida.', auto: true }
-    ]
+const LABELS_BY_LANG = {
+    es: {
+        classes: { NONE: 'Sin clase', WARRIOR: 'Guerrero', WIZARD: 'Mago', THIEF: 'Ladrón', CLERIC: 'Clérigo' },
+        races: { HUMAN: 'Humano', ELF: 'Elfo', DWARF: 'Enano', HALFLING: 'Mediano' },
+        genders: { M: 'Hombre', F: 'Mujer', NA: 'Otro' },
+        avatars: {
+            WARRIOR: 'Guerrero', WIZARD: 'Mago', THIEF: 'Ladrón', CLERIC: 'Clérigo',
+            HUMAN: 'Humano', ELF: 'Elfo', DWARF: 'Enano', HALFLING: 'Mediano'
+        },
+        expansions: {
+            base: 'Juego base',
+            hacha_descomunal: 'Hacha Descomunal',
+            pifias_clericales: 'Pifias Clericales',
+            anda_que_ojo: '¡Anda que el Ojo!',
+            exploradores: 'Exploradores',
+            mazmorras: 'Mazmorras',
+            trampas: 'Trampas y Trampantojos',
+            centauros: 'Centauros',
+            jurasico: 'Jurásico',
+            extra: 'Comunidad / Extra'
+        },
+        abilities: {
+            WARRIOR: [
+                { text: 'Ganas los empates en combate.', auto: true },
+                { text: 'Berserk: descarta hasta 3 cartas para +1 al combate cada una.', auto: false }
+            ],
+            WIZARD: [
+                { text: 'Hechizo de encanto: descarta tu mano para encantar un monstruo y llevarte su tesoro.', auto: false },
+                { text: 'Hechizo de vuelo: descarta hasta 3 cartas para +1 a la huida cada una.', auto: false }
+            ],
+            THIEF: [
+                { text: 'Puñalada por la espalda: descarta una carta para dar -2 al combate de otro jugador.', auto: false },
+                { text: 'Robar: descarta una carta y tira el dado para robar un objeto.', auto: false }
+            ],
+            CLERIC: [
+                { text: '+3 al combate contra No-Muertos.', auto: true },
+                { text: 'Resurrección: al descartar, puedes descartar 2 cartas más y robar otras 2.', auto: false }
+            ],
+            ELF: [
+                { text: 'Subes un nivel cada vez que ayudas a matar un monstruo.', auto: true },
+                { text: '+1 a la tirada de huida.', auto: true }
+            ],
+            DWARF: [
+                { text: 'Puedes llevar cualquier número de objetos Grandes.', auto: false },
+                { text: 'Puedes tener 6 cartas en la mano.', auto: false }
+            ],
+            HALFLING: [
+                { text: 'Cada turno puedes vender un objeto por el doble de su precio.', auto: false },
+                { text: '-1 a la tirada de huida.', auto: true }
+            ]
+        },
+        errors: {
+            INVALID_JOIN_CODE: 'Código de partida inválido',
+            GAME_NOT_FOUND: 'Partida no encontrada',
+            GAME_FULL: 'La partida está llena',
+            GAME_ALREADY_STARTED: 'La partida ya ha comenzado',
+            GAME_FINISHED: 'La partida ya ha terminado',
+            PLAYER_NOT_FOUND: 'Jugador no encontrado',
+            USER_NOT_FOUND: 'Usuario no encontrado',
+            UNAUTHORIZED: 'No autorizado',
+            VALIDATION_FAILED: 'Validación fallida',
+            INTERNAL_ERROR: 'Error interno del servidor',
+            CONNECTION_LOST: 'Se perdió la conexión con el servidor',
+            HANDOVER_IN_PROGRESS: 'Transferencia de anfitrión en curso',
+            AUTH_FAILED: 'Email o contraseña incorrectos',
+            EMAIL_EXISTS: 'El email ya está registrado',
+            USERNAME_EXISTS: 'Ese nombre de usuario ya está en uso',
+            REGISTER_FAILED: 'Error al registrar la cuenta',
+            LOGIN_ERROR: 'Error al iniciar sesión',
+            UPDATE_FAILED: 'Error al actualizar el perfil',
+            DELETE_FAILED: 'Error al eliminar la cuenta',
+            INVALID_DATA: 'Datos inválidos',
+            RATE_LIMITED: 'Demasiados intentos. Espera un momento.',
+            FORBIDDEN: 'Acción no permitida',
+            PERMISSION_DENIED: 'Permiso denegado',
+            GENERAL_ERROR: 'Error de operación',
+            SERVER_ERROR: 'Error del servidor',
+            SERVER_BUSY: 'Servidor ocupado. Inténtalo más tarde.',
+            COMBAT_ALREADY_ACTIVE: 'Ya hay un combate activo',
+            NO_ACTIVE_COMBAT: 'No hay combate activo',
+            COMBAT_MONSTER_LIMIT: 'Límite máximo de monstruos alcanzado',
+            INVALID_HELPER: 'Ayudante inválido',
+            COMBAT_BONUS_LIMIT: 'Límite máximo de bonificaciones alcanzado',
+            SEARCH_ERROR: 'Error al buscar en el catálogo',
+            ADD_MONSTER_ERROR: 'Error al guardar el monstruo',
+            NOT_YOUR_TURN: 'No es tu turno',
+            MAX_RACES_EXCEEDED: 'Máximo de razas excedido',
+            MAX_CLASSES_EXCEEDED: 'Máximo de clases excedido',
+            LEVEL_10_COMBAT_ONLY: 'El nivel máximo solo puede alcanzarse en combate',
+            DUPLICATE_MONSTER: 'Este monstruo ya existe en el catálogo',
+            CONFLICT: 'El estado cambió antes de tu acción. Se ha actualizado.',
+            UNKNOWN: 'Error desconocido'
+        },
+        strings: {
+            'app.title': 'Munchkin Mesa Tracker',
+            'app.subtitle': 'Mesa Tracker',
+            'lang.label': 'Idioma',
+            'common.back': 'Volver',
+            'common.close': 'Cerrar',
+            'common.cancel': 'Cancelar',
+            'common.confirm': 'Confirmar',
+            'common.done': 'Hecho',
+            'common.save': 'Guardar',
+            'common.saving': 'Guardando…',
+            'common.loading': 'Cargando…',
+            'common.retry': 'Reintentar',
+            'common.refresh': 'Actualizar',
+            'common.add': 'Añadir',
+            'common.delete': 'Borrar',
+            'common.remove': 'Quitar',
+            'common.enter': 'Entrar',
+            'common.share': 'Compartir',
+            'common.you': 'tú',
+            'common.unknown': 'Error desconocido',
+            'common.timeout': 'El servidor no respondió a tiempo',
+            'common.loadMore': 'Cargar más',
+            'common.none': 'Ninguna',
+
+            'conn.reconnecting': 'Reconectando… (intento {attempt}/15)',
+            'conn.offline': 'Sin conexión.',
+            'conn.retry': 'Reintentar',
+            'conn.notConnected': 'No conectado',
+            'conn.gameDeleted': 'La partida ha sido borrada',
+
+            'home.signIn': 'Iniciar sesión',
+            'home.resumeGame': 'Reanudar partida',
+            'home.returnToGame': 'Volver a la partida',
+            'home.codeLabel': 'Código {code}',
+            'home.newGame': 'Nueva partida',
+            'home.joinGame': 'Unirse con código',
+            'home.catalog': 'Catálogo de monstruos',
+            'home.ranking': 'Ranking',
+            'home.history': 'Mi historial',
+            'home.myGames': 'Mis partidas',
+            'home.installHint': 'Añade esta página a tu pantalla de inicio para usarla como app.',
+
+            'profile.title': 'Tu perfil',
+            'profile.username': 'Nombre de usuario',
+            'profile.email': 'Email',
+            'profile.avatar': 'Avatar',
+            'profile.gender': 'Género',
+            'profile.changePassword': 'Cambiar contraseña',
+            'profile.currentPassword': 'Contraseña actual',
+            'profile.newPassword': 'Nueva contraseña (mín. {min})',
+            'profile.saveChanges': 'Guardar cambios',
+            'profile.updated': 'Perfil actualizado',
+            'profile.noChanges': 'No hay cambios que guardar',
+            'profile.passwordTooShort': 'La nueva contraseña debe tener al menos {min} caracteres',
+            'profile.currentPasswordRequired': 'Introduce tu contraseña actual',
+            'profile.passwordMatchesUsername': 'La contraseña no puede coincidir con tu nombre de usuario',
+            'profile.logout': 'Cerrar sesión',
+            'profile.loggedOut': 'Sesión cerrada',
+            'profile.dangerZone': 'Zona peligrosa',
+            'profile.deleteAccount': 'Eliminar cuenta',
+            'profile.deleteConfirmTitle': 'Eliminar cuenta permanentemente',
+            'profile.deleteConfirmText': 'Esta acción borrará tu cuenta y no se puede deshacer. Introduce tu contraseña actual para confirmar.',
+            'profile.deletePasswordLabel': 'Contraseña actual',
+            'profile.accountDeleted': 'Cuenta eliminada',
+
+            'hosted.title': 'Mis partidas',
+            'hosted.loading': 'Cargando tus partidas…',
+            'hosted.empty': 'No tienes partidas activas como anfitrión.',
+            'hosted.playersCount': '{count} jug. · {phase}',
+            'hosted.deleteTitle': 'Borrar {code}',
+            'hosted.deleteText': 'La partida se cerrará para todos los jugadores.',
+            'hosted.deleted': 'Partida borrada',
+
+            'auth.title': 'Tu cuenta',
+            'auth.loginTab': 'Entrar',
+            'auth.registerTab': 'Crear cuenta',
+            'auth.email': 'Email',
+            'auth.password': 'Contraseña',
+            'auth.passwordMin': 'Contraseña (mín. {min})',
+            'auth.username': 'Nombre de usuario',
+            'auth.loginBtn': 'Entrar',
+            'auth.loggingIn': 'Entrando…',
+            'auth.registerBtn': 'Crear cuenta',
+            'auth.registering': 'Creando cuenta…',
+            'auth.fillCredentials': 'Rellena email y contraseña',
+            'auth.welcomeBack': '¡Hola, {name}!',
+            'auth.registerInvalid': 'Usuario y contraseña de al menos {min} caracteres',
+            'auth.accountCreated': 'Cuenta creada. ¡Bienvenido, {name}!',
+
+            'identity.yourName': 'Tu nombre',
+            'identity.namePlaceholder': 'Nombre de munchkin',
+            'identity.avatar': 'Avatar',
+            'identity.gender': 'Género',
+
+            'create.title': 'Nueva partida',
+            'create.epicMode': 'Modo épico',
+            'create.epicDesc': 'La partida se juega hasta nivel 20',
+            'create.turnTimer': 'Temporizador de turno',
+            'create.timerNone': 'Sin límite',
+            'create.timer1m': '1 minuto',
+            'create.timer2m': '2 minutos',
+            'create.timer5m': '5 minutos',
+            'create.submit': 'Crear partida',
+            'create.creating': 'Creando…',
+            'create.enterName': 'Escribe tu nombre',
+
+            'join.title': 'Unirse a partida',
+            'join.codeLabel': 'Código de partida',
+            'join.submit': 'Unirse',
+            'join.joining': 'Uniéndose…',
+            'join.codeLengthError': 'El código tiene {len} caracteres',
+            'join.enterName': 'Escribe tu nombre',
+            'join.activeLobbies': 'Salas disponibles',
+            'join.noLobbies': 'No hay salas abiertas ahora mismo.',
+            'join.hostLabel': 'Anfitrión: {name}',
+            'join.playersRatio': '{count}/{max} jug.',
+            'join.joinOneTap': 'Entrar',
+            'join.lobbiesError': 'No se pudieron cargar las salas',
+
+            'lobby.title': 'Sala de espera',
+            'lobby.codeTapToShare': 'Código de partida — toca para compartir',
+            'lobby.qrTitle': 'Escanea para unirte',
+            'lobby.qrAlt': 'Código QR para unirse a la sala {code}',
+            'lobby.qrHint': 'Comparte este QR o copia el enlace directo',
+            'lobby.copyLink': 'Copiar enlace',
+            'lobby.inviteCopied': 'Invitación copiada',
+            'lobby.inviteText': 'Únete a mi partida de Munchkin con el código {code}: {url}',
+            'lobby.players': 'Jugadores ({count}/{max})',
+            'lobby.connected': 'Conectado',
+            'lobby.disconnected': 'Desconectado',
+            'lobby.tiedHint': '¡empate, vuelve a tirar!',
+            'lobby.moveUp': 'Subir posición',
+            'lobby.transferHost': 'Hacer anfitrión',
+            'lobby.transferTitle': 'Transferir liderazgo',
+            'lobby.transferText': '¿Convertir a {name} en el nuevo anfitrión de la partida?',
+            'lobby.kick': 'Expulsar',
+            'lobby.kickTitle': 'Expulsar a {name}',
+            'lobby.rollTie': '¡Empate! Vuelve a tirar',
+            'lobby.rollStart': 'Tirar dado de inicio',
+            'lobby.startGame': '¡Empezar partida!',
+            'lobby.needMorePlayers': 'Faltan jugadores (mínimo 2)',
+            'lobby.needRolls': 'Faltan tiradas de dado',
+            'lobby.resolveTie': 'Hay empate en las tiradas',
+            'lobby.waitingHost': 'Esperando a que el anfitrión empiece…',
+
+            'board.title': 'Mesa · {code}',
+            'board.yourTurn': '¡Tu turno!',
+            'board.turnOf': 'Turno de {name}',
+            'board.combatActiveBanner': 'Combate en curso — toca para verlo',
+            'board.editHero': 'Editar héroe',
+            'board.level': 'Nivel',
+            'board.gear': 'Equipo',
+            'board.power': 'Poder',
+            'board.rollDie': 'Tirar d6',
+            'board.rolledToast': '{name} sacó un {roll}',
+            'board.dieResetGear': 'Morir (Equipo = 0)',
+            'board.dieConfirmTitle': '¿Morir y reiniciar equipo?',
+            'board.dieConfirmText': 'Tu bonificación de equipo pasará a 0. Tu nivel se mantiene.',
+            'board.startCombat': '¡A luchar!',
+            'board.endTurn': 'Pasar turno',
+            'board.lvlShort': 'Nv {n}',
+            'board.gearShort': 'Eq {n}',
+            'board.logTitle': 'Registro de partida',
+            'board.logEmpty': 'Aún no hay eventos en esta partida.',
+            'board.toggleLog': 'Registro de partida',
+
+            'leave.closeTitle': 'Cerrar la partida',
+            'leave.closeText': 'Eres el anfitrión. Si sales, la partida se cierra para todos. ¿Seguro?',
+            'leave.closeYes': 'Cerrar partida',
+            'leave.leaveTitle': 'Salir de la partida',
+            'leave.leaveText': 'Podrás volver con el mismo código mientras la partida siga activa.',
+            'leave.leaveYes': 'Salir',
+
+            'hero.title': 'Tu héroe',
+            'hero.class': 'Clase',
+            'hero.superMunchkin': 'Súper Munchkin',
+            'hero.superMunchkinDesc': 'Permite una segunda clase',
+            'hero.secondClass': 'Segunda clase',
+            'hero.race': 'Raza',
+            'hero.halfBreed': 'Mestizo',
+            'hero.halfBreedDesc': 'Permite una segunda raza',
+            'hero.secondRace': 'Segunda raza',
+            'hero.gender': 'Género',
+            'hero.abilities': 'Habilidades',
+            'hero.abilitiesLegend': '⚙️ la app lo aplica · ✋ aplícalo tú con el modificador',
+
+            'combat.title': 'Combate',
+            'combat.heroes': 'Héroes',
+            'combat.monsters': 'Monstruos',
+            'combat.monstersCount': '{count} monstruo(s)',
+            'combat.winWarriorTie': '¡Victoria por Guerrero (gana el empate)!',
+            'combat.winning': '¡Vais ganando!',
+            'combat.losingGap': 'Vais perdiendo — falta {gap} para ganar',
+            'combat.noMonstersHint': 'Añade el monstruo al que os enfrentáis.',
+            'combat.monsterMeta': 'Nivel {level}{mod} · {treasures} 💰 · +{levels} nv{undead}',
+            'combat.undeadTag': 'No-Muerto',
+            'combat.quickMods': 'Modificadores rápidos',
+            'combat.helper': 'Ayudante',
+            'combat.helperPower': 'Aporta {power} de poder',
+            'combat.noHelpers': 'Nadie puede ayudar.',
+            'combat.tempBonuses': 'Bonos temporales',
+            'combat.bonusesHint': 'Pociones, hechizos, cartas de un solo uso…',
+            'combat.bonusMeta': '{amount} a {side}',
+            'combat.breakdown': 'Desglose del poder',
+            'combat.victoryBtn': '¡Victoria! +{levels} nv, +{treasures} 💰',
+            'combat.defeatBtn': 'Aceptar derrota',
+            'combat.resolving': 'Resolviendo…',
+            'combat.runAwayBtn': 'Intentar huir',
+            'combat.cancelCombat': 'Cancelar combate',
+            'combat.cancelConfirmTitle': 'Cancelar combate',
+            'combat.cancelConfirmText': 'Terminará el combate sin recompensas ni Mal Rollo (ej. Hechizo de Encanto).',
+            'combat.waitingMain': '{name} resuelve el combate.',
+            'combat.needMonsters': 'Añade un monstruo para resolver el combate',
+
+            'breakdown.base': '{name} (base)',
+            'breakdown.helper': '{name} (ayudante)',
+            'breakdown.monster': '{name} (nivel {level})',
+            'breakdown.manual': 'Modificador manual',
+            'breakdown.clericVsUndead': 'Clérigo vs No-Muerto',
+            'breakdown.helperClericVsUndead': 'Ayudante Clérigo vs No-Muerto',
+            'breakdown.cardModifiers': 'Modificadores de carta',
+
+            'combatEnd.winTitle': 'Confirmar victoria',
+            'combatEnd.loseTitle': 'Confirmar derrota',
+            'combatEnd.winText': 'Ganáis {levels} nivel(es) y {treasures} tesoro(s).',
+            'combatEnd.winTextElf': 'Ganáis {levels} nivel(es) y {treasures} tesoro(s); el ayudante Elfo sube {helperLevels}.',
+            'combatEnd.loseText': 'Perder significa sufrir el Mal Rollo de cada monstruo.',
+            'combatEnd.winYes': '¡Victoria!',
+            'combatEnd.loseYes': 'Aceptar derrota',
+
+            'badstuff.title': 'Mal Rollo',
+            'badstuff.intro': 'Aplica el Mal Rollo de cada monstruo:',
+            'badstuff.fallback': 'Consulta las cartas de los monstruos.',
+            'badstuff.currentStats': 'Estado actual: Nivel {level} · Equipo {gear}',
+            'badstuff.loseLevel': '-1 Nivel',
+            'badstuff.dieResetGear': 'Morir (Equipo = 0)',
+
+            'runaway.title': '¡Huida!',
+            'runaway.rollDigital': 'Tirar dado digital',
+            'runaway.orPickPhysical': 'O elige el resultado de tu dado físico:',
+            'runaway.thresholdHint': 'Escapas con un {threshold} o más (tras bonos raciales).',
+            'runaway.total': 'Total: {total}',
+            'runaway.dieMod': 'Dado {die} {mods}',
+            'runaway.escaped': 'Con {total} escapas ileso',
+            'runaway.caught': 'Con {total} te atrapan (necesitas {threshold}+)',
+            'runaway.confirmEscape': 'Confirmar huida',
+            'runaway.confirmCaught': 'Aceptar Mal Rollo',
+            'runaway.changeDie': 'Elegir otro número',
+
+            'monsterModal.title': 'Añadir monstruo',
+            'monsterModal.searchPlaceholder': 'Buscar en el catálogo…',
+            'monsterModal.noResults': 'Sin resultados. Créalo abajo.',
+            'monsterModal.searchError': 'No se pudo buscar en el catálogo.',
+            'monsterModal.manualSummary': 'Crear monstruo a mano',
+            'monsterModal.name': 'Nombre',
+            'monsterModal.levelRange': 'Nivel (1–20)',
+            'monsterModal.modRange': 'Modif. (±10)',
+            'monsterModal.treasures': 'Tesoros',
+            'monsterModal.levelsReward': 'Niveles que da',
+            'monsterModal.undead': 'No-Muerto',
+            'monsterModal.badStuff': 'Mal Rollo',
+            'monsterModal.badStuffPlaceholder': 'Qué pasa si pierdes…',
+            'monsterModal.nameRequired': 'Ponle nombre al monstruo',
+            'monsterModal.addToCombat': 'Añadir al combate',
+
+            'bonusModal.title': 'Bono temporal',
+            'bonusModal.cardName': 'Nombre de la carta',
+            'bonusModal.cardPlaceholder': 'Poción de…',
+            'bonusModal.amount': 'Cantidad (± poder)',
+            'bonusModal.appliesTo': 'Se aplica a',
+            'bonusModal.defaultLabel': 'Bono',
+
+            'catalog.title': 'Catálogo de monstruos',
+            'catalog.searchPlaceholder': 'Buscar monstruo o Mal Rollo…',
+            'catalog.allExpansions': 'Todas las expansiones',
+            'catalog.empty': 'No se encontraron monstruos.',
+            'catalog.error': 'No se pudo cargar el catálogo.',
+            'catalog.addBtn': 'Nuevo monstruo',
+            'catalog.addTitle': 'Contribuir monstruo al catálogo',
+            'catalog.signInToAdd': 'Inicia sesión para añadir monstruos al catálogo compartido.',
+            'catalog.expansion': 'Expansión',
+            'catalog.added': 'Monstruo "{name}" añadido al catálogo',
+            'catalog.badStuffLabel': 'Mal Rollo',
+
+            'winner.title': '¡Tenemos ganador!',
+            'winner.message': '{name} ha llegado al nivel {maxLevel}. ¿Confirmas la victoria y terminas la partida?',
+            'winner.notYet': 'Aún no',
+            'winner.confirm': 'Confirmar victoria',
+            'winner.chooseTitle': 'Varios jugadores en nivel máximo',
+            'winner.chooseText': 'Elige quién ganó la partida:',
+            'winner.pickPlayer': '{name} (Nv {level})',
+            'winner.crownTitle': 'Confirmar victoria',
+            'winner.crownConfirm': '¿{name} gana la partida?',
+
+            'results.winnerTitle': '¡{name} gana!',
+            'results.finishedTitle': 'Partida terminada',
+            'results.standings': 'Clasificación final',
+            'results.backHome': 'Volver al inicio',
+
+            'ranking.title': 'Ranking',
+            'ranking.yourRank': 'Tu posición: {rank}º',
+            'ranking.outsideTop': 'Fuera del top',
+            'ranking.stats': ' · {wins} victorias de {games} ({rate}%)',
+            'ranking.empty': 'Aún no hay partidas registradas.',
+
+            'history.title': 'Mi historial',
+            'history.winsOf': '{wins} victorias',
+            'history.statsTail': ' de {games} partidas ({rate}%)',
+            'history.empty': 'Todavía no has jugado ninguna partida.',
+            'history.victory': 'Victoria',
+            'history.wonBy': 'Ganó {name}',
+            'history.noWinner': 'Sin ganador',
+            'history.playersCount': '{count} jugadores',
+
+            'gameResume.title': 'Partida',
+            'gameResume.found': 'Tenías una partida en curso ({code}).',
+            'gameResume.resumeBtn': 'Reanudar partida',
+            'gameResume.connecting': 'Conectando…',
+            'gameResume.none': 'No estás en ninguna partida.',
+
+            'log.gameStarted': 'La partida ha comenzado',
+            'log.turnOf': 'Turno de {name}',
+            'log.combatStarted': '{name} inició un combate',
+            'log.combatWon': 'Combate ganado',
+            'log.combatEnded': 'Combate terminado',
+            'log.rolled': '{name} tiró un {roll}',
+            'log.runAwayOk': '{name} sacó {roll} y escapó',
+            'log.runAwayFail': '{name} sacó {roll} y falló la huida',
+            'log.levelChange': '{name}: Nivel {level}',
+            'log.gearChange': '{name}: Equipo {gear}',
+            'log.playerJoined': '{name} se unió a la sala',
+            'log.playerLeft': '{name} salió de la sala',
+            'log.hostTransferred': '{name} es ahora el anfitrión',
+            'common.error': 'Error',
+            'phase.LOBBY': 'Sala',
+            'phase.IN_GAME': 'En juego',
+            'phase.FINISHED': 'Terminada',
+            'profile.passwordRule': 'Mínimo {min} caracteres y distinto de tu usuario.',
+            'combat.addMonsterBtn': '+ Monstruo',
+            'combat.addBonusBtn': '+ Bono',
+            'combat.noHelper': 'Sin ayudante',
+            'combat.noBonuses': 'Sin bonos temporales.',
+            'combat.viewBoard': 'Ver mesa',
+            'combat.sideHeroes': 'Héroes',
+            'combat.sideMonsters': 'Monstruos',
+            'runaway.runningAs': 'Huyendo como: {name}',
+            'catalog.searchHintShort': 'Mostrando coincidencias locales; escribe 2+ letras para buscar en servidor.',
+            'results.crownAction': 'Coronar',
+            'conn.online': 'En línea',
+            'conn.connecting': 'Conectando',
+            'conn.offlineLabel': 'Desconectado'
+        }
+    },
+
+    en: {
+        classes: { NONE: 'No Class', WARRIOR: 'Warrior', WIZARD: 'Wizard', THIEF: 'Thief', CLERIC: 'Cleric' },
+        races: { HUMAN: 'Human', ELF: 'Elf', DWARF: 'Dwarf', HALFLING: 'Halfling' },
+        genders: { M: 'Male', F: 'Female', NA: 'Other' },
+        avatars: {
+            WARRIOR: 'Warrior', WIZARD: 'Wizard', THIEF: 'Thief', CLERIC: 'Cleric',
+            HUMAN: 'Human', ELF: 'Elf', DWARF: 'Dwarf', HALFLING: 'Halfling'
+        },
+        expansions: {
+            base: 'Base Set',
+            hacha_descomunal: 'Unnatural Axe',
+            pifias_clericales: 'Clerical Errors',
+            anda_que_ojo: 'Need for Steed',
+            exploradores: 'De-Ranged',
+            mazmorras: 'Demented Dungeons',
+            trampas: 'Cheat With Both Hands',
+            centauros: 'Half Horse, Will Travel',
+            jurasico: 'Jurassic Snark',
+            extra: 'Community / Extra'
+        },
+        abilities: {
+            WARRIOR: [
+                { text: 'You win ties in combat.', auto: true },
+                { text: 'Berserk: discard up to 3 cards for +1 combat strength each.', auto: false }
+            ],
+            WIZARD: [
+                { text: 'Charm Spell: discard your hand to charm one monster and take its treasure.', auto: false },
+                { text: 'Flight Spell: discard up to 3 cards for +1 to Run Away each.', auto: false }
+            ],
+            THIEF: [
+                { text: 'Backstab: discard a card to give another player -2 in combat.', auto: false },
+                { text: 'Theft: discard a card and roll the die to steal an item.', auto: false }
+            ],
+            CLERIC: [
+                { text: '+3 combat bonus against Undead monsters.', auto: true },
+                { text: 'Resurrection: when drawing face-up, discard cards to draw from the discards.', auto: false }
+            ],
+            ELF: [
+                { text: 'Gain 1 level for every monster you help someone kill.', auto: true },
+                { text: '+1 to Run Away rolls.', auto: true }
+            ],
+            DWARF: [
+                { text: 'You may carry any number of Big items.', auto: false },
+                { text: 'You may hold 6 cards in your hand.', auto: false }
+            ],
+            HALFLING: [
+                { text: 'Once per turn you may sell one item for double value.', auto: false },
+                { text: '-1 to Run Away rolls.', auto: true }
+            ]
+        },
+        errors: {
+            INVALID_JOIN_CODE: 'Invalid room code',
+            GAME_NOT_FOUND: 'Game not found',
+            GAME_FULL: 'Room is full',
+            GAME_ALREADY_STARTED: 'Game has already started',
+            GAME_FINISHED: 'Game has already finished',
+            PLAYER_NOT_FOUND: 'Player not found',
+            USER_NOT_FOUND: 'User not found',
+            UNAUTHORIZED: 'Unauthorized',
+            VALIDATION_FAILED: 'Validation failed',
+            INTERNAL_ERROR: 'Internal server error',
+            CONNECTION_LOST: 'Connection to server lost',
+            HANDOVER_IN_PROGRESS: 'Host transfer in progress',
+            AUTH_FAILED: 'Incorrect email or password',
+            EMAIL_EXISTS: 'Email is already registered',
+            USERNAME_EXISTS: 'Username is already taken',
+            REGISTER_FAILED: 'Failed to register account',
+            LOGIN_ERROR: 'Failed to sign in',
+            UPDATE_FAILED: 'Failed to update profile',
+            DELETE_FAILED: 'Failed to delete account',
+            INVALID_DATA: 'Invalid input data',
+            RATE_LIMITED: 'Too many attempts. Please wait a moment.',
+            FORBIDDEN: 'Action not allowed',
+            PERMISSION_DENIED: 'Permission denied',
+            GENERAL_ERROR: 'Operation failed',
+            SERVER_ERROR: 'Server error',
+            SERVER_BUSY: 'Server is busy. Try again later.',
+            COMBAT_ALREADY_ACTIVE: 'Combat is already active',
+            NO_ACTIVE_COMBAT: 'No active combat',
+            COMBAT_MONSTER_LIMIT: 'Maximum monsters per combat reached',
+            INVALID_HELPER: 'Invalid helper',
+            COMBAT_BONUS_LIMIT: 'Maximum combat bonuses reached',
+            SEARCH_ERROR: 'Failed to search catalog',
+            ADD_MONSTER_ERROR: 'Failed to save monster',
+            NOT_YOUR_TURN: 'Not your turn',
+            MAX_RACES_EXCEEDED: 'Maximum races exceeded',
+            MAX_CLASSES_EXCEEDED: 'Maximum classes exceeded',
+            LEVEL_10_COMBAT_ONLY: 'Final level can only be won in combat',
+            DUPLICATE_MONSTER: 'Monster already exists in catalog',
+            CONFLICT: 'Combat state changed before your action. Refreshed.',
+            UNKNOWN: 'Unknown error'
+        },
+        strings: {
+            'app.title': 'Munchkin Mesa Tracker',
+            'app.subtitle': 'Tabletop Tracker',
+            'lang.label': 'Language',
+            'common.back': 'Back',
+            'common.close': 'Close',
+            'common.cancel': 'Cancel',
+            'common.confirm': 'Confirm',
+            'common.done': 'Done',
+            'common.save': 'Save',
+            'common.saving': 'Saving…',
+            'common.loading': 'Loading…',
+            'common.retry': 'Retry',
+            'common.refresh': 'Refresh',
+            'common.add': 'Add',
+            'common.delete': 'Delete',
+            'common.remove': 'Remove',
+            'common.enter': 'Enter',
+            'common.share': 'Share',
+            'common.you': 'you',
+            'common.unknown': 'Unknown error',
+            'common.timeout': 'Server did not respond in time',
+            'common.loadMore': 'Load more',
+            'common.none': 'None',
+
+            'conn.reconnecting': 'Reconnecting… (attempt {attempt}/15)',
+            'conn.offline': 'Disconnected.',
+            'conn.retry': 'Retry',
+            'conn.notConnected': 'Not connected',
+            'conn.gameDeleted': 'The game was closed by host',
+
+            'home.signIn': 'Sign in',
+            'home.resumeGame': 'Resume game',
+            'home.returnToGame': 'Return to game',
+            'home.codeLabel': 'Code {code}',
+            'home.newGame': 'New Game',
+            'home.joinGame': 'Join with Code',
+            'home.catalog': 'Monster Catalog',
+            'home.ranking': 'Leaderboard',
+            'home.history': 'My History',
+            'home.myGames': 'My Hosted Games',
+            'home.installHint': 'Add this page to your home screen to use it as an offline-ready app.',
+
+            'profile.title': 'Your Profile',
+            'profile.username': 'Username',
+            'profile.email': 'Email',
+            'profile.avatar': 'Avatar',
+            'profile.gender': 'Gender',
+            'profile.changePassword': 'Change Password',
+            'profile.currentPassword': 'Current Password',
+            'profile.newPassword': 'New Password (min. {min})',
+            'profile.saveChanges': 'Save Changes',
+            'profile.updated': 'Profile updated',
+            'profile.noChanges': 'No changes to save',
+            'profile.passwordTooShort': 'New password must be at least {min} characters',
+            'profile.currentPasswordRequired': 'Enter your current password',
+            'profile.passwordMatchesUsername': 'Password cannot match your username',
+            'profile.logout': 'Sign Out',
+            'profile.loggedOut': 'Signed out',
+            'profile.dangerZone': 'Danger Zone',
+            'profile.deleteAccount': 'Delete Account',
+            'profile.deleteConfirmTitle': 'Permanently Delete Account',
+            'profile.deleteConfirmText': 'This will permanently delete your account and cannot be undone. Enter your current password to confirm.',
+            'profile.deletePasswordLabel': 'Current Password',
+            'profile.accountDeleted': 'Account deleted',
+
+            'hosted.title': 'My Hosted Games',
+            'hosted.loading': 'Loading your games…',
+            'hosted.empty': 'You have no active hosted games.',
+            'hosted.playersCount': '{count} pl. · {phase}',
+            'hosted.deleteTitle': 'Delete {code}',
+            'hosted.deleteText': 'This will close the game for all players.',
+            'hosted.deleted': 'Game deleted',
+
+            'auth.title': 'Account',
+            'auth.loginTab': 'Sign In',
+            'auth.registerTab': 'Create Account',
+            'auth.email': 'Email',
+            'auth.password': 'Password',
+            'auth.passwordMin': 'Password (min. {min})',
+            'auth.username': 'Username',
+            'auth.loginBtn': 'Sign In',
+            'auth.loggingIn': 'Signing in…',
+            'auth.registerBtn': 'Create Account',
+            'auth.registering': 'Creating account…',
+            'auth.fillCredentials': 'Enter email and password',
+            'auth.welcomeBack': 'Welcome back, {name}!',
+            'auth.registerInvalid': 'Username and password of at least {min} characters required',
+            'auth.accountCreated': 'Account created. Welcome, {name}!',
+
+            'identity.yourName': 'Your Name',
+            'identity.namePlaceholder': 'Munchkin name',
+            'identity.avatar': 'Avatar',
+            'identity.gender': 'Gender',
+
+            'create.title': 'New Game',
+            'create.epicMode': 'Epic Mode',
+            'create.epicDesc': 'Play up to level 20',
+            'create.turnTimer': 'Turn Timer',
+            'create.timerNone': 'No limit',
+            'create.timer1m': '1 minute',
+            'create.timer2m': '2 minutes',
+            'create.timer5m': '5 minutes',
+            'create.submit': 'Create Game',
+            'create.creating': 'Creating…',
+            'create.enterName': 'Enter your name',
+
+            'join.title': 'Join Game',
+            'join.codeLabel': 'Room Code',
+            'join.submit': 'Join',
+            'join.joining': 'Joining…',
+            'join.codeLengthError': 'Room code must be {len} characters',
+            'join.enterName': 'Enter your name',
+            'join.activeLobbies': 'Active Lobbies',
+            'join.noLobbies': 'No open lobbies right now.',
+            'join.hostLabel': 'Host: {name}',
+            'join.playersRatio': '{count}/{max} pl.',
+            'join.joinOneTap': 'Join',
+            'join.lobbiesError': 'Could not load active lobbies',
+
+            'lobby.title': 'Game Lobby',
+            'lobby.codeTapToShare': 'Room Code — tap to share',
+            'lobby.qrTitle': 'Scan to join',
+            'lobby.qrAlt': 'QR code to join room {code}',
+            'lobby.qrHint': 'Scan this QR or copy the direct invite link',
+            'lobby.copyLink': 'Copy Link',
+            'lobby.inviteCopied': 'Invite copied',
+            'lobby.inviteText': 'Join my Munchkin game with code {code}: {url}',
+            'lobby.players': 'Players ({count}/{max})',
+            'lobby.connected': 'Connected',
+            'lobby.disconnected': 'Disconnected',
+            'lobby.tiedHint': 'tie, roll again!',
+            'lobby.moveUp': 'Move up',
+            'lobby.transferHost': 'Make Host',
+            'lobby.transferTitle': 'Transfer Host Leadership',
+            'lobby.transferText': 'Make {name} the new host of this room?',
+            'lobby.kick': 'Kick',
+            'lobby.kickTitle': 'Kick {name}',
+            'lobby.rollTie': 'Tie! Roll again',
+            'lobby.rollStart': 'Roll Starting Die',
+            'lobby.startGame': 'Start Game!',
+            'lobby.needMorePlayers': 'Need at least 2 players',
+            'lobby.needRolls': 'Waiting for all rolls',
+            'lobby.resolveTie': 'Resolve tied high rolls',
+            'lobby.waitingHost': 'Waiting for host to start…',
+
+            'board.title': 'Table · {code}',
+            'board.yourTurn': 'Your Turn!',
+            'board.turnOf': "{name}'s turn",
+            'board.combatActiveBanner': 'Combat in progress — tap to view',
+            'board.editHero': 'Edit Hero',
+            'board.level': 'Level',
+            'board.gear': 'Gear',
+            'board.power': 'Power',
+            'board.rollDie': 'Roll d6',
+            'board.rolledToast': '{name} rolled {roll}',
+            'board.dieResetGear': 'Die (Gear = 0)',
+            'board.dieConfirmTitle': 'Die & Reset Gear?',
+            'board.dieConfirmText': 'Your gear bonus will be reset to 0. Your level stays the same.',
+            'board.startCombat': 'Start Combat!',
+            'board.endTurn': 'End Turn',
+            'board.lvlShort': 'Lv {n}',
+            'board.gearShort': 'Gr {n}',
+            'board.logTitle': 'Game Log',
+            'board.logEmpty': 'No game events yet.',
+            'board.toggleLog': 'Game Log',
+
+            'leave.closeTitle': 'Close Room',
+            'leave.closeText': 'You are the host. Leaving will close the room for everyone. Continue?',
+            'leave.closeYes': 'Close Room',
+            'leave.leaveTitle': 'Leave Game',
+            'leave.leaveText': 'You can rejoin with the same code while the game stays active.',
+            'leave.leaveYes': 'Leave',
+
+            'hero.title': 'Your Hero',
+            'hero.class': 'Class',
+            'hero.superMunchkin': 'Super Munchkin',
+            'hero.superMunchkinDesc': 'Allows a second class',
+            'hero.secondClass': 'Second Class',
+            'hero.race': 'Race',
+            'hero.halfBreed': 'Half-Breed',
+            'hero.halfBreedDesc': 'Allows a second race',
+            'hero.secondRace': 'Second Race',
+            'hero.gender': 'Gender',
+            'hero.abilities': 'Abilities',
+            'hero.abilitiesLegend': '⚙️ applied by app · ✋ apply manually via modifier',
+
+            'combat.title': 'Combat',
+            'combat.heroes': 'Heroes',
+            'combat.monsters': 'Monsters',
+            'combat.monstersCount': '{count} monster(s)',
+            'combat.winWarriorTie': 'Warrior Victory (wins ties)!',
+            'combat.winning': 'Heroes are winning!',
+            'combat.losingGap': 'Losing — need {gap} more to win',
+            'combat.noMonstersHint': 'Add the monster you are fighting.',
+            'combat.monsterMeta': 'Level {level}{mod} · {treasures} 💰 · +{levels} lv{undead}',
+            'combat.undeadTag': 'Undead',
+            'combat.quickMods': 'Quick Modifiers',
+            'combat.helper': 'Helper',
+            'combat.helperPower': 'Adds {power} power',
+            'combat.noHelpers': 'Nobody can help.',
+            'combat.tempBonuses': 'Temp Bonuses',
+            'combat.bonusesHint': 'Potions, curses, one-shot cards…',
+            'combat.bonusMeta': '{amount} to {side}',
+            'combat.breakdown': 'Power Breakdown',
+            'combat.victoryBtn': 'Victory! +{levels} lv, +{treasures} 💰',
+            'combat.defeatBtn': 'Accept Defeat',
+            'combat.resolving': 'Resolving…',
+            'combat.runAwayBtn': 'Run Away',
+            'combat.cancelCombat': 'Cancel Combat',
+            'combat.cancelConfirmTitle': 'Cancel Combat',
+            'combat.cancelConfirmText': 'Ends combat with no rewards or Bad Stuff (e.g. Charm Spell).',
+            'combat.waitingMain': '{name} resolves the combat.',
+            'combat.needMonsters': 'Add a monster to resolve combat',
+
+            'breakdown.base': '{name} (base)',
+            'breakdown.helper': '{name} (helper)',
+            'breakdown.monster': '{name} (level {level})',
+            'breakdown.manual': 'Manual modifier',
+            'breakdown.clericVsUndead': 'Cleric vs Undead',
+            'breakdown.helperClericVsUndead': 'Helper Cleric vs Undead',
+            'breakdown.cardModifiers': 'Card modifiers',
+
+            'combatEnd.winTitle': 'Confirm Victory',
+            'combatEnd.loseTitle': 'Confirm Defeat',
+            'combatEnd.winText': 'You gain {levels} level(s) and {treasures} treasure(s).',
+            'combatEnd.winTextElf': 'You gain {levels} level(s) and {treasures} treasure(s); Elf helper gains {helperLevels}.',
+            'combatEnd.loseText': 'Losing means suffering Bad Stuff from each monster.',
+            'combatEnd.winYes': 'Victory!',
+            'combatEnd.loseYes': 'Accept Defeat',
+
+            'badstuff.title': 'Bad Stuff',
+            'badstuff.intro': 'Apply the Bad Stuff of each monster:',
+            'badstuff.fallback': 'Check the monster cards on the table.',
+            'badstuff.currentStats': 'Current stats: Level {level} · Gear {gear}',
+            'badstuff.loseLevel': '-1 Level',
+            'badstuff.dieResetGear': 'Die (Gear = 0)',
+
+            'runaway.title': 'Run Away!',
+            'runaway.rollDigital': 'Roll Digital Die',
+            'runaway.orPickPhysical': 'Or select your physical die result:',
+            'runaway.thresholdHint': 'You escape on {threshold}+ (after race bonuses).',
+            'runaway.total': 'Total: {total}',
+            'runaway.dieMod': 'Die {die} {mods}',
+            'runaway.escaped': 'With {total} you escape safely!',
+            'runaway.caught': 'With {total} you are caught (need {threshold}+)',
+            'runaway.confirmEscape': 'Confirm Escape',
+            'runaway.confirmCaught': 'Suffer Bad Stuff',
+            'runaway.changeDie': 'Pick another number',
+
+            'monsterModal.title': 'Add Monster',
+            'monsterModal.searchPlaceholder': 'Search monster catalog…',
+            'monsterModal.noResults': 'No results. Create one below.',
+            'monsterModal.searchError': 'Could not search monster catalog.',
+            'monsterModal.manualSummary': 'Create monster manually',
+            'monsterModal.name': 'Name',
+            'monsterModal.levelRange': 'Level (1–20)',
+            'monsterModal.modRange': 'Mod (±10)',
+            'monsterModal.treasures': 'Treasures',
+            'monsterModal.levelsReward': 'Levels Reward',
+            'monsterModal.undead': 'Undead',
+            'monsterModal.badStuff': 'Bad Stuff',
+            'monsterModal.badStuffPlaceholder': 'What happens if you lose…',
+            'monsterModal.nameRequired': 'Enter a monster name',
+            'monsterModal.addToCombat': 'Add to Combat',
+
+            'bonusModal.title': 'Temp Bonus',
+            'bonusModal.cardName': 'Card Name',
+            'bonusModal.cardPlaceholder': 'Potion of…',
+            'bonusModal.amount': 'Amount (± power)',
+            'bonusModal.appliesTo': 'Applies to',
+            'bonusModal.defaultLabel': 'Bonus',
+
+            'catalog.title': 'Monster Catalog',
+            'catalog.searchPlaceholder': 'Search monster or Bad Stuff…',
+            'catalog.allExpansions': 'All Expansions',
+            'catalog.empty': 'No monsters found.',
+            'catalog.error': 'Could not load catalog.',
+            'catalog.addBtn': 'New Monster',
+            'catalog.addTitle': 'Contribute Monster to Catalog',
+            'catalog.signInToAdd': 'Sign in to add monsters to the shared catalog.',
+            'catalog.expansion': 'Expansion',
+            'catalog.added': 'Monster "{name}" added to catalog',
+            'catalog.badStuffLabel': 'Bad Stuff',
+
+            'winner.title': 'We Have a Winner!',
+            'winner.message': '{name} reached level {maxLevel}. Confirm victory and finish the game?',
+            'winner.notYet': 'Not yet',
+            'winner.confirm': 'Confirm Victory',
+            'winner.chooseTitle': 'Multiple Winners at Max Level',
+            'winner.chooseText': 'Choose who won the game:',
+            'winner.pickPlayer': '{name} (Lv {level})',
+            'winner.crownTitle': 'Confirm Victory',
+            'winner.crownConfirm': '{name} wins the game?',
+
+            'results.winnerTitle': '{name} Wins!',
+            'results.finishedTitle': 'Game Finished',
+            'results.standings': 'Final Standings',
+            'results.backHome': 'Back to Home',
+
+            'ranking.title': 'Leaderboard',
+            'ranking.yourRank': 'Your rank: #{rank}',
+            'ranking.outsideTop': 'Outside top',
+            'ranking.stats': ' · {wins} wins in {games} games ({rate}%)',
+            'ranking.empty': 'No finished games recorded yet.',
+
+            'history.title': 'My History',
+            'history.winsOf': '{wins} wins',
+            'history.statsTail': ' in {games} games ({rate}%)',
+            'history.empty': 'You have not played any finished games yet.',
+            'history.victory': 'Victory',
+            'history.wonBy': 'Won by {name}',
+            'history.noWinner': 'No winner',
+            'history.playersCount': '{count} players',
+
+            'gameResume.title': 'Game',
+            'gameResume.found': 'You had a game in progress ({code}).',
+            'gameResume.resumeBtn': 'Resume Game',
+            'gameResume.connecting': 'Connecting…',
+            'gameResume.none': 'You are not in any game.',
+
+            'log.gameStarted': 'Game started',
+            'log.turnOf': "{name}'s turn",
+            'log.combatStarted': '{name} started combat',
+            'log.combatWon': 'Combat won',
+            'log.combatEnded': 'Combat ended',
+            'log.rolled': '{name} rolled {roll}',
+            'log.runAwayOk': '{name} rolled {roll} and escaped',
+            'log.runAwayFail': '{name} rolled {roll} and failed to escape',
+            'log.levelChange': '{name}: Level {level}',
+            'log.gearChange': '{name}: Gear {gear}',
+            'log.playerJoined': '{name} joined the room',
+            'log.playerLeft': '{name} left the room',
+            'log.hostTransferred': '{name} is now host',
+            'common.error': 'Error',
+            'phase.LOBBY': 'Lobby',
+            'phase.IN_GAME': 'In Game',
+            'phase.FINISHED': 'Finished',
+            'profile.passwordRule': 'At least {min} chars, different from username.',
+            'combat.addMonsterBtn': '+ Monster',
+            'combat.addBonusBtn': '+ Bonus',
+            'combat.noHelper': 'No helper',
+            'combat.noBonuses': 'No temporary bonuses.',
+            'combat.viewBoard': 'View board',
+            'combat.sideHeroes': 'Heroes',
+            'combat.sideMonsters': 'Monsters',
+            'runaway.runningAs': 'Running away as: {name}',
+            'catalog.searchHintShort': 'Filtering locally; type 2+ characters for server search.',
+            'results.crownAction': 'Crown',
+            'conn.online': 'Online',
+            'conn.connecting': 'Connecting',
+            'conn.offlineLabel': 'Offline'
+        }
+    },
+
+    fr: {
+        classes: { NONE: 'Sans classe', WARRIOR: 'Guerrier', WIZARD: 'Magicien', THIEF: 'Voleur', CLERIC: 'Clerc' },
+        races: { HUMAN: 'Humain', ELF: 'Elfe', DWARF: 'Nain', HALFLING: 'Halfelin' },
+        genders: { M: 'Homme', F: 'Femme', NA: 'Autre' },
+        avatars: {
+            WARRIOR: 'Guerrier', WIZARD: 'Magicien', THIEF: 'Voleur', CLERIC: 'Clerc',
+            HUMAN: 'Humain', ELF: 'Elfe', DWARF: 'Nain', HALFLING: 'Halfelin'
+        },
+        expansions: {
+            base: 'Jeu de base',
+            hacha_descomunal: 'Hache Démesurée',
+            pifias_clericales: 'Erreurs Cléricales',
+            anda_que_ojo: 'Destriers',
+            exploradores: 'Rôdeurs',
+            mazmorras: 'Donjons',
+            trampas: 'Pièges & Fourberies',
+            centauros: 'Centaures',
+            jurasico: 'Jurassique',
+            extra: 'Communauté / Extra'
+        },
+        abilities: {
+            WARRIOR: [
+                { text: 'Vous gagnez les égalités en combat.', auto: true },
+                { text: 'Furie : défaussez jusqu’à 3 cartes pour +1 au combat chacune.', auto: false }
+            ],
+            WIZARD: [
+                { text: 'Charme : défaussez toute votre main pour charmer un monstre et prendre ses trésors.', auto: false },
+                { text: 'Vol : défaussez jusqu’à 3 cartes pour +1 à la fuite chacune.', auto: false }
+            ],
+            THIEF: [
+                { text: 'Coup dans le dos : défaussez une carte pour infliger -2 en combat à un autre joueur.', auto: false },
+                { text: 'Vol : défaussez une carte et lancez le dé pour voler un objet.', auto: false }
+            ],
+            CLERIC: [
+                { text: '+3 au combat contre les Morts-Vivants.', auto: true },
+                { text: 'Résurrection : défaussez des cartes pour piocher dans la défausse.', auto: false }
+            ],
+            ELF: [
+                { text: 'Gagnez 1 niveau pour chaque monstre vaincu en aidant un allié.', auto: true },
+                { text: '+1 aux jets de fuite.', auto: true }
+            ],
+            DWARF: [
+                { text: 'Vous pouvez porter un nombre illimité de Gros objets.', auto: false },
+                { text: 'Vous pouvez garder 6 cartes en main.', auto: false }
+            ],
+            HALFLING: [
+                { text: 'Une fois par tour, vendez un objet pour le double de sa valeur.', auto: false },
+                { text: '-1 aux jets de fuite.', auto: true }
+            ]
+        },
+        errors: {
+            INVALID_JOIN_CODE: 'Code de partie invalide',
+            GAME_NOT_FOUND: 'Partie introuvable',
+            GAME_FULL: 'La partie est complète',
+            GAME_ALREADY_STARTED: 'La partie a déjà commencé',
+            GAME_FINISHED: 'La partie est déjà terminée',
+            PLAYER_NOT_FOUND: 'Joueur introuvable',
+            USER_NOT_FOUND: 'Utilisateur introuvable',
+            UNAUTHORIZED: 'Non autorisé',
+            VALIDATION_FAILED: 'Validation échouée',
+            INTERNAL_ERROR: 'Erreur interne du serveur',
+            CONNECTION_LOST: 'Connexion au serveur perdue',
+            HANDOVER_IN_PROGRESS: 'Transfert d’hôte en cours',
+            AUTH_FAILED: 'E-mail ou mot de passe incorrect',
+            EMAIL_EXISTS: 'Cet e-mail est déjà utilisé',
+            USERNAME_EXISTS: 'Ce nom d’utilisateur est déjà pris',
+            REGISTER_FAILED: 'Échec de l’inscription',
+            LOGIN_ERROR: 'Échec de la connexion',
+            UPDATE_FAILED: 'Échec de la mise à jour du profil',
+            DELETE_FAILED: 'Échec de la suppression du compte',
+            INVALID_DATA: 'Données invalides',
+            RATE_LIMITED: 'Trop de tentatives. Patientez un instant.',
+            FORBIDDEN: 'Action non autorisée',
+            PERMISSION_DENIED: 'Permission refusée',
+            GENERAL_ERROR: 'Erreur d’opération',
+            SERVER_ERROR: 'Erreur du serveur',
+            SERVER_BUSY: 'Serveur occupé. Réessayez plus tard.',
+            COMBAT_ALREADY_ACTIVE: 'Un combat est déjà en cours',
+            NO_ACTIVE_COMBAT: 'Aucun combat actif',
+            COMBAT_MONSTER_LIMIT: 'Limite maximale de monstres atteinte',
+            INVALID_HELPER: 'Allié invalide',
+            COMBAT_BONUS_LIMIT: 'Limite maximale de bonus atteinte',
+            SEARCH_ERROR: 'Erreur lors de la recherche dans le catalogue',
+            ADD_MONSTER_ERROR: 'Erreur lors de l’enregistrement du monstre',
+            NOT_YOUR_TURN: 'Ce n’est pas votre tour',
+            MAX_RACES_EXCEEDED: 'Nombre maximum de races dépassé',
+            MAX_CLASSES_EXCEEDED: 'Nombre maximum de classes dépassé',
+            LEVEL_10_COMBAT_ONLY: 'Le niveau final ne peut être gagné qu’en combat',
+            DUPLICATE_MONSTER: 'Ce monstre existe déjà dans le catalogue',
+            CONFLICT: 'L’état du combat a changé. Actualisation effectuée.',
+            UNKNOWN: 'Erreur inconnue'
+        },
+        strings: {
+            'app.title': 'Munchkin Mesa Tracker',
+            'app.subtitle': 'Suivi de Table',
+            'lang.label': 'Langue',
+            'common.back': 'Retour',
+            'common.close': 'Fermer',
+            'common.cancel': 'Annuler',
+            'common.confirm': 'Confirmer',
+            'common.done': 'Terminé',
+            'common.save': 'Enregistrer',
+            'common.saving': 'Enregistrement…',
+            'common.loading': 'Chargement…',
+            'common.retry': 'Réessayer',
+            'common.refresh': 'Actualiser',
+            'common.add': 'Ajouter',
+            'common.delete': 'Supprimer',
+            'common.remove': 'Retirer',
+            'common.enter': 'Entrer',
+            'common.share': 'Partager',
+            'common.you': 'vous',
+            'common.unknown': 'Erreur inconnue',
+            'common.timeout': 'Le serveur n’a pas répondu à temps',
+            'common.loadMore': 'Charger plus',
+            'common.none': 'Aucun',
+
+            'conn.reconnecting': 'Reconnexion… (essai {attempt}/15)',
+            'conn.offline': 'Hors ligne.',
+            'conn.retry': 'Réessayer',
+            'conn.notConnected': 'Non connecté',
+            'conn.gameDeleted': 'La partie a été supprimée par l’hôte',
+
+            'home.signIn': 'Connexion',
+            'home.resumeGame': 'Reprendre la partie',
+            'home.returnToGame': 'Revenir à la partie',
+            'home.codeLabel': 'Code {code}',
+            'home.newGame': 'Nouvelle partie',
+            'home.joinGame': 'Rejoindre avec code',
+            'home.catalog': 'Catalogue des monstres',
+            'home.ranking': 'Classement',
+            'home.history': 'Mon historique',
+            'home.myGames': 'Mes parties',
+            'home.installHint': 'Ajoutez cette page à l’écran d’accueil pour l’utiliser comme une application.',
+
+            'profile.title': 'Votre profil',
+            'profile.username': 'Nom d’utilisateur',
+            'profile.email': 'E-mail',
+            'profile.avatar': 'Avatar',
+            'profile.gender': 'Genre',
+            'profile.changePassword': 'Changer le mot de passe',
+            'profile.currentPassword': 'Mot de passe actuel',
+            'profile.newPassword': 'Nouveau mot de passe (min. {min})',
+            'profile.saveChanges': 'Enregistrer',
+            'profile.updated': 'Profil mis à jour',
+            'profile.noChanges': 'Aucun changement à enregistrer',
+            'profile.passwordTooShort': 'Le nouveau mot de passe doit contenir au moins {min} caractères',
+            'profile.currentPasswordRequired': 'Entrez votre mot de passe actuel',
+            'profile.passwordMatchesUsername': 'Le mot de passe ne peut pas correspondre au nom d’utilisateur',
+            'profile.logout': 'Déconnexion',
+            'profile.loggedOut': 'Déconnecté',
+            'profile.dangerZone': 'Zone dangereuse',
+            'profile.deleteAccount': 'Supprimer le compte',
+            'profile.deleteConfirmTitle': 'Supprimer définitivement le compte',
+            'profile.deleteConfirmText': 'Cette action est irréversible. Entrez votre mot de passe actuel pour confirmer.',
+            'profile.deletePasswordLabel': 'Mot de passe actuel',
+            'profile.accountDeleted': 'Compte supprimé',
+
+            'hosted.title': 'Mes parties',
+            'hosted.loading': 'Chargement de vos parties…',
+            'hosted.empty': 'Vous n’hébergez aucune partie active.',
+            'hosted.playersCount': '{count} j. · {phase}',
+            'hosted.deleteTitle': 'Supprimer {code}',
+            'hosted.deleteText': 'La partie sera fermée pour tous les joueurs.',
+            'hosted.deleted': 'Partie supprimée',
+
+            'auth.title': 'Votre compte',
+            'auth.loginTab': 'Connexion',
+            'auth.registerTab': 'Créer un compte',
+            'auth.email': 'E-mail',
+            'auth.password': 'Mot de passe',
+            'auth.passwordMin': 'Mot de passe (min. {min})',
+            'auth.username': 'Nom d’utilisateur',
+            'auth.loginBtn': 'Se connecter',
+            'auth.loggingIn': 'Connexion…',
+            'auth.registerBtn': 'Créer un compte',
+            'auth.registering': 'Création…',
+            'auth.fillCredentials': 'Renseignez e-mail et mot de passe',
+            'auth.welcomeBack': 'Bonjour, {name} !',
+            'auth.registerInvalid': 'Nom et mot de passe d’au moins {min} caractères requis',
+            'auth.accountCreated': 'Compte créé. Bienvenue, {name} !',
+
+            'identity.yourName': 'Votre nom',
+            'identity.namePlaceholder': 'Nom de munchkin',
+            'identity.avatar': 'Avatar',
+            'identity.gender': 'Genre',
+
+            'create.title': 'Nouvelle partie',
+            'create.epicMode': 'Mode épique',
+            'create.epicDesc': 'Partie jusqu’au niveau 20',
+            'create.turnTimer': 'Chronomètre de tour',
+            'create.timerNone': 'Sans limite',
+            'create.timer1m': '1 minute',
+            'create.timer2m': '2 minutes',
+            'create.timer5m': '5 minutes',
+            'create.submit': 'Créer la partie',
+            'create.creating': 'Création…',
+            'create.enterName': 'Entrez votre nom',
+
+            'join.title': 'Rejoindre une partie',
+            'join.codeLabel': 'Code de partie',
+            'join.submit': 'Rejoindre',
+            'join.joining': 'Connexion…',
+            'join.codeLengthError': 'Le code doit comporter {len} caractères',
+            'join.enterName': 'Entrez votre nom',
+            'join.activeLobbies': 'Salons ouverts',
+            'join.noLobbies': 'Aucun salon ouvert pour le moment.',
+            'join.hostLabel': 'Hôte : {name}',
+            'join.playersRatio': '{count}/{max} j.',
+            'join.joinOneTap': 'Rejoindre',
+            'join.lobbiesError': 'Impossible de charger les salons',
+
+            'lobby.title': 'Salon d’attente',
+            'lobby.codeTapToShare': 'Code de partie — touchez pour partager',
+            'lobby.qrTitle': 'Scannez pour rejoindre',
+            'lobby.qrAlt': 'Code QR pour rejoindre le salon {code}',
+            'lobby.qrHint': 'Scannez ce QR ou copiez le lien direct',
+            'lobby.copyLink': 'Copier le lien',
+            'lobby.inviteCopied': 'Invitation copiée',
+            'lobby.inviteText': 'Rejoins ma partie Munchkin avec le code {code} : {url}',
+            'lobby.players': 'Joueurs ({count}/{max})',
+            'lobby.connected': 'Connecté',
+            'lobby.disconnected': 'Déconnecté',
+            'lobby.tiedHint': 'égalité, relancez !',
+            'lobby.moveUp': 'Monter',
+            'lobby.transferHost': 'Nommer hôte',
+            'lobby.transferTitle': 'Transférer l’hôte',
+            'lobby.transferText': 'Nommer {name} comme nouvel hôte de la partie ?',
+            'lobby.kick': 'Exclure',
+            'lobby.kickTitle': 'Exclure {name}',
+            'lobby.rollTie': 'Égalité ! Relancez le dé',
+            'lobby.rollStart': 'Lancer le dé de départ',
+            'lobby.startGame': 'Lancer la partie !',
+            'lobby.needMorePlayers': 'Il faut au moins 2 joueurs',
+            'lobby.needRolls': 'En attente des lancers de dé',
+            'lobby.resolveTie': 'Égalité à départager',
+            'lobby.waitingHost': 'En attente du lancement par l’hôte…',
+
+            'board.title': 'Table · {code}',
+            'board.yourTurn': 'Votre tour !',
+            'board.turnOf': 'Tour de {name}',
+            'board.combatActiveBanner': 'Combat en cours — touchez pour voir',
+            'board.editHero': 'Modifier héros',
+            'board.level': 'Niveau',
+            'board.gear': 'Bonus',
+            'board.power': 'Force',
+            'board.rollDie': 'Lancer d6',
+            'board.rolledToast': '{name} a obtenu {roll}',
+            'board.dieResetGear': 'Mourir (Bonus = 0)',
+            'board.dieConfirmTitle': 'Mourir et réinitialiser l’équipement ?',
+            'board.dieConfirmText': 'Votre bonus d’équipement passe à 0. Votre niveau reste inchangé.',
+            'board.startCombat': 'Combattre !',
+            'board.endTurn': 'Fin du tour',
+            'board.lvlShort': 'Niv {n}',
+            'board.gearShort': 'Éq {n}',
+            'board.logTitle': 'Journal de partie',
+            'board.logEmpty': 'Aucun événement pour le moment.',
+            'board.toggleLog': 'Journal de partie',
+
+            'leave.closeTitle': 'Fermer la partie',
+            'leave.closeText': 'Vous êtes l’hôte. Quitter fermera la partie pour tout le monde. Continuer ?',
+            'leave.closeYes': 'Fermer la partie',
+            'leave.leaveTitle': 'Quitter la partie',
+            'leave.leaveText': 'Vous pourrez revenir avec le même code tant que la partie est active.',
+            'leave.leaveYes': 'Quitter',
+
+            'hero.title': 'Votre héros',
+            'hero.class': 'Classe',
+            'hero.superMunchkin': 'Super Munchkin',
+            'hero.superMunchkinDesc': 'Autorise une seconde classe',
+            'hero.secondClass': 'Seconde classe',
+            'hero.race': 'Race',
+            'hero.halfBreed': 'Sang-Mêlé',
+            'hero.halfBreedDesc': 'Autorise une seconde race',
+            'hero.secondRace': 'Seconde race',
+            'hero.gender': 'Genre',
+            'hero.abilities': 'Capacités',
+            'hero.abilitiesLegend': '⚙️ géré par l’app · ✋ à appliquer manuellement',
+
+            'combat.title': 'Combat',
+            'combat.heroes': 'Héros',
+            'combat.monsters': 'Monstres',
+            'combat.monstersCount': '{count} monstre(s)',
+            'combat.winWarriorTie': 'Victoire du Guerrier (gagne l’égalité) !',
+            'combat.winning': 'Les héros gagnent !',
+            'combat.losingGap': 'Défaite — il manque {gap} pour gagner',
+            'combat.noMonstersHint': 'Ajoutez le monstre que vous affrontez.',
+            'combat.monsterMeta': 'Niveau {level}{mod} · {treasures} 💰 · +{levels} niv{undead}',
+            'combat.undeadTag': 'Mort-Vivant',
+            'combat.quickMods': 'Modificateurs rapides',
+            'combat.helper': 'Allié',
+            'combat.helperPower': 'Apporte {power} de force',
+            'combat.noHelpers': 'Personne ne peut aider.',
+            'combat.tempBonuses': 'Bonus temporaires',
+            'combat.bonusesHint': 'Potions, sorts, cartes à usage unique…',
+            'combat.bonusMeta': '{amount} pour {side}',
+            'combat.breakdown': 'Détail des forces',
+            'combat.victoryBtn': 'Victoire ! +{levels} niv, +{treasures} 💰',
+            'combat.defeatBtn': 'Accepter la défaite',
+            'combat.resolving': 'Résolution…',
+            'combat.runAwayBtn': 'Prendre la fuite',
+            'combat.cancelCombat': 'Annuler le combat',
+            'combat.cancelConfirmTitle': 'Annuler le combat',
+            'combat.cancelConfirmText': 'Termine le combat sans récompense ni Incident Fâcheux (ex. Charme).',
+            'combat.waitingMain': '{name} résout le combat.',
+            'combat.needMonsters': 'Ajoutez un monstre pour résoudre le combat',
+
+            'breakdown.base': '{name} (base)',
+            'breakdown.helper': '{name} (allié)',
+            'breakdown.monster': '{name} (niveau {level})',
+            'breakdown.manual': 'Modificateur manuel',
+            'breakdown.clericVsUndead': 'Clerc vs Mort-Vivant',
+            'breakdown.helperClericVsUndead': 'Allié Clerc vs Mort-Vivant',
+            'breakdown.cardModifiers': 'Modificateurs de carte',
+
+            'combatEnd.winTitle': 'Confirmer la victoire',
+            'combatEnd.loseTitle': 'Confirmer la défaite',
+            'combatEnd.winText': 'Vous gagnez {levels} niveau(x) et {treasures} trésor(s).',
+            'combatEnd.winTextElf': 'Vous gagnez {levels} niveau(x) et {treasures} trésor(s) ; l’allié Elfe gagne {helperLevels}.',
+            'combatEnd.loseText': 'Perdre déclenche l’Incident Fâcheux de chaque monstre.',
+            'combatEnd.winYes': 'Victoire !',
+            'combatEnd.loseYes': 'Accepter la défaite',
+
+            'badstuff.title': 'Incident Fâcheux',
+            'badstuff.intro': 'Appliquez l’Incident Fâcheux de chaque monstre :',
+            'badstuff.fallback': 'Consultez les cartes de monstres sur la table.',
+            'badstuff.currentStats': 'État actuel : Niveau {level} · Équipement {gear}',
+            'badstuff.loseLevel': '-1 Niveau',
+            'badstuff.dieResetGear': 'Mourir (Équip. = 0)',
+
+            'runaway.title': 'Fuite !',
+            'runaway.rollDigital': 'Lancer le dé numérique',
+            'runaway.orPickPhysical': 'Ou choisissez votre dé physique :',
+            'runaway.thresholdHint': 'Vous fuyez sur {threshold}+ (après bonus raciaux).',
+            'runaway.total': 'Total : {total}',
+            'runaway.dieMod': 'Dé {die} {mods}',
+            'runaway.escaped': 'Avec {total}, vous fuyez sain et sauf !',
+            'runaway.caught': 'Avec {total}, vous êtes rattrapé ({threshold}+ requis)',
+            'runaway.confirmEscape': 'Confirmer la fuite',
+            'runaway.confirmCaught': 'Subir l’Incident Fâcheux',
+            'runaway.changeDie': 'Choisir un autre chiffre',
+
+            'monsterModal.title': 'Ajouter un monstre',
+            'monsterModal.searchPlaceholder': 'Chercher dans le catalogue…',
+            'monsterModal.noResults': 'Aucun résultat. Créez-le ci-dessous.',
+            'monsterModal.searchError': 'Recherche impossible dans le catalogue.',
+            'monsterModal.manualSummary': 'Créer un monstre manuellement',
+            'monsterModal.name': 'Nom',
+            'monsterModal.levelRange': 'Niveau (1–20)',
+            'monsterModal.modRange': 'Modif. (±10)',
+            'monsterModal.treasures': 'Trésors',
+            'monsterModal.levelsReward': 'Niveaux gagnés',
+            'monsterModal.undead': 'Mort-Vivant',
+            'monsterModal.badStuff': 'Incident Fâcheux',
+            'monsterModal.badStuffPlaceholder': 'Ce qui arrive si vous perdez…',
+            'monsterModal.nameRequired': 'Donnez un nom au monstre',
+            'monsterModal.addToCombat': 'Ajouter au combat',
+
+            'bonusModal.title': 'Bonus temporaire',
+            'bonusModal.cardName': 'Nom de la carte',
+            'bonusModal.cardPlaceholder': 'Potion de…',
+            'bonusModal.amount': 'Valeur (± force)',
+            'bonusModal.appliesTo': 'S’applique à',
+            'bonusModal.defaultLabel': 'Bonus',
+
+            'catalog.title': 'Catalogue des monstres',
+            'catalog.searchPlaceholder': 'Chercher un monstre ou Incident Fâcheux…',
+            'catalog.allExpansions': 'Toutes les extensions',
+            'catalog.empty': 'Aucun monstre trouvé.',
+            'catalog.error': 'Impossible de charger le catalogue.',
+            'catalog.addBtn': 'Nouveau monstre',
+            'catalog.addTitle': 'Ajouter un monstre au catalogue',
+            'catalog.signInToAdd': 'Connectez-vous pour contribuer au catalogue partagé.',
+            'catalog.expansion': 'Extension',
+            'catalog.added': 'Monstre « {name} » ajouté au catalogue',
+            'catalog.badStuffLabel': 'Incident Fâcheux',
+
+            'winner.title': 'Nous avons un vainqueur !',
+            'winner.message': '{name} a atteint le niveau {maxLevel}. Confirmer la victoire et terminer la partie ?',
+            'winner.notYet': 'Pas encore',
+            'winner.confirm': 'Confirmer la victoire',
+            'winner.chooseTitle': 'Plusieurs gagnants potentiels',
+            'winner.chooseText': 'Choisissez le vainqueur de la partie :',
+            'winner.pickPlayer': '{name} (Niv {level})',
+            'winner.crownTitle': 'Confirmer la victoire',
+            'winner.crownConfirm': '{name} remporte la partie ?',
+
+            'results.winnerTitle': '{name} gagne !',
+            'results.finishedTitle': 'Partie terminée',
+            'results.standings': 'Classement final',
+            'results.backHome': 'Retour à l’accueil',
+
+            'ranking.title': 'Classement',
+            'ranking.yourRank': 'Votre rang : {rank}e',
+            'ranking.outsideTop': 'Hors du top',
+            'ranking.stats': ' · {wins} victoires sur {games} ({rate}%)',
+            'ranking.empty': 'Aucune partie terminée enregistrée.',
+
+            'history.title': 'Mon historique',
+            'history.winsOf': '{wins} victoires',
+            'history.statsTail': ' sur {games} parties ({rate}%)',
+            'history.empty': 'Vous n’avez encore terminé aucune partie.',
+            'history.victory': 'Victoire',
+            'history.wonBy': 'Gagné par {name}',
+            'history.noWinner': 'Aucun vainqueur',
+            'history.playersCount': '{count} joueurs',
+
+            'gameResume.title': 'Partie',
+            'gameResume.found': 'Vous aviez une partie en cours ({code}).',
+            'gameResume.resumeBtn': 'Reprendre la partie',
+            'gameResume.connecting': 'Connexion…',
+            'gameResume.none': 'Vous n’êtes dans aucune partie.',
+
+            'log.gameStarted': 'La partie a commencé',
+            'log.turnOf': 'Tour de {name}',
+            'log.combatStarted': '{name} a lancé un combat',
+            'log.combatWon': 'Combat gagné',
+            'log.combatEnded': 'Combat terminé',
+            'log.rolled': '{name} a obtenu {roll}',
+            'log.runAwayOk': '{name} a obtenu {roll} et a fui',
+            'log.runAwayFail': '{name} a obtenu {roll} et n’a pas pu fuir',
+            'log.levelChange': '{name} : Niveau {level}',
+            'log.gearChange': '{name} : Équipement {gear}',
+            'log.playerJoined': '{name} a rejoint le salon',
+            'log.playerLeft': '{name} a quitté le salon',
+            'log.hostTransferred': '{name} est maintenant l’hôte',
+            'common.error': 'Erreur',
+            'phase.LOBBY': 'Salon',
+            'phase.IN_GAME': 'En jeu',
+            'phase.FINISHED': 'Terminée',
+            'profile.passwordRule': 'Au moins {min} caractères, différent du pseudo.',
+            'combat.addMonsterBtn': '+ Monstre',
+            'combat.addBonusBtn': '+ Bonus',
+            'combat.noHelper': 'Sans allié',
+            'combat.noBonuses': 'Aucun bonus temporaire.',
+            'combat.viewBoard': 'Voir le plateau',
+            'combat.sideHeroes': 'Héros',
+            'combat.sideMonsters': 'Monstres',
+            'runaway.runningAs': 'Fuite en tant que : {name}',
+            'catalog.searchHintShort': 'Filtrage local ; saisissez 2+ lettres pour le serveur.',
+            'results.crownAction': 'Couronner',
+            'conn.online': 'En ligne',
+            'conn.connecting': 'Connexion',
+            'conn.offlineLabel': 'Hors ligne'
+        }
+    }
 };
 
-export const ERROR_MESSAGES = {
-    INVALID_JOIN_CODE: 'Código de partida inválido',
-    GAME_NOT_FOUND: 'Partida no encontrada',
-    GAME_FULL: 'La partida está llena',
-    GAME_ALREADY_STARTED: 'La partida ya ha comenzado',
-    PLAYER_NOT_FOUND: 'Jugador no encontrado',
-    UNAUTHORIZED: 'No autorizado',
-    AUTH_FAILED: 'Email o contraseña incorrectos',
-    EMAIL_EXISTS: 'El email ya está registrado',
-    USERNAME_EXISTS: 'Ese nombre de usuario ya está en uso',
-    RATE_LIMITED: 'Demasiados intentos. Espera un momento.',
-    FORBIDDEN: 'Acción no permitida',
-    COMBAT_ALREADY_ACTIVE: 'Ya hay un combate activo',
-    NO_ACTIVE_COMBAT: 'No hay combate activo'
-};
+function detectInitialLang() {
+    try {
+        const stored = globalThis.localStorage?.getItem(LANG_KEY);
+        if (stored && SUPPORTED_LANGS.includes(stored)) return stored;
+    } catch { /* ignore */ }
+    const navLang = String(globalThis.navigator?.language || 'es').slice(0, 2).toLowerCase();
+    return SUPPORTED_LANGS.includes(navLang) ? navLang : 'es';
+}
+
+let currentLang = detectInitialLang();
+
+function syncDocumentLang() {
+    if (typeof document !== 'undefined' && document.documentElement) {
+        document.documentElement.lang = currentLang;
+    }
+}
+syncDocumentLang();
+
+export function getLang() {
+    return currentLang;
+}
+
+export function setLang(lang) {
+    const normalized = SUPPORTED_LANGS.includes(lang) ? lang : 'es';
+    currentLang = normalized;
+    try {
+        globalThis.localStorage?.setItem(LANG_KEY, normalized);
+    } catch { /* ignore */ }
+    syncDocumentLang();
+    return normalized;
+}
+
+export function t(key, params = {}) {
+    const dict = LABELS_BY_LANG[currentLang] || LABELS_BY_LANG.es;
+    const raw = dict.strings[key] ?? LABELS_BY_LANG.es.strings[key] ?? key;
+    if (!params) return raw;
+    return raw.replace(/\{(\w+)\}/g, (_, k) => (
+        params[k] !== undefined && params[k] !== null ? String(params[k]) : `{${k}}`
+    ));
+}
+
+export function classLabel(code) {
+    const dict = LABELS_BY_LANG[currentLang] || LABELS_BY_LANG.es;
+    return dict.classes[code] || LABELS_BY_LANG.es.classes[code] || code;
+}
+
+export function raceLabel(code) {
+    const dict = LABELS_BY_LANG[currentLang] || LABELS_BY_LANG.es;
+    return dict.races[code] || LABELS_BY_LANG.es.races[code] || code;
+}
+
+export function genderLabel(code) {
+    const dict = LABELS_BY_LANG[currentLang] || LABELS_BY_LANG.es;
+    return dict.genders[code] || LABELS_BY_LANG.es.genders[code] || code;
+}
+
+export function avatarName(avatarId) {
+    const idx = ((Math.trunc(Number(avatarId) || 0) % AVATARS.length) + AVATARS.length) % AVATARS.length;
+    const key = AVATARS[idx].key;
+    const dict = LABELS_BY_LANG[currentLang] || LABELS_BY_LANG.es;
+    return dict.avatars[key] || LABELS_BY_LANG.es.avatars[key] || key;
+}
+
+export function expansionLabel(exp) {
+    const dict = LABELS_BY_LANG[currentLang] || LABELS_BY_LANG.es;
+    return dict.expansions[exp] || LABELS_BY_LANG.es.expansions[exp] || exp;
+}
+
+export function abilitiesFor(code) {
+    const dict = LABELS_BY_LANG[currentLang] || LABELS_BY_LANG.es;
+    return dict.abilities[code] || LABELS_BY_LANG.es.abilities[code] || [];
+}
 
 export function errorText(err) {
-    if (!err) return 'Error desconocido';
-    if (err.name === 'TimeoutError') return 'El servidor no respondió a tiempo';
+    if (!err) return t('common.unknown');
+    if (err.name === 'TimeoutError') return t('common.timeout');
+    const dict = LABELS_BY_LANG[currentLang] || LABELS_BY_LANG.es;
     if (err.name === 'ServerError') {
-        return err.message || ERROR_MESSAGES[err.code] || 'Error del servidor';
+        const code = err.code || 'UNKNOWN';
+        const localized = dict.errors[code] || LABELS_BY_LANG.es.errors[code];
+        // In Spanish, INVALID_DATA/GENERAL_ERROR messages from the server can add field-level precision.
+        if ((code === 'INVALID_DATA' || code === 'GENERAL_ERROR') && currentLang === 'es' && err.message) {
+            return err.message;
+        }
+        return localized || err.message || dict.errors.SERVER_ERROR;
     }
     return err.message || String(err);
 }
