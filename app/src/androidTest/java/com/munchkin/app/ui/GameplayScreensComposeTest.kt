@@ -8,11 +8,10 @@ import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.test.performScrollToKey
 import androidx.test.platform.app.InstrumentationRegistry
 import com.munchkin.app.R
 import com.munchkin.app.core.CombatState
@@ -111,9 +110,7 @@ class GameplayScreensComposeTest {
             }
         }
 
-        if (composeTestRule.onAllNodesWithText(victoryText).fetchSemanticsNodes().isEmpty()) {
-            composeTestRule.onRoot().performTouchInput { swipeUp() }
-        }
+        composeTestRule.onNodeWithTag("combat_list").performScrollToKey("end_combat_btn")
         composeTestRule.onNodeWithText(victoryText).assertIsNotEnabled()
     }
 
@@ -152,13 +149,12 @@ class GameplayScreensComposeTest {
             }
         }
 
-        if (composeTestRule.onAllNodesWithText(breakdownTitle).fetchSemanticsNodes().isEmpty()) {
-            composeTestRule.onRoot().performTouchInput { swipeUp() }
-        }
-        composeTestRule.onNodeWithText("HeroOne (base)").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("combat_list").performScrollToKey("combat_breakdown")
+        composeTestRule.onNodeWithText("HeroOne (base)", useUnmergedTree = true).assertDoesNotExist()
         composeTestRule.onNodeWithText(breakdownTitle).performClick()
-        composeTestRule.onNodeWithText("HeroOne (base)").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Goblin (nivel 4)", substring = true).assertIsDisplayed()
+        composeTestRule.onNodeWithText("HeroOne (base)", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("combat_list").performScrollToKey("end_combat_btn")
+        composeTestRule.onNodeWithText("Goblin (nivel 4)", substring = true, useUnmergedTree = true).assertIsDisplayed()
     }
 
     @Test

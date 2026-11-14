@@ -269,7 +269,7 @@ fun LobbyScreen(
                             }
                             OutlinedButton(
                                 onClick = {
-                                    val shareUrl = "https://${ServerConfig.HOST}/#/join/${gameState.joinCode}"
+                                    val shareUrl = ServerConfig.inviteUrl(gameState.joinCode)
                                     val shareText = context.getString(
                                         R.string.share_room_message,
                                         gameState.joinCode,

@@ -25,11 +25,19 @@ class JoinCodeParserTest {
         )
         assertEquals(
             "ABCD2345",
+            JoinCodeParser.extractJoinCode("https://munchking-sirpepo.duckdns.org:8765/#/join/ABCD2345")
+        )
+        assertEquals(
+            "ABCD2345",
             JoinCodeParser.extractJoinCode("https://munchking-sirpepo.duckdns.org/#/join/abcd2345")
         )
         assertEquals(
             "XYZ789",
             JoinCodeParser.extractJoinCode("https://munchking-sirpepo.duckdns.org/join/xyz789?from=qr")
+        )
+        assertEquals(
+            "XYZ789",
+            JoinCodeParser.extractJoinCode("https://munchking-sirpepo.duckdns.org:8765/join/xyz789?from=qr")
         )
         assertEquals(
             "ROOM42",
@@ -46,6 +54,10 @@ class JoinCodeParserTest {
         assertEquals(
             "ABCD2345",
             JoinCodeParser.extractJoinCode("https://munchking-sirpepo.duckdns.org/?join=abcd2345&ref=share")
+        )
+        assertEquals(
+            "ABCD2345",
+            JoinCodeParser.extractJoinCode("https://munchking-sirpepo.duckdns.org:8765/?join=abcd2345&ref=share")
         )
     }
 

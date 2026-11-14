@@ -112,7 +112,7 @@ fun JoinCodeCard(
 ) {
     val shape = RoundedCornerShape(16.dp)
     val qrPayload = if (joinCode.isNotBlank()) {
-        "https://${ServerConfig.HOST}/#/join/$joinCode"
+        ServerConfig.inviteUrl(joinCode)
     } else {
         ""
     }

@@ -15,4 +15,14 @@ object ServerConfig {
     val PORT: Int = BuildConfig.SERVER_PORT
 
     val WS_URL: String = "$SCHEME://$HOST:$PORT"
+
+    val HTTP_SCHEME: String = if (SCHEME.equals("wss", ignoreCase = true)) "https" else "http"
+
+    val WEB_ORIGIN: String = when {
+        HTTP_SCHEME == "https" && PORT == 443 -> "$HTTP_SCHEME://$HOST"
+        HTTP_SCHEME == "http" && PORT == 80 -> "$HTTP_SCHEME://$HOST"
+        else -> "$HTTP_SCHEME://$HOST:$PORT"
+    }
+
+    fun inviteUrl(joinCode: String): String = "$WEB_ORIGIN/#/join/$joinCode"
 }
