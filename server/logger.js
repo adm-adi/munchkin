@@ -24,9 +24,29 @@ const combinedRotateTransport = new winston.transports.DailyRotateFile({
     maxFiles: '14d'
 });
 
+const consoleTransport = new winston.transports.Console({
+    format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.splat(),
+        winston.format.errors({ stack: true }),
+        winston.format.simple()
+    )
+});
+
+function handleTransportError(transportName) {
+    return err => {
+        console.error(`[logger] Transport "${transportName}" error:`, err);
+    };
+}
+
+errorRotateTransport.on('error', handleTransportError('errorRotate'));
+combinedRotateTransport.on('error', handleTransportError('combinedRotate'));
+consoleTransport.on('error', handleTransportError('console'));
+
 const logger = winston.createLogger({
     level: 'info',
     format: winston.format.combine(
+        winston.format.splat(),
         winston.format.errors({ stack: true }),
         winston.format.timestamp(),
         winston.format.json()
@@ -34,14 +54,12 @@ const logger = winston.createLogger({
     transports: [
         errorRotateTransport,
         combinedRotateTransport,
-        new winston.transports.Console({
-            format: winston.format.combine(
-                winston.format.colorize(),
-                winston.format.errors({ stack: true }),
-                winston.format.simple()
-            )
-        })
+        consoleTransport
     ],
+});
+
+logger.on('error', err => {
+    console.error('[logger] Logger error:', err);
 });
 
 module.exports = logger;

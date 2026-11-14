@@ -9,18 +9,27 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "check": "node --check server.js && node --check db.js && node --check validation.js && node --check authManager.js && node --check catalogManager.js && node --check combatManager.js && node --check gameAdminManager.js && node --check historyManager.js && node --check turnManager.js && node --check logger.js && node --check staticFiles.js && node --check public/js/protocol.mjs && node --check public/js/engine.mjs && node --check public/js/combat.mjs && node --check public/js/net.mjs && node --check public/js/session.mjs && node --check public/js/i18n.mjs && node --check public/js/ui.mjs && node --check public/js/app.mjs"
+    "check": "node --check server.js && node --check db.js && node --check validation.js && node --check authManager.js && node --check catalogManager.js && node --check combatManager.js && node --check gameAdminManager.js && node --check historyManager.js && node --check turnManager.js && node --check logger.js && node --check staticFiles.js && node --check testServer.js && node --check public/js/protocol.mjs && node --check public/js/engine.mjs && node --check public/js/combat.mjs && node --check public/js/net.mjs && node --check public/js/session.mjs && node --check public/js/i18n.mjs && node --check public/js/ui.mjs && node --check public/js/app.mjs && tsc --noEmit -p jsconfig.json"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "helmet": "^7.1.0",
     "sqlite3": "^5.1.7",
-    "uuid": "^9.0.0",
     "winston": "^3.11.0",
     "winston-daily-rotate-file": "^5.0.0",
     "ws": "^8.17.1"
   },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.15.0",
+    "@types/ws": "^8.18.2",
+    "typescript": "^5.9.3"
+  },
   "overrides": {
-    "tar": "^7.0.0"
+    "tar": ">=7.5.21",
+    "brace-expansion": ">=1.1.21",
+    "ip-address": ">=10.7.4",
+    "moment": ">=2.31.0",
+    "node-gyp": ">=13.1.0"
   }
 }

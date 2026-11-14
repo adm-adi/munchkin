@@ -206,3 +206,16 @@ test('enum whitelists match the Kotlin enums in core/Models.kt', () => {
         ['DWARF', 'ELF', 'HALFLING', 'HUMAN']
     );
 });
+
+test('sanitizeMonster preserves zero treasures rather than defaulting to 1', () => {
+    const m = sanitizeMonster({ name: 'Plutonium', treasures: 0, levels: 2 });
+    assert.strictEqual(m.treasures, 0);
+    assert.strictEqual(m.levels, 2);
+});
+
+test('validation module omits pruned dead exports', () => {
+    const validationModule = require('./validation');
+    for (const deadExport of ['STEP_LIMIT', 'ERROR_MESSAGES', 'requiresCombatToWin', 'VALID_DICE_PURPOSES']) {
+        assert.strictEqual(deadExport in validationModule, false, `${deadExport} should not be exported`);
+    }
+});

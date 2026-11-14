@@ -1,4 +1,5 @@
 const { clampInt, MAX_TURN_TIMER_SECONDS } = require('./validation');
+const { requiresCombatToWin } = require('./combatManager');
 
 /**
  * Defence in depth for the timer delay. The value is clamped where it enters
@@ -11,7 +12,7 @@ function clampTimerSeconds(value) {
     return clampInt(value, 0, MAX_TURN_TIMER_SECONDS, 0);
 }
 
-function createTurnManager({ games, db, logger }) {
+function createTurnManager({ games, db, logger, cancelPendingSave }) {
     function getNextTurnPlayerId(game) {
         if (!game.turnPlayerId) return game.hostId;
 
@@ -77,8 +78,10 @@ function createTurnManager({ games, db, logger }) {
 
     function hasPendingWinnerConfirmation(game) {
         if (!game || game.winnerId) return false;
+        const maxLevel = game.maxLevel || 10;
+        const mustFight = requiresCombatToWin(game);
         for (const player of game.players.values()) {
-            if ((player.level || 0) >= (game.maxLevel || 10)) {
+            if ((player.level || 0) >= maxLevel && (!mustFight || player.reachedMaxLevelViaCombat === true)) {
                 return true;
             }
         }
@@ -176,8 +179,33 @@ function createTurnManager({ games, db, logger }) {
     function closeGame(game, winnerId) {
         if (game.ended) return;
         clearRoomLifecycleTimers(game, 'game closed');
+        if (typeof cancelPendingSave === 'function') {
+            cancelPendingSave(game.id);
+        }
+        game.combat = null;
         game.ended = true;
-        game.winnerId = winnerId;
+
+        let validWinnerId = null;
+        let winnerUserId = null;
+        if (winnerId != null) {
+            const winner = game.players.get(winnerId);
+            const maxLevel = game.maxLevel || 10;
+            const legitimateWin =
+                game.phase === 'IN_GAME' &&
+                game.players.size >= 2 &&
+                winner &&
+                (winner.level || 0) >= maxLevel &&
+                (!requiresCombatToWin(game) || winner.reachedMaxLevelViaCombat === true);
+
+            if (legitimateWin) {
+                validWinnerId = winnerId;
+                winnerUserId = winner.userId || null;
+            } else {
+                logger.warn(`⚠️ closeGame cleared ineligible winnerId=${winnerId} for room ${game.joinCode}`);
+            }
+        }
+
+        game.winnerId = validWinnerId;
         game.phase = "FINISHED";
 
         const participants = [];
@@ -187,15 +215,6 @@ function createTurnManager({ games, db, logger }) {
                 userId: p.userId,
                 joinedAt: p.joinedAt
             });
-        }
-
-        // Guests have no account to credit, and an aborted game has no winner at
-        // all; both are recorded as NULL so the leaderboard join simply skips them
-        // instead of matching a sentinel string that is not a user id.
-        let winnerUserId = null;
-        if (winnerId) {
-            const winner = game.players.get(winnerId);
-            if (winner) winnerUserId = winner.userId || null;
         }
 
         db.recordGame(
@@ -209,6 +228,9 @@ function createTurnManager({ games, db, logger }) {
         )
             .then(() => logger.info(`💾 Game ${game.id} recorded in history`))
             .catch(err => logger.error(`❌ Failed to record game ${game.id}`, err));
+
+        db.deleteActiveGame(game.id)
+            .catch(err => logger.error(`❌ Failed to delete closed active game ${game.id}`, err));
     }
 
     return {

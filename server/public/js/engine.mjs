@@ -1,16 +1,37 @@
 /**
  * Client-side reducer for authoritative server state.
  *
- * Port of core/GameEngine.kt: it only folds server-validated event broadcasts
- * into the local snapshot the UI renders, and deliberately does not validate —
- * rejecting something the server already applied could only cause divergence.
- * Snapshot-first events (combat, turns, rolls) arrive as full STATE_SNAPSHOTs
- * instead of broadcasts, so most branches here cover the lightweight events;
- * the rest exist for parity with the Kotlin reducer.
- *
- * All functions are pure: they take a plain-JSON game state (as decoded off the
- * wire) and return a new one. structuredClone keeps the implementation honest.
+ * Port of core/GameEngine.kt: folds server-validated event broadcasts into
+ * the local snapshot rendered by the UI without mutating prevState.
  */
+
+const VALID_CLASSES = new Set(['NONE', 'WARRIOR', 'WIZARD', 'THIEF', 'CLERIC']);
+const VALID_RACES = new Set(['HUMAN', 'ELF', 'DWARF', 'HALFLING']);
+const VALID_GENDERS = new Set(['M', 'F', 'NA']);
+
+const GEAR_MIN = 0;
+const GEAR_MAX = 999;
+const TEMP_COMBAT_BONUS_MIN = -100;
+const TEMP_COMBAT_BONUS_MAX = 100;
+const STEP_MAX = 100;
+const MAX_AVATAR_ID = 100;
+const MAX_NAME_LENGTH = 20;
+const MODIFIER_LIMIT = 9999;
+const RUN_AWAY_THRESHOLD = 5;
+
+function clampInt(value, min, max, fallback = 0) {
+    if (typeof value !== 'number' && typeof value !== 'string') return fallback;
+    if (typeof value === 'string' && value.trim() === '') return fallback;
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, n));
+}
+
+function stepAmount(value) {
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n) || n <= 0) return 1;
+    return Math.min(STEP_MAX, n);
+}
 
 // ============== Derived helpers (Models.kt) ==============
 
@@ -52,9 +73,12 @@ export function hasRace(player, target) {
     return activeRaces(player).includes(target);
 }
 
-/** PlayerState.combatPower = level + gear + temp bonus. */
+/** PlayerState.combatPower = level + gear + temp bonus (clamped to server bounds). */
 export function combatPower(player) {
-    return (player.level || 1) + (player.gearBonus || 0) + (player.tempCombatBonus || 0);
+    const level = player.level || 1;
+    const gear = clampInt(player.gearBonus ?? 0, GEAR_MIN, GEAR_MAX, 0);
+    const temp = clampInt(player.tempCombatBonus ?? 0, TEMP_COMBAT_BONUS_MIN, TEMP_COMBAT_BONUS_MAX, 0);
+    return level + gear + temp;
 }
 
 /** GameState.playerList — explicit seat order first, stragglers appended. */
@@ -109,98 +133,114 @@ export function canBeConfirmedWinner(player, settings) {
 
 // ============== Reducer (GameEngine.kt) ==============
 
-function clamp(value, min, max) {
-    return Math.max(min, Math.min(max, value));
-}
-
-function updatePlayer(state, playerId, update) {
-    const player = state.players[playerId];
-    if (!player) return;
-    update(player);
-}
-
 function orderedIds(state) {
-    if (Array.isArray(state.playerOrder) && state.playerOrder.length > 0) return state.playerOrder;
-    return Object.keys(state.players).sort();
+    const players = state.players || {};
+    if (Array.isArray(state.playerOrder) && state.playerOrder.length > 0) {
+        const known = state.playerOrder.filter(id => Boolean(players[id]));
+        const extra = Object.keys(players).filter(id => !known.includes(id)).sort();
+        return known.concat(extra);
+    }
+    return Object.keys(players).sort();
+}
+
+function cloneCombat(combat) {
+    if (!combat) return null;
+    return {
+        ...combat,
+        monsters: Array.isArray(combat.monsters) ? [...combat.monsters] : [],
+        tempBonuses: Array.isArray(combat.tempBonuses) ? [...combat.tempBonuses] : []
+    };
 }
 
 /**
- * Applies one server-broadcast event, returning the next state. The seq
- * counter advances like the Kotlin engine's; a dropped connection is followed
- * by a fresh WELCOME snapshot so there is no gap to recover from.
+ * Applies one server-broadcast event, returning a new state without mutating prevState.
  */
 export function applyEvent(prevState, event) {
-    if (!prevState) return prevState;
-    const state = structuredClone(prevState);
-    state.seq = (state.seq || 0) + 1;
+    if (!prevState || !event) return prevState;
+
+    const state = {
+        ...prevState,
+        seq: (prevState.seq || 0) + 1
+    };
 
     const minLevel = state.settings?.minLevel ?? 1;
     const maxLevel = state.settings?.maxLevel ?? 10;
 
-    switch (event.type) {
-        case 'PLAYER_JOIN': {
-            const meta = event.playerMeta;
-            state.players[meta.playerId] = {
-                playerId: meta.playerId,
-                name: meta.name,
-                avatarId: meta.avatarId || 0,
-                gender: meta.gender || 'NA',
-                characterClass: 'NONE',
-                characterRace: 'HUMAN',
-                secondaryClass: 'NONE',
-                secondaryRace: 'HUMAN',
-                level: 1,
-                gearBonus: 0,
-                tempCombatBonus: 0,
-                treasures: 0,
-                raceIds: [],
-                classIds: [],
-                hasHalfBreed: false,
-                hasSuperMunchkin: false,
-                lastKnownIp: event.lastKnownIp || null,
-                isConnected: true,
-                lastRoll: null,
-                reachedMaxLevelViaCombat: false
-            };
-            break;
+    const updatePlayer = (playerId, fn) => {
+        const existing = state.players?.[playerId];
+        if (!existing) return;
+        if (state.players === prevState.players) {
+            state.players = { ...prevState.players };
         }
-        case 'PLAYER_LEAVE':
-            delete state.players[event.actorId];
-            break;
+        const copy = { ...existing };
+        fn(copy);
+        state.players[playerId] = copy;
+    };
+
+    switch (event.type) {
         case 'PLAYER_ROLL': {
-            updatePlayer(state, event.actorId, p => { p.lastRoll = event.result; });
+            const actor = state.players?.[event.actorId];
+            if (!actor) break;
+
+            const rollResult = clampInt(event.result, 1, 6, 1);
+            state.players = { ...prevState.players };
+
+            if (state.phase === 'LOBBY') {
+                // Evaluate ties against the pre-roll state before writing this roll.
+                const allPlayers = Object.values(state.players);
+                const allRolled = allPlayers.length > 1 &&
+                    allPlayers.every(p => p.lastRoll !== null && p.lastRoll !== undefined);
+                if (allRolled) {
+                    const maxRoll = Math.max(...allPlayers.map(p => p.lastRoll || 0));
+                    const tiedAtMax = allPlayers.filter(p => p.lastRoll === maxRoll);
+                    if (tiedAtMax.length > 1 && actor.lastRoll === maxRoll) {
+                        for (const [pid, p] of Object.entries(state.players)) {
+                            if (pid === event.actorId) continue;
+                            state.players[pid] = {
+                                ...p,
+                                lastRoll: p.lastRoll === maxRoll ? null : 0
+                            };
+                        }
+                    }
+                }
+            }
+
+            const updatedActor = { ...state.players[event.actorId], lastRoll: rollResult };
+            state.players[event.actorId] = updatedActor;
+
             const inCombatRoll = state.combat &&
                 (event.purpose === 'COMBAT' || event.purpose === 'RUN_AWAY');
             if (inCombatRoll) {
+                const runBonus = (hasRace(updatedActor, 'ELF') ? 1 : 0) +
+                    (hasRace(updatedActor, 'HALFLING') ? -1 : 0);
+                const success = event.purpose === 'RUN_AWAY'
+                    ? (rollResult + runBonus) >= RUN_AWAY_THRESHOLD
+                    : event.success === true;
+                state.combat = cloneCombat(state.combat);
                 state.combat.lastDiceRoll = {
                     playerId: event.actorId,
-                    playerName: state.players[event.actorId]?.name || 'Unknown',
-                    result: event.result,
-                    success: event.success === true,
+                    playerName: updatedActor.name || 'Unknown',
+                    result: rollResult,
+                    success,
                     timestamp: event.timestamp || Date.now(),
                     purpose: event.purpose
                 };
-            } else if (state.phase === 'LOBBY' && allPlayersRolled(state)) {
-                // Tie for highest: those players re-roll.
-                const players = Object.values(state.players);
-                const maxRoll = Math.max(...players.map(p => p.lastRoll || 0));
-                const tied = players.filter(p => p.lastRoll === maxRoll);
-                if (tied.length > 1) {
-                    for (const p of tied) p.lastRoll = null;
-                }
             }
             break;
         }
         case 'GAME_START': {
-            const players = Object.values(state.players);
-            const best = players.reduce(
-                (acc, p) => ((p.lastRoll || 0) > (acc?.lastRoll || 0) ? p : acc),
-                null
-            );
-            let startingPlayerId = best && (best.lastRoll || 0) > 0 ? best.playerId : null;
-            if (!startingPlayerId) startingPlayerId = orderedIds(state)[0] || null;
+            const order = orderedIds(state);
+            let startingPlayerId = null;
+            let highestRoll = 0;
+            for (const pid of order) {
+                const p = state.players[pid];
+                if (p && (p.lastRoll || 0) > highestRoll) {
+                    highestRoll = p.lastRoll;
+                    startingPlayerId = pid;
+                }
+            }
             state.phase = 'IN_GAME';
-            state.turnPlayerId = startingPlayerId;
+            state.turnPlayerId = startingPlayerId || order[0] || state.hostId || null;
             break;
         }
         case 'SWAP_PLAYERS': {
@@ -219,12 +259,13 @@ export function applyEvent(prevState, event) {
         case 'END_TURN': {
             const current = state.turnPlayerId;
             if (!current) break;
-            const order = orderedIds(state);
+            const order = orderedIds(state).filter(id => Boolean(state.players?.[id]));
+            if (order.length === 0) break;
             const idx = order.indexOf(current);
-            if (idx === -1) break;
+            const startIdx = idx === -1 ? 0 : idx;
             let next = current;
             for (let i = 1; i <= order.length; i++) {
-                const candidate = state.players[order[(idx + i) % order.length]];
+                const candidate = state.players[order[(startIdx + i) % order.length]];
                 if (candidate && candidate.isConnected === true) {
                     next = candidate.playerId;
                     break;
@@ -236,75 +277,134 @@ export function applyEvent(prevState, event) {
         }
         case 'GAME_END':
             state.phase = 'FINISHED';
+            state.winnerId = event.winnerId ?? null;
+            state.combat = null;
             break;
 
-        case 'SET_NAME':
-            updatePlayer(state, event.targetPlayerId, p => { p.name = event.name; });
+        case 'SET_NAME': {
+            const trimmed = typeof event.name === 'string'
+                ? event.name.trim().slice(0, MAX_NAME_LENGTH)
+                : '';
+            if (trimmed) {
+                updatePlayer(event.targetPlayerId, p => { p.name = trimmed; });
+            }
             break;
+        }
         case 'SET_AVATAR':
-            updatePlayer(state, event.targetPlayerId, p => { p.avatarId = event.avatarId; });
+            updatePlayer(event.targetPlayerId, p => {
+                p.avatarId = clampInt(event.avatarId, 0, MAX_AVATAR_ID, p.avatarId ?? 0);
+            });
             break;
         case 'SET_GENDER':
-            updatePlayer(state, event.targetPlayerId, p => { p.gender = event.gender; });
+            if (VALID_GENDERS.has(event.gender)) {
+                updatePlayer(event.targetPlayerId, p => { p.gender = event.gender; });
+            }
             break;
         case 'INC_LEVEL':
-            updatePlayer(state, event.targetPlayerId, p => {
-                p.level = clamp(p.level + (event.amount ?? 1), minLevel, maxLevel);
+            updatePlayer(event.targetPlayerId, p => {
+                const manualCap = requiresCombatToWin(state.settings)
+                    ? Math.max(minLevel, maxLevel - 1)
+                    : maxLevel;
+                const current = clampInt(p.level ?? 1, minLevel, maxLevel, minLevel);
+                if (current < manualCap) {
+                    p.level = Math.min(manualCap, current + stepAmount(event.amount));
+                } else {
+                    p.level = current;
+                }
+                if (p.level < maxLevel) p.reachedMaxLevelViaCombat = false;
             });
             break;
         case 'DEC_LEVEL':
-            updatePlayer(state, event.targetPlayerId, p => {
-                p.level = clamp(p.level - (event.amount ?? 1), minLevel, maxLevel);
+            updatePlayer(event.targetPlayerId, p => {
+                const current = clampInt(p.level ?? 1, minLevel, maxLevel, minLevel);
+                p.level = clampInt(current - stepAmount(event.amount), minLevel, maxLevel, minLevel);
                 if (p.level < maxLevel) p.reachedMaxLevelViaCombat = false;
             });
             break;
         case 'SET_LEVEL':
-            updatePlayer(state, event.targetPlayerId, p => {
-                const prev = p.level;
-                p.level = clamp(event.level ?? 1, minLevel, maxLevel);
-                if (p.level < maxLevel) p.reachedMaxLevelViaCombat = false;
-                else if (prev < maxLevel) p.reachedMaxLevelViaCombat = false;
+            updatePlayer(event.targetPlayerId, p => {
+                const manualCap = requiresCombatToWin(state.settings)
+                    ? Math.max(minLevel, maxLevel - 1)
+                    : maxLevel;
+                const prev = clampInt(p.level ?? 1, minLevel, maxLevel, minLevel);
+                p.level = clampInt(event.level, minLevel, manualCap, prev);
+                if (p.level < maxLevel || prev < maxLevel) {
+                    p.reachedMaxLevelViaCombat = false;
+                }
             });
             break;
         case 'INC_GEAR':
-            updatePlayer(state, event.targetPlayerId, p => { p.gearBonus += event.amount ?? 1; });
+            updatePlayer(event.targetPlayerId, p => {
+                const current = p.gearBonus || 0;
+                p.gearBonus = clampInt(current + stepAmount(event.amount), GEAR_MIN, GEAR_MAX, current);
+            });
             break;
         case 'DEC_GEAR':
-            updatePlayer(state, event.targetPlayerId, p => { p.gearBonus -= event.amount ?? 1; });
+            updatePlayer(event.targetPlayerId, p => {
+                const current = p.gearBonus || 0;
+                p.gearBonus = clampInt(current - stepAmount(event.amount), GEAR_MIN, GEAR_MAX, current);
+            });
             break;
         case 'SET_GEAR':
-            updatePlayer(state, event.targetPlayerId, p => { p.gearBonus = event.gear ?? 0; });
+            updatePlayer(event.targetPlayerId, p => {
+                const current = p.gearBonus || 0;
+                p.gearBonus = clampInt(event.gear, GEAR_MIN, GEAR_MAX, current);
+            });
             break;
         case 'SET_HALF_BREED':
-            updatePlayer(state, event.targetPlayerId, p => {
+            updatePlayer(event.targetPlayerId, p => {
                 p.hasHalfBreed = event.enabled === true;
-                if (!p.hasHalfBreed) p.secondaryRace = 'HUMAN';
+                if (!p.hasHalfBreed || p.secondaryRace === p.characterRace) {
+                    p.secondaryRace = 'HUMAN';
+                }
             });
             break;
         case 'SET_SUPER_MUNCHKIN':
-            updatePlayer(state, event.targetPlayerId, p => {
+            updatePlayer(event.targetPlayerId, p => {
                 p.hasSuperMunchkin = event.enabled === true;
-                if (!p.hasSuperMunchkin) p.secondaryClass = 'NONE';
+                if (!p.hasSuperMunchkin || p.secondaryClass === p.characterClass) {
+                    p.secondaryClass = 'NONE';
+                }
             });
             break;
         case 'SET_CLASS':
-            updatePlayer(state, event.targetPlayerId, p => {
-                if (event.isSecondary) p.secondaryClass = event.newClass;
-                else p.characterClass = event.newClass;
-            });
+            if (VALID_CLASSES.has(event.newClass)) {
+                updatePlayer(event.targetPlayerId, p => {
+                    if (event.isSecondary) {
+                        p.secondaryClass = (p.hasSuperMunchkin && event.newClass !== p.characterClass)
+                            ? event.newClass
+                            : 'NONE';
+                    } else {
+                        p.characterClass = event.newClass;
+                        if (!p.hasSuperMunchkin || p.secondaryClass === p.characterClass) {
+                            p.secondaryClass = 'NONE';
+                        }
+                    }
+                });
+            }
             break;
         case 'SET_RACE':
-            updatePlayer(state, event.targetPlayerId, p => {
-                if (event.isSecondary) p.secondaryRace = event.newRace;
-                else p.characterRace = event.newRace;
-            });
+            if (VALID_RACES.has(event.newRace)) {
+                updatePlayer(event.targetPlayerId, p => {
+                    if (event.isSecondary) {
+                        p.secondaryRace = (p.hasHalfBreed && event.newRace !== p.characterRace)
+                            ? event.newRace
+                            : 'HUMAN';
+                    } else {
+                        p.characterRace = event.newRace;
+                        if (!p.hasHalfBreed || p.secondaryRace === p.characterRace) {
+                            p.secondaryRace = 'HUMAN';
+                        }
+                    }
+                });
+            }
             break;
 
         case 'COMBAT_START':
             state.combat = {
                 mainPlayerId: event.mainPlayerId,
                 helperPlayerId: null,
-                monsters: [],
+                monsters: Array.isArray(event.monsters) ? [...event.monsters] : [],
                 tempBonuses: [],
                 heroModifier: 0,
                 monsterModifier: 0,
@@ -316,58 +416,84 @@ export function applyEvent(prevState, event) {
             if (state.combat &&
                 event.helperId !== state.combat.mainPlayerId &&
                 state.players[event.helperId]) {
+                state.combat = cloneCombat(state.combat);
                 state.combat.helperPlayerId = event.helperId;
             }
             break;
         case 'COMBAT_REMOVE_HELPER':
-            if (state.combat) state.combat.helperPlayerId = null;
+            if (state.combat) {
+                state.combat = cloneCombat(state.combat);
+                state.combat.helperPlayerId = null;
+            }
             break;
         case 'COMBAT_ADD_MONSTER':
-            if (state.combat) state.combat.monsters.push(event.monster);
+            if (state.combat) {
+                state.combat = cloneCombat(state.combat);
+                state.combat.monsters.push(event.monster);
+            }
             break;
         case 'COMBAT_REMOVE_MONSTER':
             if (state.combat) {
-                state.combat.monsters = state.combat.monsters.filter(m => m.id !== event.monsterId);
+                state.combat = {
+                    ...cloneCombat(state.combat),
+                    monsters: state.combat.monsters.filter(m => m.id !== event.monsterId)
+                };
             }
             break;
         case 'COMBAT_UPDATE_MONSTER':
             if (state.combat) {
-                state.combat.monsters = state.combat.monsters.map(
-                    m => (m.id === event.monster.id ? event.monster : m)
-                );
+                state.combat = {
+                    ...cloneCombat(state.combat),
+                    monsters: state.combat.monsters.map(
+                        m => (m.id === event.monster?.id ? event.monster : m)
+                    )
+                };
             }
             break;
         case 'COMBAT_ADD_BONUS':
-            if (state.combat) state.combat.tempBonuses.push(event.bonus);
+            if (state.combat) {
+                state.combat = cloneCombat(state.combat);
+                state.combat.tempBonuses.push(event.bonus);
+            }
             break;
         case 'COMBAT_REMOVE_BONUS':
             if (state.combat) {
-                state.combat.tempBonuses = state.combat.tempBonuses.filter(b => b.id !== event.bonusId);
-            }
-            break;
-        case 'COMBAT_MODIFY_MODIFIER':
-            if (state.combat) {
-                if (event.target === 'HEROES') state.combat.heroModifier += event.delta;
-                else state.combat.monsterModifier += event.delta;
+                state.combat = {
+                    ...cloneCombat(state.combat),
+                    tempBonuses: state.combat.tempBonuses.filter(b => b.id !== event.bonusId)
+                };
             }
             break;
         case 'COMBAT_SET_MODIFIER':
             if (state.combat) {
-                if (event.target === 'HEROES') state.combat.heroModifier = event.value;
-                else state.combat.monsterModifier = event.value;
+                const value = clampInt(event.value, -MODIFIER_LIMIT, MODIFIER_LIMIT, 0);
+                state.combat = cloneCombat(state.combat);
+                if (event.target === 'HEROES') state.combat.heroModifier = value;
+                else state.combat.monsterModifier = value;
             }
             break;
         case 'COMBAT_END': {
             const combat = state.combat;
             state.combat = null;
-            if (combat && event.outcome === 'WIN') {
-                updatePlayer(state, combat.mainPlayerId, p => {
-                    p.level = Math.min(p.level + (event.levelsGained || 0), maxLevel);
-                    p.treasures = (p.treasures || 0) + (event.treasuresGained || 0);
+            if (combat && !event.cancelled && event.outcome === 'WIN') {
+                const levelsGained = Math.max(0, Math.round(Number(event.levelsGained) || 0));
+                const treasuresGained = Math.max(0, Math.round(Number(event.treasuresGained) || 0));
+                const helperLevelsGained = Math.max(0, Math.round(Number(event.helperLevelsGained) || 0));
+                updatePlayer(combat.mainPlayerId, p => {
+                    const prevLevel = p.level || 1;
+                    p.level = Math.min(prevLevel + levelsGained, maxLevel);
+                    p.treasures = (p.treasures || 0) + treasuresGained;
+                    if (prevLevel < maxLevel && p.level >= maxLevel) {
+                        p.reachedMaxLevelViaCombat = true;
+                    }
                 });
-                if (combat.helperPlayerId && (event.helperLevelsGained || 0) > 0) {
-                    updatePlayer(state, combat.helperPlayerId, p => {
-                        p.level = Math.min(p.level + event.helperLevelsGained, maxLevel);
+                if (combat.helperPlayerId && helperLevelsGained > 0) {
+                    updatePlayer(combat.helperPlayerId, p => {
+                        const prevLevel = p.level || 1;
+                        p.level = Math.min(prevLevel + helperLevelsGained, maxLevel);
+                        if (prevLevel < maxLevel && p.level >= maxLevel) {
+                            p.reachedMaxLevelViaCombat = true;
+                        }
                     });
                 }
             }
@@ -383,8 +509,15 @@ export function applyEvent(prevState, event) {
 
 /** PLAYER_STATUS handling — connection flag flips outside the event stream. */
 export function applyPlayerStatus(prevState, playerId, isConnected) {
-    if (!prevState || !prevState.players[playerId]) return prevState;
-    const state = structuredClone(prevState);
-    state.players[playerId].isConnected = isConnected;
-    return state;
+    if (!prevState || !prevState.players?.[playerId]) return prevState;
+    return {
+        ...prevState,
+        players: {
+            ...prevState.players,
+            [playerId]: {
+                ...prevState.players[playerId],
+                isConnected
+            }
+        }
+    };
 }

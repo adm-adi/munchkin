@@ -20,7 +20,8 @@ function freePort() {
         srv.unref();
         srv.on('error', reject);
         srv.listen(0, '127.0.0.1', () => {
-            const { port } = srv.address();
+            const addr = srv.address();
+            const port = typeof addr === 'object' && addr ? addr.port : 0;
             srv.close(() => resolve(port));
         });
     });
@@ -30,11 +31,12 @@ function freePort() {
  * Starts a server instance. Returns { url, stop, dbPath }.
  */
 async function startServer({
-    jwtSecret = 'integration-test-secret',
+    jwtSecret = 'integration-test-secret-minimum-32-chars!!',
     // Raised well above the production default of 3 so the suite can register an
     // account per test from a single IP. The limit itself is covered by its own
     // test, which starts a server with a deliberately low value.
-    registerLimit = 1000
+    registerLimit = 1000,
+    createGameLimit = 1000
 } = {}) {
     const port = await freePort();
     const dbPath = path.join(
@@ -49,6 +51,7 @@ async function startServer({
             MUNCHKIN_DB_PATH: dbPath,
             MUNCHKIN_LOG_DIR: path.dirname(dbPath),
             MUNCHKIN_REGISTER_LIMIT: String(registerLimit),
+            MUNCHKIN_CREATE_GAME_LIMIT: String(createGameLimit),
             PORT: String(port)
         },
         stdio: ['ignore', 'pipe', 'pipe']

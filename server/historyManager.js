@@ -1,4 +1,12 @@
-function createHistoryManager({ db, logger, sendError }) {
+function createHistoryManager({ db, logger, sendError, safeSend }) {
+    const sendJson = typeof safeSend === 'function'
+        ? safeSend
+        : (ws, payload) => {
+            if (ws && ws.readyState === 1) {
+                ws.send(JSON.stringify(payload));
+            }
+        };
+
     /**
      * Game history is private to the account that played it. The requested
      * userId is ignored unless it matches the authenticated session, otherwise
@@ -19,11 +27,9 @@ function createHistoryManager({ db, logger, sendError }) {
 
         Promise.all([db.getUserHistory(ws.userId), db.getUserStats(ws.userId)])
             .then(([games, stats]) => {
-                ws.send(JSON.stringify({
+                sendJson(ws, {
                     type: 'HISTORY_RESULT',
-                    // Real totals, not derived from the returned rows: the history is
-                    // capped at 50, so counting those understated anyone past 50 games
-                    // and disagreed with the ranking.
+                    // Real totals come from getUserStats because history queries are capped.
                     stats: {
                         wins: stats.wins || 0,
                         gamesPlayed: stats.games_played || 0
@@ -38,7 +44,7 @@ function createHistoryManager({ db, logger, sendError }) {
                         didIWin: game.did_i_win === 1,
                         playerCount: game.player_count || 0
                     }))
-                }));
+                });
             })
             .catch(err => {
                 logger.error('History error:', err);
@@ -85,11 +91,11 @@ function createHistoryManager({ db, logger, sendError }) {
                     };
                 }
 
-                ws.send(JSON.stringify({
+                sendJson(ws, {
                     type: 'LEADERBOARD_RESULT',
                     leaderboard,
                     me
-                }));
+                });
             })
             .catch(err => {
                 logger.error('Leaderboard error:', err);

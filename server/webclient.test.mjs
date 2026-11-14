@@ -25,10 +25,13 @@ import http from 'node:http';
 import { WebSocket } from 'ws';
 
 import { startServer } from './testServer.js';
-import { messages, events, playerMeta, monsterInstance, tempBonus } from './public/js/protocol.mjs';
-import { applyEvent, canStart, playerList } from './public/js/engine.mjs';
+import { MSG, messages, events, playerMeta, monsterInstance, tempBonus } from './public/js/protocol.mjs';
+import {
+    applyEvent, canStart, playerList, tiedPlayerIds, requiresCombatToWin, combatPower
+} from './public/js/engine.mjs';
 import { calculateResult, runAwayBonus } from './public/js/combat.mjs';
-import { GameSocket, ConnState, oneOffRequest, authenticatedRequest } from './public/js/net.mjs';
+import { GameSocket, ConnState, ServerError, oneOffRequest, authenticatedRequest } from './public/js/net.mjs';
+import { session } from './public/js/session.mjs';
 
 let server;
 let baseHttp;
@@ -206,6 +209,66 @@ describe('protocol builders', () => {
             assert.ok(key in bonus, `TempBonus missing ${key}`);
         }
     });
+
+    test('normalized MSG constants and new message builders match protocol contract', () => {
+        assert.strictEqual(MSG.CREATE_GAME, 'CREATE_GAME');
+        assert.strictEqual(MSG.DELETE_ACCOUNT, 'DELETE_ACCOUNT');
+        assert.strictEqual(MSG.ACCOUNT_DELETED, 'ACCOUNT_DELETED');
+        assert.strictEqual(MSG.TRANSFER_HOST, 'TRANSFER_HOST');
+
+        const hello = messages.hello('ABCD1234', playerMeta({ name: 'Ana' }));
+        assert.strictEqual('lastKnownIp' in hello, false);
+
+        const profileMsg = messages.updateProfile({
+            userId: 'u1',
+            username: 'neo',
+            email: '',
+            password: null,
+            currentPassword: 'old-password',
+            avatarId: 0,
+            gender: ''
+        });
+        assert.deepStrictEqual(profileMsg, {
+            type: MSG.UPDATE_PROFILE,
+            userId: 'u1',
+            username: 'neo',
+            currentPassword: 'old-password',
+            avatarId: 0
+        });
+
+        assert.deepStrictEqual(messages.deleteAccount('secret123'), {
+            type: MSG.DELETE_ACCOUNT,
+            password: 'secret123'
+        });
+        assert.deepStrictEqual(messages.transferHost('p2'), {
+            type: MSG.TRANSFER_HOST,
+            targetPlayerId: 'p2'
+        });
+        assert.deepStrictEqual(messages.catalogSearch('orco', 15), {
+            type: MSG.CATALOG_SEARCH,
+            query: 'orco',
+            limit: 15,
+            offset: 0
+        });
+        assert.deepStrictEqual(messages.catalogSearch('orco', { expansion: 'base', limit: 10, offset: 20 }), {
+            type: MSG.CATALOG_SEARCH,
+            query: 'orco',
+            limit: 10,
+            offset: 20,
+            expansion: 'base'
+        });
+
+        const end = events.combatEnd('p1', 'WIN', {
+            levelsGained: 1,
+            treasuresGained: 2,
+            expectedSeq: 7,
+            cancelled: false
+        });
+        assert.strictEqual(end.levelsGained, 1);
+        assert.strictEqual(end.treasuresGained, 2);
+        assert.strictEqual(end.expectedSeq, 7);
+        assert.strictEqual(end.cancelled, false);
+    });
 });
 
 // ============== 3. Combat calculator (pure) ==============
@@ -298,6 +361,335 @@ describe('combat calculator', () => {
         })), 0);
         assert.strictEqual(runAwayBonus(basePlayer()), 0);
     });
+
+    test('tiesGoToMonsters === false wins ties and sets marginToWin to gap (not gap + 1)', () => {
+        const stateTie = stateWith(
+            { p1: basePlayer({ level: 3, gearBonus: 2 }) },
+            { tiesGoToMonsters: false }
+        );
+        const tieCombat = {
+            mainPlayerId: 'p1', helperPlayerId: null, tempBonuses: [],
+            heroModifier: 0, monsterModifier: 0,
+            monsters: [monsterInstance({ name: 'Orco', baseLevel: 5 })]
+        };
+        const tieResult = calculateResult(tieCombat, stateTie);
+        assert.strictEqual(tieResult.outcome, 'WIN');
+        assert.strictEqual(tieResult.marginToWin, 0);
+        assert.strictEqual(tieResult.warriorTieBreak, false);
+
+        const stateLose = stateWith(
+            { p1: basePlayer({ level: 2, gearBonus: 1 }) },
+            { tiesGoToMonsters: false }
+        );
+        const loseResult = calculateResult(tieCombat, stateLose);
+        assert.strictEqual(loseResult.outcome, 'LOSE');
+        assert.strictEqual(loseResult.marginToWin, 2);
+    });
+
+    test('dead raceIds/classIds fallbacks are ignored for non-enum condition values', () => {
+        const state = stateWith({
+            p1: basePlayer({ raceIds: ['custom-race'], classIds: ['custom-class'] })
+        });
+        const combat = {
+            mainPlayerId: 'p1', helperPlayerId: null, tempBonuses: [],
+            heroModifier: 0, monsterModifier: 0,
+            monsters: [monsterInstance({
+                name: 'Raro', baseLevel: 4,
+                conditionalModifiers: [
+                    {
+                        id: 'c1', amount: 5, side: 'MONSTER',
+                        conditionType: 'RACE_ID', conditionValue: 'custom-race',
+                        scope: 'ANY_PARTICIPANT', applyMode: 'ONCE_IF_MATCH'
+                    },
+                    {
+                        id: 'c2', amount: 5, side: 'MONSTER',
+                        conditionType: 'CLASS_ID', conditionValue: 'custom-class',
+                        scope: 'ANY_PARTICIPANT', applyMode: 'ONCE_IF_MATCH'
+                    }
+                ]
+            })]
+        };
+        const result = calculateResult(combat, state);
+        assert.strictEqual(result.monstersPower, 4);
+    });
+});
+
+// ============== 3b. Engine reducer & session & net unit tests ==============
+
+describe('engine reducer semantics', () => {
+    function makeState(overrides = {}) {
+        return {
+            gameId: 'g1',
+            joinCode: 'ABCD1234',
+            seq: 1,
+            phase: 'LOBBY',
+            hostId: 'p1',
+            turnPlayerId: 'p1',
+            winnerId: null,
+            playerOrder: ['p1', 'p2', 'p3'],
+            settings: {
+                minLevel: 1,
+                maxLevel: 10,
+                tiesGoToMonsters: true,
+                levelTenOnlyCombat: true,
+                allowLevelTenOverride: false
+            },
+            combat: null,
+            players: {
+                p1: {
+                    playerId: 'p1', name: 'Ana', avatarId: 0, gender: 'F',
+                    level: 1, gearBonus: 0, tempCombatBonus: 0, treasures: 0,
+                    characterClass: 'NONE', characterRace: 'HUMAN',
+                    secondaryClass: 'NONE', secondaryRace: 'HUMAN',
+                    hasSuperMunchkin: false, hasHalfBreed: false,
+                    isConnected: true, lastRoll: null, reachedMaxLevelViaCombat: false
+                },
+                p2: {
+                    playerId: 'p2', name: 'Beto', avatarId: 1, gender: 'M',
+                    level: 1, gearBonus: 0, tempCombatBonus: 0, treasures: 0,
+                    characterClass: 'NONE', characterRace: 'ELF',
+                    secondaryClass: 'NONE', secondaryRace: 'HUMAN',
+                    hasSuperMunchkin: false, hasHalfBreed: false,
+                    isConnected: true, lastRoll: null, reachedMaxLevelViaCombat: false
+                },
+                p3: {
+                    playerId: 'p3', name: 'Cati', avatarId: 2, gender: 'F',
+                    level: 1, gearBonus: 0, tempCombatBonus: 0, treasures: 0,
+                    characterClass: 'NONE', characterRace: 'HALFLING',
+                    secondaryClass: 'NONE', secondaryRace: 'HUMAN',
+                    hasSuperMunchkin: false, hasHalfBreed: false,
+                    isConnected: false, lastRoll: null, reachedMaxLevelViaCombat: false
+                }
+            },
+            ...overrides
+        };
+    }
+
+    test('PLAYER_ROLL evaluates LOBBY ties before updating so non-tied get 0 and other tied get null', () => {
+        let s = makeState();
+        s = applyEvent(s, events.playerRoll('p1', 5));
+        s = applyEvent(s, events.playerRoll('p2', 5));
+        s = applyEvent(s, events.playerRoll('p3', 2));
+        assert.deepStrictEqual(tiedPlayerIds(s).sort(), ['p1', 'p2']);
+        assert.strictEqual(canStart(s), false);
+
+        const beforeReroll = s;
+        const afterP1 = applyEvent(s, events.playerRoll('p1', 3));
+        // Pure reducer: original state must not be mutated.
+        assert.strictEqual(beforeReroll.players.p2.lastRoll, 5);
+        assert.strictEqual(beforeReroll.players.p3.lastRoll, 2);
+
+        assert.strictEqual(afterP1.players.p1.lastRoll, 3);
+        assert.strictEqual(afterP1.players.p2.lastRoll, null);
+        assert.strictEqual(afterP1.players.p3.lastRoll, 0);
+
+        const afterP2 = applyEvent(afterP1, events.playerRoll('p2', 6));
+        assert.strictEqual(afterP2.players.p2.lastRoll, 6);
+        assert.deepStrictEqual(tiedPlayerIds(afterP2), []);
+        assert.strictEqual(canStart(afterP2), true);
+    });
+
+    test('PLAYER_ROLL clamps result 1..6 and recomputes RUN_AWAY success', () => {
+        let s = makeState({
+            phase: 'IN_GAME',
+            combat: {
+                mainPlayerId: 'p2', helperPlayerId: null, monsters: [], tempBonuses: [],
+                heroModifier: 0, monsterModifier: 0, lastDiceRoll: null, isActive: true
+            }
+        });
+        // p2 is ELF (+1): 4 + 1 = 5 >= 5 even if client reported success=false
+        const elfRoll = applyEvent(s, events.playerRoll('p2', 4, 'RUN_AWAY', false));
+        assert.strictEqual(elfRoll.combat.lastDiceRoll.result, 4);
+        assert.strictEqual(elfRoll.combat.lastDiceRoll.success, true);
+
+        // p3 is HALFLING (-1): 5 - 1 = 4 < 5 even if client reported success=true
+        const halflingRoll = applyEvent(s, events.playerRoll('p3', 5, 'RUN_AWAY', true));
+        assert.strictEqual(halflingRoll.combat.lastDiceRoll.success, false);
+
+        // Clamped out-of-range roll
+        const highRoll = applyEvent(s, events.playerRoll('p2', 99, 'RANDOM', false));
+        assert.strictEqual(highRoll.players.p2.lastRoll, 6);
+    });
+
+    test('clamps, secondary trait cleanup, COMBAT_END maxLevel flag, END_TURN and GAME_END', () => {
+        let s = makeState({ phase: 'IN_GAME' });
+        assert.strictEqual(requiresCombatToWin(s.settings), true);
+
+        // Manual INC_LEVEL stops at maxLevel - 1 (9) when requiresCombatToWin is enabled.
+        s = applyEvent(s, events.incLevel('p1', 50));
+        assert.strictEqual(s.players.p1.level, 9);
+
+        // Gear clamped 0..999, avatarId clamped 0..100, tempCombatBonus clamped -100..100.
+        s = applyEvent(s, events.decGear('p1', 10));
+        assert.strictEqual(s.players.p1.gearBonus, 0);
+        s = applyEvent(s, events.incGear('p1', 100));
+        assert.strictEqual(s.players.p1.gearBonus, 100);
+        s = applyEvent(s, { type: 'SET_GEAR', targetPlayerId: 'p1', gear: 5000 });
+        assert.strictEqual(s.players.p1.gearBonus, 999);
+        s = applyEvent(s, events.setAvatar('p1', 250));
+        assert.strictEqual(s.players.p1.avatarId, 100);
+        assert.strictEqual(
+            combatPower({ level: 5, gearBonus: 2, tempCombatBonus: 500 }),
+            5 + 2 + 100
+        );
+
+        // Secondary class/race cleared if disabled or equal to primary.
+        s = applyEvent(s, events.setSuperMunchkin('p1', true));
+        s = applyEvent(s, events.setClass('p1', 'WARRIOR', false));
+        s = applyEvent(s, events.setClass('p1', 'WARRIOR', true));
+        assert.strictEqual(s.players.p1.secondaryClass, 'NONE');
+        s = applyEvent(s, events.setClass('p1', 'CLERIC', true));
+        assert.strictEqual(s.players.p1.secondaryClass, 'CLERIC');
+        s = applyEvent(s, events.setSuperMunchkin('p1', false));
+        assert.strictEqual(s.players.p1.secondaryClass, 'NONE');
+
+        // COMBAT_END WIN marks reachedMaxLevelViaCombat on mainPlayer and Elf helper.
+        s = applyEvent(s, events.incLevel('p2', 8)); // p2 (ELF) at level 9
+        s = applyEvent(s, events.combatStart('p1', 'p1'));
+        s = applyEvent(s, events.combatAddHelper('p1', 'p2'));
+        s = applyEvent(s, events.combatEnd('p1', 'WIN', {
+            levelsGained: 1, treasuresGained: 2, helperLevelsGained: 1
+        }));
+        assert.strictEqual(s.players.p1.level, 10);
+        assert.strictEqual(s.players.p1.reachedMaxLevelViaCombat, true);
+        assert.strictEqual(s.players.p2.level, 10);
+        assert.strictEqual(s.players.p2.reachedMaxLevelViaCombat, true);
+
+        // Dropping below maxLevel resets reachedMaxLevelViaCombat.
+        s = applyEvent(s, events.decLevel('p1', 1));
+        assert.strictEqual(s.players.p1.level, 9);
+        assert.strictEqual(s.players.p1.reachedMaxLevelViaCombat, false);
+
+        // END_TURN skips disconnected p3 and stale order entries.
+        s = { ...s, playerOrder: ['p1', 'ghost', 'p3', 'p2'], turnPlayerId: 'p1' };
+        s = applyEvent(s, events.endTurn('p1'));
+        assert.strictEqual(s.turnPlayerId, 'p2');
+
+        // GAME_END records winnerId and clears active combat.
+        s = applyEvent(s, events.combatStart('p2', 'p2'));
+        s = applyEvent(s, events.gameEnd('p1', 'p2'));
+        assert.strictEqual(s.phase, 'FINISHED');
+        assert.strictEqual(s.winnerId, 'p2');
+        assert.strictEqual(s.combat, null);
+    });
+});
+
+describe('session storage hardening', () => {
+    function withMockStorage(fn) {
+        const prev = globalThis.localStorage;
+        const store = new Map();
+        globalThis.localStorage = {
+            getItem: k => (store.has(k) ? store.get(k) : null),
+            setItem: (k, v) => { store.set(k, String(v)); },
+            removeItem: k => { store.delete(k); }
+        };
+        try {
+            return fn(store);
+        } finally {
+            if (prev === undefined) delete globalThis.localStorage;
+            else globalThis.localStorage = prev;
+        }
+    }
+
+    test('isolates corrupted keys and clearAuth wipes seat and identity', () => {
+        withMockStorage(store => {
+            session.saveAuth('jwt-123', { id: 'u1', username: 'Ana' });
+            session.saveIdentity({ name: 'Ana', avatarId: 2, gender: 'F' });
+            session.saveSeat({ joinCode: 'ABCD1234', playerId: 'p1', reconnectToken: 'rt-1' });
+
+            // Corrupt only the seat key.
+            store.set('munchkin.seat', '{not valid json');
+            assert.strictEqual(session.seat, null);
+            assert.strictEqual(session.authToken, 'jwt-123');
+            assert.strictEqual(session.profile.username, 'Ana');
+            assert.strictEqual(session.identity.name, 'Ana');
+
+            // Re-seed seat and verify clearAuth removes auth, seat, and identity.
+            session.saveSeat({ joinCode: 'ABCD1234', playerId: 'p1', reconnectToken: 'rt-1' });
+            session.clearAuth();
+            assert.strictEqual(session.authToken, null);
+            assert.strictEqual(session.profile, null);
+            assert.strictEqual(session.seat, null);
+            assert.strictEqual(session.identity, null);
+        });
+    });
+});
+
+describe('net resilience', () => {
+    test('oneOffRequest rejects cleanly when the socket emits error after open', async () => {
+        class MockWs {
+            constructor() {
+                this.readyState = 0;
+                this._listeners = new Map();
+                queueMicrotask(() => {
+                    this.readyState = 1;
+                    this._fire('open', {});
+                });
+            }
+            addEventListener(type, fn) {
+                if (!this._listeners.has(type)) this._listeners.set(type, new Set());
+                this._listeners.get(type).add(fn);
+            }
+            removeEventListener(type, fn) {
+                this._listeners.get(type)?.delete(fn);
+            }
+            send() {
+                queueMicrotask(() => this._fire('error', new Error('boom')));
+            }
+            close() { this.readyState = 3; }
+            _fire(type, ev) {
+                for (const fn of [...(this._listeners.get(type) || [])]) fn(ev);
+            }
+        }
+        await assert.rejects(
+            () => oneOffRequest('ws://mock', messages.getLeaderboard(), { WebSocketImpl: MockWs }),
+            /Error de conexión/
+        );
+    });
+
+    test('terminal ServerError during reconnect stops immediately in FAILED_PERMANENTLY', async () => {
+        let attempts = 0;
+        class FailingWs {
+            constructor() {
+                this.readyState = 0;
+                this._listeners = new Map();
+                queueMicrotask(() => {
+                    this.readyState = 1;
+                    this._fire('open', {});
+                });
+            }
+            addEventListener(type, fn) {
+                if (!this._listeners.has(type)) this._listeners.set(type, new Set());
+                this._listeners.get(type).add(fn);
+            }
+            removeEventListener(type, fn) {
+                this._listeners.get(type)?.delete(fn);
+            }
+            send() {
+                attempts++;
+                queueMicrotask(() => this._fire('message', {
+                    data: JSON.stringify({ type: 'ERROR', code: 'GAME_NOT_FOUND', message: 'Gone' })
+                }));
+            }
+            close() { this.readyState = 3; }
+            _fire(type, ev) {
+                for (const fn of [...(this._listeners.get(type) || [])]) fn(ev);
+            }
+        }
+
+        const socket = new GameSocket({ url: 'ws://mock', WebSocketImpl: FailingWs });
+        socket._last = { joinCode: 'ABCD1234', meta: { name: 'Ana' }, authToken: null };
+        socket._sleep = async () => {};
+        const errors = [];
+        socket.on('error', err => errors.push(err));
+
+        await socket._startReconnectLoop();
+        assert.strictEqual(attempts, 1);
+        assert.strictEqual(socket.connState, ConnState.FAILED_PERMANENTLY);
+        assert.strictEqual(errors.length, 1);
+        assert.ok(errors[0] instanceof ServerError);
+        assert.strictEqual(errors[0].code, 'GAME_NOT_FOUND');
+    });
 });
 
 // ============== 4. Live protocol integration ==============
@@ -319,6 +711,21 @@ describe('web client against the real server', () => {
                 meta: playerMeta({ name: 'Beto', avatarId: 3, gender: 'M' })
             });
             await waitForState(host, s => Object.keys(s.players).length === 2, 'host to see the guest');
+
+            // Stat mutations are forbidden before GAME_START.
+            const lobbyErrPromise = new Promise(resolve => {
+                const off = guest.on('error', err => { off(); resolve(err); });
+            });
+            guest.sendEvent(events.incLevel(guest.myPlayerId));
+            const lobbyErr = await lobbyErrPromise;
+            assert.strictEqual(lobbyErr.code, 'INVALID_DATA');
+
+            // Roll and start the game so lightweight IN_GAME events are permitted.
+            host.sendEvent(events.playerRoll(host.myPlayerId, 5));
+            guest.sendEvent(events.playerRoll(guest.myPlayerId, 3));
+            await waitForState(host, canStart, 'rolls ready to start');
+            host.sendEvent(events.gameStart(host.myPlayerId));
+            await waitForState(host, s => s.phase === 'IN_GAME', 'game to enter IN_GAME');
 
             // Lightweight events arrive as EVENT_BROADCAST and are folded in by
             // the engine.mjs reducer on every client, including the sender.
@@ -416,6 +823,27 @@ describe('web client against the real server', () => {
             host.sendEvent(events.combatEnd(host.myPlayerId, 'ESCAPE'));
             const afterEscape = await waitForState(host, s => !s.combat, 'escape resolved');
             assert.strictEqual(afterEscape.players[host.myPlayerId].level, 2, 'escape must not change level');
+
+            // Guest takes turn, climbs to level 9, and wins a combat to hit maxLevel (10).
+            host.sendEvent(events.endTurn(host.myPlayerId));
+            await waitForState(guest, s => s.turnPlayerId === guest.myPlayerId, 'turn passed to guest');
+            for (let i = 0; i < 8; i++) guest.sendEvent(events.incLevel(guest.myPlayerId));
+            await waitForState(guest, s => s.players[guest.myPlayerId]?.level === 9, 'guest reaches level 9');
+
+            guest.sendEvent(events.combatStart(guest.myPlayerId, guest.myPlayerId));
+            await waitForState(guest, s => Boolean(s.combat), 'guest final combat');
+            guest.sendEvent(events.combatAddMonster(guest.myPlayerId, monsterInstance({
+                name: 'Goblin', baseLevel: 2, treasures: 1, levels: 1
+            })));
+            await waitForState(guest, s => s.combat?.monsters.length === 1, 'goblin added');
+            guest.sendEvent(events.combatEnd(guest.myPlayerId, 'WIN', {
+                levelsGained: 1, treasuresGained: 1
+            }));
+            await waitForState(
+                host,
+                s => !s.combat && s.players[guest.myPlayerId]?.level === 10,
+                'guest reaches level 10 via combat'
+            );
 
             // Host confirms the guest as winner (message path, like the app).
             host.sendMessage(messages.gameOver(host.gameState.gameId, guest.myPlayerId));

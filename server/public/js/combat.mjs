@@ -13,29 +13,23 @@ const RACE_NAMES = new Set(['HUMAN', 'ELF', 'DWARF', 'HALFLING']);
 const GENDER_NAMES = new Set(['M', 'F', 'NA']);
 
 /**
- * Mirrors CombatCalculator.matchesCondition, quirks included:
+ * Mirrors CombatCalculator.matchesCondition and server combatManager.js:
  *  - RACE_ID / CLASS_ID compare the uppercased value against the enum, and the
  *    empty values (NONE / HUMAN) match through the "characterX == enum" arm, so
  *    a condition can target classless or raceless players.
- *  - A value that is not an enum name is treated as a catalog EntryId.
  *  - GENDER compares case-sensitively.
  */
 function matchesCondition(modifier, player) {
+    if (!player) return false;
     const value = String(modifier.conditionValue ?? '');
     switch (modifier.conditionType) {
         case 'RACE_ID': {
             const name = value.toUpperCase();
-            if (RACE_NAMES.has(name)) {
-                return hasRace(player, name) || player.characterRace === name;
-            }
-            return Array.isArray(player.raceIds) && player.raceIds.includes(value);
+            return RACE_NAMES.has(name) && (hasRace(player, name) || player.characterRace === name);
         }
         case 'CLASS_ID': {
             const name = value.toUpperCase();
-            if (CLASS_NAMES.has(name)) {
-                return hasClass(player, name) || player.characterClass === name;
-            }
-            return Array.isArray(player.classIds) && player.classIds.includes(value);
+            return CLASS_NAMES.has(name) && (hasClass(player, name) || player.characterClass === name);
         }
         case 'GENDER':
             return GENDER_NAMES.has(value) && player.gender === value;
@@ -121,8 +115,8 @@ export function calculateResult(combat, state) {
     if (outcome === 'WIN') {
         const monsters = combat.monsters || [];
         for (const monster of monsters) {
-            totalLevels += monster.levels ?? 1;
-            totalTreasures += monster.treasures ?? 1;
+            totalLevels += Number.isFinite(monster.levels) ? monster.levels : 1;
+            totalTreasures += Number.isFinite(monster.treasures) ? monster.treasures : 1;
         }
         if (helperPlayer && hasRace(helperPlayer, 'ELF') && monsters.length > 0) {
             helperLevelsGained = monsters.length;
@@ -130,7 +124,7 @@ export function calculateResult(combat, state) {
     }
 
     const gap = monstersPower - heroesPower;
-    const marginToWin = outcome === 'WIN' ? 0 : (isWarriorInvolved ? gap : gap + 1);
+    const marginToWin = outcome === 'WIN' ? 0 : (heroesWinTies ? Math.max(gap, 0) : gap + 1);
 
     return {
         heroesPower,

@@ -1,7 +1,18 @@
-function createCatalogManager({ db, sendError, logger }) {
+const { clampInt } = require('./validation');
+
+function createCatalogManager({ db, sendError, safeSend, logger }) {
+    const sendJson = typeof safeSend === 'function'
+        ? safeSend
+        : (ws, payload) => {
+            if (ws && ws.readyState === 1) {
+                ws.send(JSON.stringify(payload));
+            }
+        };
+
     const catalogAddRateLimits = new Map();
     const CATALOG_ADD_MAX_PER_MINUTE = 10;
     const CATALOG_ADD_WINDOW_MS = 60 * 1000;
+    const MAX_RATE_LIMIT_ENTRIES = 10_000;
 
     function isCatalogAddRateLimited(userId) {
         const record = catalogAddRateLimits.get(userId);
@@ -14,19 +25,31 @@ function createCatalogManager({ db, sendError, logger }) {
     }
 
     function recordCatalogAdd(userId) {
+        const now = Date.now();
         const record = catalogAddRateLimits.get(userId);
-        if (!record || Date.now() - record.windowStart > CATALOG_ADD_WINDOW_MS) {
-            catalogAddRateLimits.set(userId, { count: 1, windowStart: Date.now() });
-        } else {
-            record.count++;
+        const updated = (!record || now - record.windowStart > CATALOG_ADD_WINDOW_MS)
+            ? { count: 1, windowStart: now }
+            : { count: record.count + 1, windowStart: record.windowStart };
+
+        catalogAddRateLimits.delete(userId);
+        catalogAddRateLimits.set(userId, updated);
+        while (catalogAddRateLimits.size > MAX_RATE_LIMIT_ENTRIES) {
+            const oldestKey = catalogAddRateLimits.keys().next().value;
+            if (oldestKey === undefined) break;
+            catalogAddRateLimits.delete(oldestKey);
         }
     }
 
     function handleCatalogSearch(ws, message) {
-        const { query } = message;
+        const { query, expansion, limit, offset } = message;
 
-        if (query !== '__ALL__' && (!query || query.length < 2)) {
-            ws.send(JSON.stringify({ type: "CATALOG_SEARCH_RESULT", results: [] }));
+        if (typeof query !== 'string') {
+            sendJson(ws, { type: "CATALOG_SEARCH_RESULT", results: [] });
+            return;
+        }
+
+        if (query !== '__ALL__' && query.trim().length < 2) {
+            sendJson(ws, { type: "CATALOG_SEARCH_RESULT", results: [] });
             return;
         }
 
@@ -35,14 +58,22 @@ function createCatalogManager({ db, sendError, logger }) {
             return;
         }
 
-        const effectiveQuery = query === '__ALL__' ? '' : query;
-        db.searchMonsters(effectiveQuery)
+        const effectiveQuery = query === '__ALL__' ? '' : query.trim();
+        const safeOptions = {
+            expansion: typeof expansion === 'string' && expansion.trim()
+                ? expansion.trim().slice(0, 40)
+                : undefined,
+            limit: clampInt(limit, 1, 50, 20),
+            offset: clampInt(offset, 0, 10_000, 0)
+        };
+
+        db.searchMonsters(effectiveQuery, safeOptions)
             .then(results => {
-                logger.info(`🔍 Search '${query}' returned ${results.length} monsters`);
-                ws.send(JSON.stringify({
+                logger.info(`🔍 Search '${effectiveQuery || '__ALL__'}' returned ${results.length} monsters`);
+                sendJson(ws, {
                     type: "CATALOG_SEARCH_RESULT",
                     results
-                }));
+                });
             })
             .catch(err => {
                 logger.error("Search error:", err);
@@ -65,17 +96,20 @@ function createCatalogManager({ db, sendError, logger }) {
 
         const sanitizedMonster = {
             name: monster.name.trim().slice(0, 80),
-            level: Math.max(1, Math.min(20, Math.round(Number(monster.level) || 1))),
-            modifier: Math.max(-20, Math.min(20, Math.round(Number(monster.modifier) || 0))),
-            treasures: Math.max(0, Math.min(10, Math.round(Number(monster.treasures) || 1))),
-            levels: Math.max(1, Math.min(5, Math.round(Number(monster.levels) || 1))),
+            level: clampInt(monster.level, 1, 20, 1),
+            modifier: clampInt(monster.modifier, -10, 10, 0),
+            treasures: clampInt(monster.treasures, 0, 10, 1),
+            levels: clampInt(monster.levels, 1, 5, 1),
             isUndead: monster.isUndead === true,
             // Dropped before, so a monster contributed by a player lost its Bad
             // Stuff on the way into the catalog — and the Bad Stuff is the whole
             // consequence of losing a fight to it.
             badStuff: typeof monster.badStuff === 'string'
                 ? monster.badStuff.trim().slice(0, 200)
-                : ''
+                : '',
+            expansion: typeof monster.expansion === 'string' && monster.expansion.trim()
+                ? monster.expansion.trim().slice(0, 40)
+                : 'base'
         };
         monster = sanitizedMonster;
 
@@ -89,10 +123,10 @@ function createCatalogManager({ db, sendError, logger }) {
         db.addMonster(sanitizedMonster, ws.userId)
             .then(id => {
                 logger.info(`🆕 Added monster: ${monster.name} (${id})`);
-                ws.send(JSON.stringify({
+                sendJson(ws, {
                     type: "CATALOG_ADD_SUCCESS",
-                    monster: { ...sanitizedMonster, id, createdBy: ws.userId }
-                }));
+                    monster: { ...sanitizedMonster, id }
+                });
             })
             .catch(err => {
                 logger.error("Add monster error:", err);

@@ -43,10 +43,23 @@ const RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 const MAX_RECONNECT_ATTEMPTS = 15;
 const CLOCK_SYNC_INTERVAL_MS = 20_000;
+const PING_TIMEOUT_MS = 5_000;
+
+const TERMINAL_ERRORS = new Set([
+    'GAME_NOT_FOUND',
+    'INVALID_JOIN_CODE',
+    'UNAUTHORIZED',
+    'FORBIDDEN'
+]);
 
 function messageData(event) {
     const data = event?.data ?? event;
     return typeof data === 'string' ? data : String(data);
+}
+
+function isSocketOpen(ws) {
+    if (!ws) return false;
+    return ws.readyState === undefined || ws.readyState === (ws.OPEN ?? 1);
 }
 
 export class GameSocket {
@@ -58,6 +71,7 @@ export class GameSocket {
         this.gameState = null;
         this.myPlayerId = null;
         this.reconnectToken = null;
+        this.lastSeq = null;
         this.serverTimeOffsetMs = 0;
         this.latencyMs = 0;
         this.reconnectAttempt = 0;
@@ -66,7 +80,9 @@ export class GameSocket {
         this._pending = null;          // resolver for the handshake reply
         this._shuttingDown = false;
         this._pingTimer = null;
+        this._pongTimer = null;
         this._pingSentAt = null;
+        this._resyncInFlight = false;
         this._reconnectTimer = null;
         this._reconnectWake = null;    // resolves the current backoff delay early
         this._last = null;             // { joinCode, meta, authToken } for reconnects
@@ -131,6 +147,7 @@ export class GameSocket {
 
     async _openSession(request, authToken) {
         this._shuttingDown = false;
+        this._resyncInFlight = false;
         this._closeSocket();
         if (this.connState !== ConnState.RECONNECTING) {
             this._setConnState(ConnState.CONNECTING);
@@ -144,6 +161,9 @@ export class GameSocket {
 
             ws.addEventListener('message', event => this._onMessage(ws, event));
             ws.addEventListener('close', () => this._onClose(ws));
+            ws.addEventListener('error', err => {
+                console.debug('[GameSocket] WebSocket error:', err);
+            });
 
             if (authToken) {
                 ws.send(JSON.stringify(messages.loginWithToken(authToken)));
@@ -156,6 +176,7 @@ export class GameSocket {
 
             this.gameState = welcome.gameState;
             this.myPlayerId = welcome.yourPlayerId;
+            this.lastSeq = typeof welcome.gameState?.seq === 'number' ? welcome.gameState.seq : null;
             if (welcome.reconnectToken) this.reconnectToken = welcome.reconnectToken;
 
             this.reconnectAttempt = 0;
@@ -168,7 +189,7 @@ export class GameSocket {
             this._pending = null;
             if (this.ws === ws) {
                 this.ws = null;
-                try { ws.close(); } catch { /* already closed */ }
+                try { ws.close(); } catch (closeErr) { console.debug('[GameSocket] close after error:', closeErr); }
             }
             throw err;
         }
@@ -176,12 +197,22 @@ export class GameSocket {
 
     _awaitOpen(ws) {
         return new Promise((resolve, reject) => {
-            const timer = setTimeout(() => reject(new TimeoutError()), RESPONSE_TIMEOUT_MS);
-            ws.addEventListener('open', () => { clearTimeout(timer); resolve(); }, { once: true });
-            ws.addEventListener('error', () => {
+            const cleanup = () => {
                 clearTimeout(timer);
+                ws.removeEventListener('open', onOpen);
+                ws.removeEventListener('error', onError);
+            };
+            const onOpen = () => { cleanup(); resolve(); };
+            const onError = () => {
+                cleanup();
                 reject(new Error('No se pudo conectar con el servidor'));
-            }, { once: true });
+            };
+            const timer = setTimeout(() => {
+                cleanup();
+                reject(new TimeoutError());
+            }, RESPONSE_TIMEOUT_MS);
+            ws.addEventListener('open', onOpen);
+            ws.addEventListener('error', onError);
         });
     }
 
@@ -195,12 +226,26 @@ export class GameSocket {
         });
     }
 
+    _requestResync() {
+        if (this._resyncInFlight || !isSocketOpen(this.ws) || !this._last?.joinCode) return;
+        this._resyncInFlight = true;
+        try {
+            this.ws.send(JSON.stringify(
+                messages.hello(this._last.joinCode, this._last.meta, this.reconnectToken)
+            ));
+        } catch (err) {
+            this._resyncInFlight = false;
+            console.debug('[GameSocket] resync HELLO failed:', err);
+        }
+    }
+
     _onMessage(ws, event) {
         if (ws !== this.ws) return;
         let msg;
         try {
             msg = JSON.parse(messageData(event));
-        } catch {
+        } catch (err) {
+            console.debug('[GameSocket] ignoring invalid JSON frame:', err);
             return;
         }
 
@@ -221,46 +266,84 @@ export class GameSocket {
             }
         }
 
-        switch (msg.type) {
-            case MSG.STATE_SNAPSHOT:
-                this.gameState = msg.gameState;
-                this._emit('state', this.gameState);
-                break;
-            case MSG.EVENT_BROADCAST:
-                this.gameState = applyEvent(this.gameState, msg.event);
-                this._emit('state', this.gameState);
-                break;
-            case MSG.PLAYER_STATUS:
-                this.gameState = applyPlayerStatus(this.gameState, msg.playerId, msg.isConnected);
-                this._emit('state', this.gameState);
-                break;
-            case MSG.ERROR:
-                this._emit('error', new ServerError(msg.code, msg.message));
-                break;
-            case MSG.PONG: {
-                if (this._pingSentAt !== null) {
-                    const rtt = Math.max(0, Date.now() - this._pingSentAt);
-                    this._pingSentAt = null;
-                    this.latencyMs = rtt;
-                    this.serverTimeOffsetMs = (msg.timestamp + rtt / 2) - Date.now();
+        try {
+            switch (msg.type) {
+                case MSG.WELCOME:
+                    this._resyncInFlight = false;
+                    this.gameState = msg.gameState;
+                    this.myPlayerId = msg.yourPlayerId;
+                    if (msg.reconnectToken) this.reconnectToken = msg.reconnectToken;
+                    this.lastSeq = typeof msg.gameState?.seq === 'number'
+                        ? msg.gameState.seq
+                        : this.lastSeq;
+                    this._emit('welcome', msg);
+                    this._emit('state', this.gameState);
+                    break;
+                case MSG.STATE_SNAPSHOT:
+                    this._resyncInFlight = false;
+                    this.gameState = msg.gameState;
+                    this.lastSeq = typeof msg.gameState?.seq === 'number'
+                        ? msg.gameState.seq
+                        : (typeof msg.seq === 'number' ? msg.seq : this.lastSeq);
+                    this._emit('state', this.gameState);
+                    break;
+                case MSG.EVENT_BROADCAST: {
+                    if (typeof msg.seq === 'number' && this.lastSeq != null && msg.seq !== this.lastSeq + 1) {
+                        console.warn(
+                            `[GameSocket] Sequence gap detected: expected ${this.lastSeq + 1}, got ${msg.seq}; requesting resync`
+                        );
+                        this._requestResync();
+                        if (msg.seq <= this.lastSeq) break;
+                    }
+                    const nextState = applyEvent(this.gameState, msg.event);
+                    this.gameState = nextState;
+                    if (typeof nextState?.seq === 'number') {
+                        this.lastSeq = nextState.seq;
+                    } else if (typeof msg.seq === 'number') {
+                        this.lastSeq = msg.seq;
+                    }
+                    this._emit('state', this.gameState);
+                    break;
                 }
-                break;
+                case MSG.PLAYER_STATUS:
+                    this.gameState = applyPlayerStatus(this.gameState, msg.playerId, msg.isConnected);
+                    this._emit('state', this.gameState);
+                    break;
+                case MSG.ERROR:
+                    this._emit('error', new ServerError(msg.code, msg.message));
+                    break;
+                case MSG.PONG: {
+                    if (this._pongTimer) {
+                        clearTimeout(this._pongTimer);
+                        this._pongTimer = null;
+                    }
+                    if (this._pingSentAt !== null) {
+                        const rtt = Math.max(0, Date.now() - this._pingSentAt);
+                        this._pingSentAt = null;
+                        this.latencyMs = rtt;
+                        this.serverTimeOffsetMs = (msg.timestamp + rtt / 2) - Date.now();
+                    }
+                    break;
+                }
+                case MSG.COMBAT_DICE_ROLL_RESULT:
+                    this._emit('dice', msg.diceRoll);
+                    break;
+                case MSG.GAME_DELETED:
+                    this._emit('deleted', msg.reason);
+                    this.leave();
+                    break;
+                default:
+                    this._emit('message', msg);
             }
-            case MSG.COMBAT_DICE_ROLL_RESULT:
-                this._emit('dice', msg.diceRoll);
-                break;
-            case MSG.GAME_DELETED:
-                this._emit('deleted', msg.reason);
-                this.leave();
-                break;
-            default:
-                this._emit('message', msg);
+        } catch (err) {
+            console.debug('[GameSocket] dispatch error for message:', msg?.type, err);
         }
     }
 
     _onClose(ws) {
         if (ws !== this.ws) return;
         this.ws = null;
+        this._resyncInFlight = false;
         this._stopPing();
         if (this._shuttingDown) {
             this._setConnState(ConnState.DISCONNECTED);
@@ -293,8 +376,14 @@ export class GameSocket {
                     this._last.authToken
                 );
                 return;
-            } catch {
-                // Fall through to the next, slower attempt.
+            } catch (err) {
+                if (err instanceof ServerError && TERMINAL_ERRORS.has(err.code)) {
+                    this.reconnectAttempt = 0;
+                    this._setConnState(ConnState.FAILED_PERMANENTLY);
+                    this._emit('error', err);
+                    return;
+                }
+                console.debug(`[GameSocket] Reconnect attempt ${this.reconnectAttempt} failed:`, err);
             }
         }
 
@@ -326,7 +415,7 @@ export class GameSocket {
         } else if (this.connState === ConnState.FAILED_PERMANENTLY) {
             this._startReconnectLoop();
         } else if (this.isConnected()) {
-            // A stale socket fails the send, which fires close → reconnect.
+            // A stale socket fails the send or times out on PONG → reconnect.
             this._sendPing();
         }
     }
@@ -338,18 +427,36 @@ export class GameSocket {
     }
 
     _sendPing(ws = this.ws) {
-        if (!ws) return;
+        if (!isSocketOpen(ws)) return;
+        if (this._pongTimer) {
+            clearTimeout(this._pongTimer);
+            this._pongTimer = null;
+        }
         try {
             this._pingSentAt = Date.now();
             ws.send(JSON.stringify(messages.ping()));
-        } catch {
-            try { ws.close(); } catch { /* ignore */ }
+            this._pongTimer = setTimeout(() => {
+                this._pongTimer = null;
+                if (this.ws === ws && isSocketOpen(ws)) {
+                    console.debug('[GameSocket] PONG timeout; closing stale socket');
+                    try { ws.close(); } catch (closeErr) {
+                        console.debug('[GameSocket] close after PONG timeout failed:', closeErr);
+                    }
+                }
+            }, PING_TIMEOUT_MS);
+        } catch (err) {
+            console.debug('[GameSocket] ping send failed:', err);
+            try { ws.close(); } catch (closeErr) {
+                console.debug('[GameSocket] close after ping error failed:', closeErr);
+            }
         }
     }
 
     _stopPing() {
         if (this._pingTimer) clearInterval(this._pingTimer);
         this._pingTimer = null;
+        if (this._pongTimer) clearTimeout(this._pongTimer);
+        this._pongTimer = null;
         this._pingSentAt = null;
     }
 
@@ -366,12 +473,14 @@ export class GameSocket {
     /** Deliberate teardown: no reconnection follows. */
     leave() {
         this._shuttingDown = true;
+        this._resyncInFlight = false;
         if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
         this._reconnectWake = null;
         this._stopPing();
         this._closeSocket();
         this.gameState = null;
         this.myPlayerId = null;
+        this.lastSeq = null;
         this.reconnectAttempt = 0;
         this.serverTimeOffsetMs = 0;
         this._setConnState(ConnState.DISCONNECTED);
@@ -381,7 +490,9 @@ export class GameSocket {
         const ws = this.ws;
         this.ws = null;
         if (ws) {
-            try { ws.close(1000, 'Client disconnecting'); } catch { /* ignore */ }
+            try { ws.close(1000, 'Client disconnecting'); } catch (err) {
+                console.debug('[GameSocket] _closeSocket error:', err);
+            }
         }
     }
 }
@@ -391,35 +502,59 @@ export class GameSocket {
 function openSocket(url, WebSocketImpl) {
     return new Promise((resolve, reject) => {
         const ws = new WebSocketImpl(url);
+        const cleanup = () => {
+            clearTimeout(timer);
+            ws.removeEventListener('open', onOpen);
+            ws.removeEventListener('error', onError);
+        };
+        const onOpen = () => { cleanup(); resolve(ws); };
+        const onError = () => {
+            cleanup();
+            reject(new Error('No se pudo conectar con el servidor'));
+        };
         const timer = setTimeout(() => {
-            try { ws.close(); } catch { /* ignore */ }
+            cleanup();
+            try { ws.close(); } catch (err) { console.debug('[net] openSocket timeout close:', err); }
             reject(new TimeoutError());
         }, RESPONSE_TIMEOUT_MS);
-        ws.addEventListener('open', () => { clearTimeout(timer); resolve(ws); }, { once: true });
-        ws.addEventListener('error', () => {
-            clearTimeout(timer);
-            reject(new Error('No se pudo conectar con el servidor'));
-        }, { once: true });
+        ws.addEventListener('open', onOpen);
+        ws.addEventListener('error', onError);
     });
 }
 
 function nextMessage(ws) {
     return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new TimeoutError()), RESPONSE_TIMEOUT_MS);
-        const onMessage = event => {
+        const cleanup = () => {
             clearTimeout(timer);
             ws.removeEventListener('message', onMessage);
+            ws.removeEventListener('close', onClose);
+            ws.removeEventListener('error', onError);
+        };
+        const onMessage = event => {
+            cleanup();
             try {
                 resolve(JSON.parse(messageData(event)));
-            } catch (e) {
-                reject(e);
+            } catch (err) {
+                console.debug('[net] invalid JSON in one-off response:', err);
+                reject(err);
             }
         };
-        ws.addEventListener('message', onMessage);
-        ws.addEventListener('close', () => {
-            clearTimeout(timer);
+        const onClose = () => {
+            cleanup();
             reject(new Error('Conexión cerrada'));
-        }, { once: true });
+        };
+        const onError = () => {
+            cleanup();
+            reject(new Error('Error de conexión con el servidor'));
+        };
+        const timer = setTimeout(() => {
+            cleanup();
+            reject(new TimeoutError());
+        }, RESPONSE_TIMEOUT_MS);
+
+        ws.addEventListener('message', onMessage);
+        ws.addEventListener('close', onClose);
+        ws.addEventListener('error', onError);
     });
 }
 
@@ -435,7 +570,7 @@ export async function oneOffRequest(url, message, { WebSocketImpl = globalThis.W
         ws.send(JSON.stringify(message));
         return throwIfError(await nextMessage(ws));
     } finally {
-        try { ws.close(); } catch { /* ignore */ }
+        try { ws.close(); } catch (err) { console.debug('[net] oneOffRequest close:', err); }
     }
 }
 
@@ -449,6 +584,6 @@ export async function authenticatedRequest(url, token, message, { WebSocketImpl 
         ws.send(JSON.stringify(message));
         return { reply: throwIfError(await nextMessage(ws)), auth };
     } finally {
-        try { ws.close(); } catch { /* ignore */ }
+        try { ws.close(); } catch (err) { console.debug('[net] authenticatedRequest close:', err); }
     }
 }

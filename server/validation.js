@@ -10,7 +10,7 @@
  * one bad value breaks every client in the room rather than just the sender.
  */
 
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
 
 // These must mirror the Kotlin enums in core/Models.kt exactly.
 const VALID_GENDERS = new Set(['M', 'F', 'NA']);
@@ -96,7 +96,7 @@ function sanitizeConditionalModifier(raw) {
     if (!VALID_MODIFIER_SIDES.has(m.side)) return null;
     if (!VALID_CONDITION_TYPES.has(m.conditionType)) return null;
     return {
-        id: typeof m.id === 'string' && m.id ? m.id.slice(0, 64) : uuidv4(),
+        id: typeof m.id === 'string' && m.id ? m.id.slice(0, 64) : randomUUID(),
         amount: clampInt(m.amount, -MODIFIER_LIMIT, MODIFIER_LIMIT, 0),
         side: m.side,
         conditionType: m.conditionType,
@@ -114,7 +114,7 @@ function sanitizeConditionalModifier(raw) {
 function sanitizeMonster(raw) {
     const m = raw && typeof raw === 'object' ? raw : {};
     return {
-        id: typeof m.id === 'string' && m.id ? m.id : uuidv4(),
+        id: typeof m.id === 'string' && m.id ? m.id : randomUUID(),
         name: typeof m.name === 'string' ? m.name.trim().slice(0, 80) : 'Monstruo',
         baseLevel: clampInt(m.baseLevel, 1, 20, 1),
         flatModifier: clampInt(m.flatModifier, -10, 10, 0),
@@ -137,7 +137,7 @@ function sanitizeMonster(raw) {
 function sanitizeBonus(raw) {
     const b = raw && typeof raw === 'object' ? raw : {};
     return {
-        id: typeof b.id === 'string' && b.id ? b.id : uuidv4(),
+        id: typeof b.id === 'string' && b.id ? b.id : randomUUID(),
         label: typeof b.label === 'string' ? b.label.trim().slice(0, 40) : 'Bonus',
         amount: clampInt(b.amount, -MODIFIER_LIMIT, MODIFIER_LIMIT, 0),
         appliesTo: b.appliesTo === 'MONSTER' ? 'MONSTER' : 'HEROES'
@@ -155,7 +155,6 @@ module.exports = {
     DEFAULT_GENDER,
     MAX_PLAYERS,
     GEAR_LIMIT,
-    STEP_LIMIT,
     MAX_NAME_LENGTH,
     MAX_AVATAR_ID,
     MAX_MONSTERS_PER_COMBAT,

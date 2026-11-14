@@ -12,7 +12,7 @@
 
 export const MSG = {
     // Client → server
-    CREATE_GAME: 'CreateGameMessage',
+    CREATE_GAME: 'CREATE_GAME',
     HELLO: 'HELLO',
     EVENT_REQUEST: 'EVENT_REQUEST',
     PING: 'PING',
@@ -20,6 +20,7 @@ export const MSG = {
     LOGIN: 'LOGIN',
     LOGIN_WITH_TOKEN: 'LOGIN_WITH_TOKEN',
     UPDATE_PROFILE: 'UPDATE_PROFILE',
+    DELETE_ACCOUNT: 'DELETE_ACCOUNT',
     GET_HISTORY: 'GET_HISTORY',
     GET_LEADERBOARD: 'GET_LEADERBOARD',
     GET_HOSTED_GAMES: 'GET_HOSTED_GAMES',
@@ -30,6 +31,7 @@ export const MSG = {
     END_TURN: 'END_TURN',
     KICK_PLAYER: 'KICK_PLAYER',
     SWAP_PLAYERS: 'SWAP_PLAYERS',
+    TRANSFER_HOST: 'TRANSFER_HOST',
     DELETE_GAME: 'DELETE_GAME',
 
     // Server → client
@@ -41,6 +43,7 @@ export const MSG = {
     PONG: 'PONG',
     AUTH_SUCCESS: 'AUTH_SUCCESS',
     PROFILE_UPDATED: 'PROFILE_UPDATED',
+    ACCOUNT_DELETED: 'ACCOUNT_DELETED',
     HISTORY_RESULT: 'HISTORY_RESULT',
     LEADERBOARD_RESULT: 'LEADERBOARD_RESULT',
     HOSTED_GAMES_RESULT: 'HOSTED_GAMES_RESULT',
@@ -99,7 +102,7 @@ export const messages = {
         return { type: MSG.CREATE_GAME, playerMeta: meta, superMunchkin, turnTimerSeconds };
     },
     hello(joinCode, meta, reconnectToken = null) {
-        return { type: MSG.HELLO, gameId: '', joinCode, playerMeta: meta, reconnectToken, lastKnownIp: null };
+        return { type: MSG.HELLO, gameId: '', joinCode, playerMeta: meta, reconnectToken };
     },
     eventRequest(event) {
         return { type: MSG.EVENT_REQUEST, event };
@@ -116,8 +119,33 @@ export const messages = {
     loginWithToken(token) {
         return { type: MSG.LOGIN_WITH_TOKEN, token };
     },
-    updateProfile(userId, { username = null, password = null, avatarId = null, gender = null } = {}) {
-        return { type: MSG.UPDATE_PROFILE, userId, username, password, avatarId, gender };
+    updateProfile(userIdOrOpts = {}, maybeOpts) {
+        const opts = (typeof userIdOrOpts === 'object' && userIdOrOpts !== null)
+            ? userIdOrOpts
+            : { userId: userIdOrOpts, ...(maybeOpts || {}) };
+        const {
+            userId = null,
+            username = null,
+            email = null,
+            password = null,
+            currentPassword = null,
+            avatarId = null,
+            gender = null
+        } = opts;
+        const msg = { type: MSG.UPDATE_PROFILE };
+        if (userId !== undefined && userId !== null && userId !== '') msg.userId = userId;
+        if (username !== undefined && username !== null && username !== '') msg.username = username;
+        if (email !== undefined && email !== null && email !== '') msg.email = email;
+        if (password !== undefined && password !== null && password !== '') msg.password = password;
+        if (currentPassword !== undefined && currentPassword !== null && currentPassword !== '') {
+            msg.currentPassword = currentPassword;
+        }
+        if (avatarId !== undefined && avatarId !== null && avatarId !== '') msg.avatarId = avatarId;
+        if (gender !== undefined && gender !== null && gender !== '') msg.gender = gender;
+        return msg;
+    },
+    deleteAccount(password) {
+        return { type: MSG.DELETE_ACCOUNT, password };
     },
     getHistory(userId) {
         return { type: MSG.GET_HISTORY, userId };
@@ -131,8 +159,16 @@ export const messages = {
     deleteHostedGame(gameId) {
         return { type: MSG.DELETE_HOSTED_GAME, gameId };
     },
-    catalogSearch(query) {
-        return { type: MSG.CATALOG_SEARCH, query };
+    catalogSearch(query, optsOrLimit = {}) {
+        const opts = typeof optsOrLimit === 'number'
+            ? { limit: optsOrLimit }
+            : (optsOrLimit || {});
+        const { expansion = null, limit = 20, offset = 0 } = opts;
+        const msg = { type: MSG.CATALOG_SEARCH, query, limit, offset };
+        if (expansion !== undefined && expansion !== null && expansion !== '') {
+            msg.expansion = expansion;
+        }
+        return msg;
     },
     catalogAdd(monster, userId = null) {
         return { type: MSG.CATALOG_ADD, monster, userId };
@@ -145,6 +181,9 @@ export const messages = {
     },
     swapPlayers(player1, player2) {
         return { type: MSG.SWAP_PLAYERS, player1, player2 };
+    },
+    transferHost(targetPlayerId) {
+        return { type: MSG.TRANSFER_HOST, targetPlayerId };
     },
     deleteGame() {
         return { type: MSG.DELETE_GAME, timestamp: Date.now() };
@@ -230,8 +269,23 @@ export const events = {
     combatSetModifier(actorId, target, value) {
         return { ...base('COMBAT_SET_MODIFIER', actorId), target, value };
     },
-    combatEnd(actorId, outcome, { levelsGained = 0, treasuresGained = 0, helperLevelsGained = 0 } = {}) {
-        return { ...base('COMBAT_END', actorId), outcome, levelsGained, treasuresGained, helperLevelsGained };
+    combatEnd(actorId, outcome, {
+        levelsGained = 0,
+        treasuresGained = 0,
+        helperLevelsGained = 0,
+        expectedSeq = null,
+        cancelled = undefined
+    } = {}) {
+        const event = {
+            ...base('COMBAT_END', actorId),
+            outcome,
+            levelsGained,
+            treasuresGained,
+            helperLevelsGained
+        };
+        if (expectedSeq !== undefined && expectedSeq !== null) event.expectedSeq = expectedSeq;
+        if (cancelled !== undefined && cancelled !== null) event.cancelled = Boolean(cancelled);
+        return event;
     }
 };
 

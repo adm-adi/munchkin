@@ -2,7 +2,7 @@
  * Munchkin Tracker - WebSocket Server
  *
  * IMPORTANT: This server must send JSON that matches the kotlinx.serialization
- * format expected by the Android client (Protocol.kt / Models.kt)
+ * format expected by the Android client (Protocol.kt / Models.kt).
  */
 
 const WebSocket = require('ws');
@@ -11,26 +11,32 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
 const { createStaticFileServer } = require('./staticFiles');
 const { createAuthManager } = require('./authManager');
 const { createCatalogManager } = require('./catalogManager');
-const { createCombatManager } = require('./combatManager');
+const {
+    createCombatManager,
+    VALID_DICE_PURPOSES,
+    getRunAwayBonus,
+    requiresCombatToWin
+} = require('./combatManager');
 const { createGameAdminManager } = require('./gameAdminManager');
 const { createHistoryManager } = require('./historyManager');
 const { createTurnManager } = require('./turnManager');
-
-const helmet = require('helmet');
+const helmet = /** @type {any} */ (require('helmet'));
 const logger = require('./logger');
 
-// Override console.log to use winston (optional, but ensures we catch everything)
-// console.log = (...args) => logger.info(args.join(' '));
-// console.error = (...args) => logger.error(args.join(' '));
+/**
+ * @typedef {import('ws').WebSocket & {
+ *   clientIp?: string,
+ *   connectionId?: string,
+ *   isAlive?: boolean,
+ *   userId?: string | null,
+ *   _authPromise?: Promise<any> | null
+ * }} AppWebSocket
+ */
 
-
-// Input validation lives in its own module so it is unit-testable without
-// starting a server. See validation.test.js.
 const {
     VALID_GENDERS,
     VALID_CLASSES,
@@ -38,7 +44,6 @@ const {
     DEFAULT_GENDER,
     MAX_PLAYERS,
     GEAR_LIMIT,
-    MAX_NAME_LENGTH,
     MAX_AVATAR_ID,
     MAX_MONSTERS_PER_COMBAT,
     MAX_BONUSES_PER_COMBAT,
@@ -52,495 +57,43 @@ const {
     sanitizeBonus
 } = require('./validation');
 
-// Configurable so integration tests can bind a free port instead of colliding
-// with a running instance.
-const PORT = Number(process.env.PORT) || 8765;
-
-if (!process.env.JWT_SECRET) {
-    logger.error('❌ FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
-    process.exit(1);
-}
-const JWT_SECRET = process.env.JWT_SECRET;
+const MIN_JWT_SECRET_LENGTH = 32;
 const JWT_EXPIRY_SECONDS = 48 * 60 * 60; // 48 hours
+const HEARTBEAT_INTERVAL_MS = 25 * 1000;
+const MAX_RATE_LIMIT_ENTRIES = 10_000;
+const DEFAULT_ALLOWED_ORIGINS = new Set([
+    'capacitor://localhost',
+    'http://localhost',
+    'https://localhost',
+    'app://localhost'
+]);
 
-
-// SSL Configuration
-//
-// The paths are configurable so the service does not have to run as root: a
-// Let's Encrypt private key is readable only by root, but systemd can read it
-// and hand it to an unprivileged process through LoadCredential=, which places
-// it outside the code tree. Unset, these fall back to the previous behaviour of
-// looking for key.pem/cert.pem beside the server.
-const TLS_KEY_PATH = process.env.MUNCHKIN_TLS_KEY || 'key.pem';
-const TLS_CERT_PATH = process.env.MUNCHKIN_TLS_CERT || 'cert.pem';
-const TLS_EXPLICITLY_CONFIGURED = Boolean(process.env.MUNCHKIN_TLS_KEY || process.env.MUNCHKIN_TLS_CERT);
-
-let server;
-let isSsl = false;
-
-/**
- * Falling back to cleartext when TLS was explicitly configured is not a
- * fallback, it is a silent downgrade: clients connect over wss:// and fail
- * anyway, so the room looks broken while the server reports itself healthy.
- * Fail loudly instead, and let the supervisor retry.
- */
-function refuseCleartext(reason) {
-    logger.error(
-        `❌ FATAL: TLS was configured (${TLS_KEY_PATH} / ${TLS_CERT_PATH}) but ${reason}. ` +
-        'Refusing to start in cleartext.'
-    );
-    process.exit(1);
-}
-
-try {
-    if (fs.existsSync(TLS_KEY_PATH) && fs.existsSync(TLS_CERT_PATH)) {
-        const options = {
-            key: fs.readFileSync(TLS_KEY_PATH),
-            cert: fs.readFileSync(TLS_CERT_PATH)
-        };
-        server = https.createServer(options, handleRequest);
-        isSsl = true;
-        logger.info('🔒 SSL Certificates found. Starting in HTTPS/WSS mode.');
-    } else if (TLS_EXPLICITLY_CONFIGURED) {
-        refuseCleartext('the files are missing or unreadable');
-    } else {
-        server = http.createServer(handleRequest);
-        logger.info('⚠️ No SSL Certificates found (key.pem/cert.pem). Starting in HTTP/WS mode.');
-    }
-} catch (e) {
-    if (TLS_EXPLICITLY_CONFIGURED) {
-        refuseCleartext(`loading them failed: ${e.message}`);
-    }
-    logger.error('Failed to load SSL certs, falling back to HTTP:', e);
-    server = http.createServer(handleRequest);
-}
-
-// Rate limiting for the public HTTP API
-const apiRateLimits = new Map(); // IP -> { count, windowStart }
-const API_RATE_LIMIT_MAX = 60;
-const API_RATE_LIMIT_WINDOW_MS = 60 * 1000;
-
-function isApiRateLimited(ip) {
-    const record = apiRateLimits.get(ip);
-    if (!record) return false;
-    if (Date.now() - record.windowStart > API_RATE_LIMIT_WINDOW_MS) {
-        apiRateLimits.delete(ip);
+function isPlainObject(value) {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
         return false;
     }
-    return record.count >= API_RATE_LIMIT_MAX;
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
 }
 
-function recordApiRequest(ip) {
-    const record = apiRateLimits.get(ip);
-    if (!record || Date.now() - record.windowStart > API_RATE_LIMIT_WINDOW_MS) {
-        apiRateLimits.set(ip, { count: 1, windowStart: Date.now() });
-    } else {
-        record.count++;
-    }
-}
-
-// HTTP/HTTPS Request Handler
-//
-// The helmet instance is created once, not per request, and its CSP is written
-// out explicitly because this server now serves a browser app (server/public):
-//  - script-src 'self' allows only our own ES modules; no inline scripts.
-//  - connect-src names ws:/wss: explicitly. CSP3 says 'self' covers same-origin
-//    WebSockets, but older Safari builds disagreed, and the web client's whole
-//    job is opening a WebSocket back to this host.
-//  - upgrade-insecure-requests is deliberately omitted: in cleartext HTTP/WS
-//    deployments (no certs present) it would force ws:// up to wss:// and break
-//    the socket while the pages still load fine.
-const applyHelmet = helmet({
-    contentSecurityPolicy: {
-        useDefaults: false,
-        directives: {
-            'default-src': ["'self'"],
-            'script-src': ["'self'"],
-            'style-src': ["'self'", "'unsafe-inline'"],
-            'img-src': ["'self'", 'data:'],
-            'connect-src': ["'self'", 'ws:', 'wss:'],
-            'manifest-src': ["'self'"],
-            'base-uri': ["'self'"],
-            'form-action': ["'self'"],
-            'frame-ancestors': ["'none'"],
-            'object-src': ["'none'"]
-        }
-    }
-});
-
-const serveStatic = createStaticFileServer({
-    rootDir: path.join(__dirname, 'public'),
-    logger
-});
-
-function handleRequest(req, res) {
-    // Apply Helmet Security Headers
-    applyHelmet(req, res, () => {
-        // Continue with normal handling
-        processRequest(req, res);
-    });
-}
-
-function processRequest(req, res) {
-    // CORS headers - restricted to mobile app and local development
-    const allowedOrigins = ['capacitor://localhost', 'http://localhost', 'https://localhost'];
-    const origin = req.headers.origin;
-    if (origin && allowedOrigins.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-    }
-    // Access-Control-Request-Method is a *request* header sent by the browser during
-    // a preflight; setting it on the response did nothing.
-    res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    res.setHeader('Vary', 'Origin');
-
-    if (req.method === 'OPTIONS') {
-        res.writeHead(200);
-        res.end();
-        return;
-    }
-
-    let parsedUrl;
-    try {
-        parsedUrl = new URL(req.url || '/', 'http://localhost');
-    } catch (e) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid URL' }));
-        return;
-    }
-
-    // API: Search Monsters
-    if (req.method === 'GET' && parsedUrl.pathname === '/api/monsters') {
-        // This is the only unauthenticated endpoint that hits the database, and it
-        // had no rate limit while the WebSocket join path did.
-        const clientIp = req.socket.remoteAddress || 'unknown';
-        if (isApiRateLimited(clientIp)) {
-            res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' });
-            res.end(JSON.stringify({ error: 'Too many requests' }));
-            return;
-        }
-        recordApiRequest(clientIp);
-
-        const query = (parsedUrl.searchParams.get('q') || '').slice(0, 50); // hard cap at 50 chars
-        logger.info(`🔍 Search Monsters: "${query}"`);
-
-        db.searchMonsters(query)
-            .then(rows => {
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(rows));
-            })
-            .catch(err => {
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: err.message }));
-            });
-        return;
-    }
-
-    // Health check endpoint
-    if (req.method === 'GET' && parsedUrl.pathname === '/health') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'ok', games: games.size, uptime: process.uptime() }));
-        return;
-    }
-
-    // Web client (server/public): index.html, JS modules, styles, icons. The
-    // handler owns the reply only for safe, known asset paths — anything else
-    // falls through to the 404 below.
-    if (serveStatic(req, res, parsedUrl.pathname)) {
-        return;
-    }
-
-    // Default: 404
-    res.writeHead(404);
-    res.end();
-}
-
-// WebSocket Server attached to HTTP/HTTPS server
-const wss = new WebSocket.Server({
-    server,
-    maxPayload: 50 * 1024 // 50KB limit per message (prevents DoS)
-});
-
-// Listening is deferred until persisted rooms are back in memory — see the
-// bottom of this file. Binding first meant that for the first second after a
-// restart every join attempt was answered with "invalid join code".
-
-// Store active games: gameId -> GameRoom
-const games = new Map();
-
-// Store client -> gameId mapping
-const clientGames = new Map();
-
-const {
-    getNextTurnPlayerId,
-    clearRoomLifecycleTimers,
-    syncTurnTimer,
-    closeGame
-} = createTurnManager({ games, db, logger });
-
-const {
-    calculateCombatResult,
-    handleCombatDiceRoll
-} = createCombatManager({ games, clientGames, sendError, logger });
-
-const {
-    handleCatalogSearch,
-    handleCatalogAdd
-} = createCatalogManager({ db, sendError, logger });
-
-const {
-    handleRegister,
-    handleLogin,
-    handleLoginWithToken,
-    handleUpdateProfile
-} = createAuthManager({
-    db,
-    logger,
-    sendError,
-    jwtSecret: JWT_SECRET,
-    jwtExpirySeconds: JWT_EXPIRY_SECONDS
-});
-
-const {
-    handleGetHistory,
-    handleGetLeaderboard
-} = createHistoryManager({ db, logger, sendError });
-
-// Debounced save: coalesces rapid successive saves (e.g. 6 players leveling at once)
-// into a single DB write per game after 500ms of inactivity.
-const pendingSaves = new Map(); // gameId -> timeoutHandle
-
-function debouncedSaveGame(game, delayMs = 500) {
-    const existing = pendingSaves.get(game.id);
-    if (existing) clearTimeout(existing);
-    const handle = setTimeout(() => {
-        pendingSaves.delete(game.id);
-        db.saveActiveGame(game).catch(err =>
-            logger.error(`💾 Debounced save failed for ${game.joinCode}:`, err));
-    }, delayMs);
-    pendingSaves.set(game.id, handle);
-}
-
-function cancelPendingSave(gameId) {
-    const handle = pendingSaves.get(gameId);
-    if (!handle) return;
-    clearTimeout(handle);
-    pendingSaves.delete(gameId);
-}
-
-const {
-    handleGameOver,
-    handleEndTurn,
-    handleDisconnect,
-    handleDeleteGame,
-    handleKickPlayer,
-    handleSwapPlayers,
-    handleGetHostedGames,
-    handleDeleteHostedGame
-} = createGameAdminManager({
-    games,
-    clientGames,
-    db,
-    logger,
-    WebSocket,
-    sendError,
-    getNextTurnPlayerId,
-    syncTurnTimer,
-    clearRoomLifecycleTimers,
-    cancelPendingSave
-});
-
-// Load persisted games on startup
-async function loadGamesFromDatabase() {
-    try {
-        const savedGames = await db.loadActiveGames();
-        for (const saved of savedGames) {
-            const game = new GameRoom(saved.hostId, saved.joinCode, saved.hostName, 0, DEFAULT_GENDER);
-            game.id = saved.id;
-            game.phase = saved.phase;
-            game.ended = saved.phase === "FINISHED";
-            game.turnPlayerId = saved.turnPlayerId;
-            game.combat = saved.combat;
-            game.createdAt = saved.createdAt;
-            game.seq = saved.seq;
-            game.maxLevel = saved.maxLevel || 10;
-            game.turnTimerSeconds = clampInt(saved.turnTimerSeconds, 0, MAX_TURN_TIMER_SECONDS, 0);
-            game.turnEndsAt = saved.turnEndsAt || null;
-            game.winnerId = saved.winnerId || null;
-            game.originalHostId = saved.originalHostId || saved.hostId; // Fallback for old DB records
-            game.hostUserId = saved.hostUserId || null;
-            game.playerOrder = Array.isArray(saved.playerOrder) && saved.playerOrder.length > 0
-                ? saved.playerOrder
-                : Object.keys(saved.players || {});
-
-            // Restore players (without ws connections - they'll reconnect)
-            for (const [playerId, playerData] of Object.entries(saved.players)) {
-                game.players.set(playerId, {
-                    ws: null,
-                    // Re-validate on restore as well: a row written before the
-                    // join path was clamped would otherwise resurrect a value
-                    // that breaks every client's decoding.
-                    name: normalizeName(playerData.name) || 'Jugador',
-                    avatarId: clampInt(playerData.avatarId, 0, MAX_AVATAR_ID, 0),
-                    gender: normalizeGender(playerData.gender),
-                    userId: playerData.userId,
-                    reconnectTokenHash: playerData.reconnectTokenHash || null,
-                    level: playerData.level || 1,
-                    gear: playerData.gear || 0,
-                    treasures: playerData.treasures || 0,
-                    characterClass: playerData.characterClass || 'NONE',
-                    characterRace: playerData.characterRace || 'HUMAN',
-                    secondaryClass: playerData.secondaryClass || 'NONE',
-                    secondaryRace: playerData.secondaryRace || 'HUMAN',
-                    hasHalfBreed: playerData.hasHalfBreed || false,
-                    hasSuperMunchkin: playerData.hasSuperMunchkin || false,
-                    lastRoll: playerData.lastRoll ?? null,
-                    reachedMaxLevelViaCombat: playerData.reachedMaxLevelViaCombat === true,
-                    isConnected: false, // All start disconnected until they reconnect
-                    joinedAt: playerData.joinedAt
-                });
-            }
-
-            games.set(game.id, game);
-            syncTurnTimer(game, 'restored game');
-            logger.info(`🔄 Restored game ${game.joinCode} with ${game.players.size} players`);
-        }
-    } catch (err) {
-        logger.error('❌ Failed to load games from database:', err);
+/**
+ * Inserts/updates a rate-limit entry in O(1) LRU order and evicts oldest entries
+ * when the bounded map exceeds MAX_RATE_LIMIT_ENTRIES.
+ * @template V
+ * @param {Map<string, V>} map
+ * @param {string} key
+ * @param {V} entry
+ */
+function setBoundedMapEntry(map, key, entry) {
+    map.delete(key);
+    map.set(key, entry);
+    while (map.size > MAX_RATE_LIMIT_ENTRIES) {
+        const oldestKey = map.keys().next().value;
+        if (oldestKey === undefined) break;
+        map.delete(oldestKey);
     }
 }
 
-function startListening() {
-    server.listen(PORT, '0.0.0.0', () => {
-        const protocol = isSsl ? 'HTTPS/WSS' : 'HTTP/WS';
-        logger.info(`✅ Server listening on port ${PORT} (${protocol})`);
-    });
-}
-
-class GameRoom {
-    constructor(hostId, joinCode, hostName, avatarId, gender, hostUserId = null) {
-        this.id = uuidv4();
-        this.joinCode = joinCode;
-        this.hostId = hostId;
-        this.originalHostId = hostId; // Never changes — used to restore host on reconnect
-        this.hostName = hostName;
-        this.pendingHostMigration = null; // Timer handle for delayed host migration
-        this.hostAvatarId = avatarId;
-        this.hostGender = gender;
-        this.hostUserId = hostUserId; // Authenticated User ID (if any)
-        this.players = new Map(); // playerId -> { ws, name, avatarId, gender, level, gear }
-        this.seq = 0;
-        this.epoch = 0;
-        this.createdAt = Date.now();
-        this.lastActivity = Date.now();
-        this.phase = "LOBBY";
-        this.ended = false;
-        this.winnerId = null;
-        this.turnPlayerId = hostId; // Start with host's turn
-        this.playerOrder = [hostId];
-        this.combat = null;
-        this.maxLevel = 10; // Default; set to 20 for the 20-level (epic) mode
-        this.minLevel = 1;
-        // Munchkin rules, and the only values the app implements today. They are
-        // sent to the client so both sides agree on which rules are in force
-        // rather than each assuming its own defaults.
-        this.tiesGoToMonsters = true;
-        this.levelTenOnlyCombat = true;
-        this.allowLevelTenOverride = false;
-        this.turnTimerSeconds = 0;
-        this.turnEndsAt = null;
-        this.turnTimerHandle = null;
-        this.turnTimerKey = null;
-        this.turnTimerNonce = 0;
-    }
-
-    broadcast(message, excludePlayerId = null) {
-        const data = JSON.stringify(message);
-        let sentCount = 0;
-        for (const [playerId, player] of this.players) {
-            if (playerId !== excludePlayerId) {
-                if (player.ws && player.ws.readyState === WebSocket.OPEN) {
-                    player.ws.send(data);
-                    sentCount++;
-                }
-                // Silently skip disconnected players (ws is null or closed)
-            }
-        }
-        logger.info(`📢 Broadcast ${message.type} to ${sentCount} players`);
-    }
-
-    // Build GameState in the format expected by kotlinx.serialization
-    // IMPORTANT: @JvmInline value classes serialize as raw values, NOT {value: ...}
-    buildGameState() {
-        const players = {};
-        for (const [playerId, player] of this.players) {
-            // PlayerState must match Models.kt exactly
-            // PlayerId is @JvmInline so it serializes as just the string
-            players[playerId] = {
-                playerId: playerId,  // raw string, not {value: ...}
-                name: player.name,
-                avatarId: player.avatarId || 0,
-                gender: player.gender || "M",
-                level: player.level || 1,
-                gearBonus: player.gear || 0,
-                tempCombatBonus: 0,
-                treasures: player.treasures || 0,
-                raceIds: [],
-                classIds: [],
-                hasHalfBreed: player.hasHalfBreed || false,
-                hasSuperMunchkin: player.hasSuperMunchkin || false,
-                lastKnownIp: null,
-                lastRoll: player.lastRoll ?? null,
-                reachedMaxLevelViaCombat: player.reachedMaxLevelViaCombat === true,
-                isConnected: !!player.isConnected,
-                characterClass: player.characterClass || "NONE",
-                characterRace: player.characterRace || "HUMAN",
-                secondaryClass: player.secondaryClass || "NONE",
-                secondaryRace: player.secondaryRace || "HUMAN"
-            };
-        }
-
-        // Add debug log for combat state serialization
-        if (this.combat) {
-            logger.info(`📦 buildingGameState: Sending Combat State with ${this.combat.tempBonuses.length} bonuses and mods H:${this.combat.heroModifier}/M:${this.combat.monsterModifier}`);
-        }
-
-        return {
-            gameId: this.id,  // raw string, not {value: ...}
-            joinCode: this.joinCode,
-            epoch: this.epoch,
-            seq: this.seq,
-            hostId: this.hostId,  // raw string
-            originalHostId: this.originalHostId,
-            players: players,
-            races: {},
-            classes: {},
-            combat: this.combat,
-            phase: this.phase,
-            winnerId: this.winnerId,
-            turnPlayerId: this.turnPlayerId,
-            turnEndsAt: this.turnEndsAt,
-            playerOrder: Array.isArray(this.playerOrder) && this.playerOrder.length > 0
-                ? this.playerOrder
-                : Array.from(this.players.keys()),
-            createdAt: this.createdAt,
-            // Mirrors the Kotlin GameSettings field for field. It used to send two
-            // keys the client does not have (allowNegativeGear, autoNextTurn) and
-            // omit four that it does, so those four silently sat at their Kotlin
-            // defaults and the room's actual rules were never transmitted.
-            settings: {
-                minLevel: this.minLevel,
-                maxLevel: this.maxLevel,
-                tiesGoToMonsters: this.tiesGoToMonsters,
-                levelTenOnlyCombat: this.levelTenOnlyCombat,
-                allowLevelTenOverride: this.allowLevelTenOverride,
-                turnTimerSeconds: this.turnTimerSeconds || 0
-            }
-        };
-    }
-}
-
-// Generate 8-char join code (~40 bits entropy)
 function generateJoinCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let code = '';
@@ -548,19 +101,6 @@ function generateJoinCode() {
         code += chars.charAt(crypto.randomInt(chars.length));
     }
     return code;
-}
-
-/**
- * Join codes address a room, and findGameByCode() returns the first match, so a
- * collision would make one room permanently unreachable. Retry a few times.
- */
-function generateUniqueJoinCode() {
-    for (let attempt = 0; attempt < 10; attempt++) {
-        const code = generateJoinCode();
-        if (!findGameByCode(code)) return code;
-    }
-    logger.error('⚠️ Could not find a free join code after 10 attempts');
-    return generateJoinCode();
 }
 
 function generateReconnectToken() {
@@ -587,31 +127,10 @@ function canReconnectPlayer(ws, player, reconnectToken) {
     if (player.userId && ws.userId && player.userId === ws.userId) {
         return true;
     }
-
-    if (!reconnectToken || !player.reconnectTokenHash) {
+    if (!reconnectToken || typeof reconnectToken !== 'string' || !player.reconnectTokenHash) {
         return false;
     }
-
     return timingSafeEqualString(hashReconnectToken(reconnectToken), player.reconnectTokenHash);
-}
-
-function buildWelcome(game, playerId, reconnectToken) {
-    return {
-        type: "WELCOME",
-        gameState: game.buildGameState(),
-        yourPlayerId: playerId,
-        reconnectToken
-    };
-}
-
-// Find game by join code
-function findGameByCode(joinCode) {
-    for (const game of games.values()) {
-        if (game.joinCode.toUpperCase() === joinCode.toUpperCase()) {
-            return game;
-        }
-    }
-    return null;
 }
 
 const SNAPSHOT_FIRST_EVENT_TYPES = new Set([
@@ -626,1030 +145,1873 @@ const SNAPSHOT_FIRST_EVENT_TYPES = new Set([
     'COMBAT_UPDATE_MONSTER',
     'COMBAT_ADD_HELPER',
     'COMBAT_REMOVE_HELPER',
-    'COMBAT_MODIFY_MODIFIER',
     'COMBAT_SET_MODIFIER',
     'COMBAT_ADD_BONUS',
     'COMBAT_REMOVE_BONUS'
 ]);
 
-// WSS already initialized above using http server
+const SAVEABLE_EVENT_TYPES = new Set([
+    'GAME_START',
+    'INC_LEVEL', 'DEC_LEVEL', 'SET_LEVEL',
+    'INC_GEAR', 'DEC_GEAR', 'SET_GEAR',
+    'SET_CLASS', 'SET_RACE',
+    'SET_HALF_BREED', 'SET_SUPER_MUNCHKIN',
+    'END_TURN', 'PLAYER_ROLL',
+    'COMBAT_START', 'COMBAT_END',
+    'COMBAT_ADD_MONSTER', 'COMBAT_REMOVE_MONSTER', 'COMBAT_UPDATE_MONSTER',
+    'COMBAT_ADD_HELPER', 'COMBAT_REMOVE_HELPER',
+    'COMBAT_SET_MODIFIER', 'COMBAT_ADD_BONUS', 'COMBAT_REMOVE_BONUS'
+]);
 
-// logger.info(`🎮 Munchkin Server running on ws://0.0.0.0:${PORT}`);
+const IN_GAME_ONLY_EVENTS = new Set([
+    'INC_LEVEL', 'DEC_LEVEL', 'SET_LEVEL',
+    'INC_GEAR', 'DEC_GEAR', 'SET_GEAR',
+    'SET_CLASS', 'SET_RACE',
+    'SET_HALF_BREED', 'SET_SUPER_MUNCHKIN',
+    'END_TURN',
+    'COMBAT_START', 'COMBAT_END',
+    'COMBAT_ADD_MONSTER', 'COMBAT_REMOVE_MONSTER', 'COMBAT_UPDATE_MONSTER',
+    'COMBAT_ADD_HELPER', 'COMBAT_REMOVE_HELPER',
+    'COMBAT_SET_MODIFIER', 'COMBAT_ADD_BONUS', 'COMBAT_REMOVE_BONUS'
+]);
 
-wss.on('connection', (ws, req) => {
-    const clientIp = req.socket.remoteAddress;
-    ws.clientIp = clientIp; // Store for rate limiting
-    ws.connectionId = 'conn_' + uuidv4().substring(0, 8);
-    logger.info(`[${ws.connectionId}] 📱 Client connected from ${clientIp}`);
+const AUTH_CHAINED_MESSAGES = new Set([
+    'REGISTER',
+    'LOGIN',
+    'LOGIN_WITH_TOKEN',
+    'UPDATE_PROFILE',
+    'DELETE_ACCOUNT'
+]);
 
-    ws.on('message', (messageStr) => {
-        let message;
-        try {
-            message = JSON.parse(messageStr);
-        } catch (e) {
-            // Deliberately not logging e.message: V8's parse errors quote a
-            // snippet of the offending input, and a truncated LOGIN frame would
-            // put the user's plaintext password in the log file.
-            logger.error(`[${ws.connectionId}] ❌ Invalid JSON received (${messageStr.length} bytes), ignoring`);
-            return; // Ignore malformed messages
-        }
-        try {
-            handleMessage(ws, message);
-        } catch (e) {
-            logger.error(`[${ws.connectionId}] Error handling message:`, e); // Changed from 'Error parsing message'
-            sendError(ws, 'SERVER_ERROR', 'An internal server error occurred while processing your message.'); // Changed error type and message
-        }
-    });
-
-    ws.on('close', () => {
-        try {
-            logger.info(`[${ws.connectionId}] 🔌 Client disconnected`);
-            handleDisconnect(ws);
-        } catch (e) {
-            logger.error(`[${ws.connectionId}] Error in handleDisconnect:`, e);
-        }
-    });
-
-    ws.on('error', (err) => {
-        logger.error(`[${ws.connectionId}] WebSocket error:`, err);
-    });
-});
-
-function handleMessage(ws, message) {
-    logger.info(`[${ws.connectionId}] 📨 Received: ${message.type}`);
-
-    const clientData = clientGames.get(ws);
-    if (clientData && games.has(clientData.gameId)) {
-        games.get(clientData.gameId).lastActivity = Date.now();
+function createAppServer(options = {}) {
+    const port = options.port !== undefined ? Number(options.port) : (process.env.PORT !== undefined ? Number(process.env.PORT) : 8765);
+    const jwtSecret = options.jwtSecret !== undefined ? options.jwtSecret : process.env.JWT_SECRET;
+    if (typeof jwtSecret !== 'string' || jwtSecret.length < MIN_JWT_SECRET_LENGTH) {
+        throw new Error(`JWT_SECRET must be set and at least ${MIN_JWT_SECRET_LENGTH} characters long.`);
     }
 
-    switch (message.type) {
-        case 'HELLO':
-        case 'HelloMessage':
-            handleHello(ws, message);
-            break;
-
-        case 'CreateGameMessage':
-            handleCreateGame(ws, message);
-            break;
-
-        case 'EVENT_REQUEST':
-        case 'EventMessage':
-            handleEvent(ws, message);
-            break;
-
-        case 'PING':
-        case 'PingMessage':
-            ws.send(JSON.stringify({ type: 'PONG', timestamp: Date.now() }));
-            break;
-
-        case 'LIST_GAMES':
-        case 'ListGamesMessage':
-            handleListGames(ws);
-            break;
-
-        case 'REGISTER':
-            handleRegister(ws, message);
-            break;
-
-        case 'LOGIN':
-            handleLogin(ws, message);
-            break;
-
-        case 'LOGIN_WITH_TOKEN':
-            handleLoginWithToken(ws, message);
-            break;
-
-        case 'CATALOG_SEARCH':
-            handleCatalogSearch(ws, message);
-            break;
-
-        case 'CATALOG_ADD':
-            handleCatalogAdd(ws, message);
-            break;
-
-        case 'GAME_OVER':
-            handleGameOver(ws, message);
-            break;
-
-        case 'GET_HISTORY':
-            handleGetHistory(ws, message);
-            break;
-
-        case 'GET_LEADERBOARD':
-            handleGetLeaderboard(ws);
-            break;
-
-        case 'UPDATE_PROFILE':
-            handleUpdateProfile(ws, message);
-            break;
-
-        case 'END_TURN':
-            handleEndTurn(ws);
-            break;
-
-        case 'KICK_PLAYER':
-            handleKickPlayer(ws, message);
-            break;
-
-        case 'COMBAT_DICE_ROLL':
-            handleCombatDiceRoll(ws, message);
-            break;
-
-        case 'SWAP_PLAYERS':
-            handleSwapPlayers(ws, message);
-            break;
-
-        case 'GET_HOSTED_GAMES':
-            handleGetHostedGames(ws);
-            break;
-
-        case 'DELETE_HOSTED_GAME':
-            handleDeleteHostedGame(ws, message);
-            break;
-
-        case 'DELETE_GAME':
-            handleDeleteGame(ws, message);
-            break;
-
-        default:
-            logger.info('Unknown message type:', message.type);
-    }
-}
-
-function createPlayerState(ws, meta) {
-    return {
-        ws,
-        // SET_NAME/SET_AVATAR validated these, but the join path that first
-        // creates the seat did not, so `avatarId: "pwn"` from any client reached
-        // buildGameState() and broke strict Int decoding for the entire room —
-        // and persisted, so the room stayed broken across restarts.
-        name: normalizeName(meta.name) || 'Jugador',
-        avatarId: clampInt(meta.avatarId, 0, MAX_AVATAR_ID, 0),
-        gender: normalizeGender(meta.gender),
-        userId: ws.userId || null,
-        reconnectTokenHash: null,
-        level: 1,
-        gear: 0,
-        treasures: 0,
-        characterClass: "NONE",
-        characterRace: "HUMAN",
-        secondaryClass: "NONE",
-        secondaryRace: "HUMAN",
-        hasHalfBreed: false,
-        hasSuperMunchkin: false,
-        reachedMaxLevelViaCombat: false,
-        isConnected: true,
-        joinedAt: Date.now()
-    };
-}
-
-function handleCreateGame(ws, message) {
-    const { playerMeta, superMunchkin, turnTimerSeconds } = message;
-    if (!playerMeta || typeof playerMeta.name !== 'string') {
-        sendError(ws, 'INVALID_DATA', 'Datos de jugador invalidos');
-        return;
-    }
-
-    const hostName = normalizeName(playerMeta.name);
-    if (!hostName) {
-        sendError(ws, 'INVALID_DATA', 'Nombre de jugador inválido');
-        return;
-    }
-
-    const joinCode = generateUniqueJoinCode();
-    const playerId = uuidv4();
-
-    logger.info(`🎲 Creating game for ${hostName} with playerId: ${playerId}, superMunchkin: ${!!superMunchkin}`);
-
-    const game = new GameRoom(
-        playerId,
-        joinCode,
-        hostName,
-        clampInt(playerMeta.avatarId, 0, MAX_AVATAR_ID, 0),
-        normalizeGender(playerMeta.gender),
-        ws.userId
+    const tlsKeyPath = options.tlsKeyPath || process.env.MUNCHKIN_TLS_KEY || 'key.pem';
+    const tlsCertPath = options.tlsCertPath || process.env.MUNCHKIN_TLS_CERT || 'cert.pem';
+    const tlsExplicitlyConfigured = Boolean(
+        options.tlsKeyPath || options.tlsCertPath || process.env.MUNCHKIN_TLS_KEY || process.env.MUNCHKIN_TLS_CERT
     );
-    if (superMunchkin === true) {
-        game.maxLevel = 20;
+    const trustProxy = options.trustProxy !== undefined
+        ? Boolean(options.trustProxy)
+        : (process.env.MUNCHKIN_TRUST_PROXY === '1' || process.env.MUNCHKIN_TRUST_PROXY === 'true');
+    const createGameMaxPerMin = Number(options.createGameLimit ?? process.env.MUNCHKIN_CREATE_GAME_LIMIT) || 10;
+    const maxActiveGames = Number(options.maxActiveGames ?? process.env.MUNCHKIN_MAX_ACTIVE_GAMES) || 500;
+
+    const extraOriginsRaw = options.allowedOrigins || process.env.MUNCHKIN_ALLOWED_ORIGINS || '';
+    const extraOrigins = new Set(
+        String(extraOriginsRaw)
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean)
+    );
+
+    const games = new Map(); // gameId -> GameRoom
+    const gamesByCode = new Map(); // UPPERCASE joinCode -> GameRoom
+    const clientGames = new Map(); // ws -> { gameId, playerId }
+    const pendingSaves = new Map(); // gameId -> timeoutHandle
+
+    // Rate limiting maps (bounded with O(1) LRU eviction)
+    const apiRateLimits = new Map(); // IP -> { count, windowStart }
+    const API_RATE_LIMIT_MAX = 60;
+    const API_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+
+    const joinRateLimits = new Map(); // IP -> { attempts, lastAttempt }
+    const JOIN_RATE_LIMIT_MAX_ATTEMPTS = 10;
+    const JOIN_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+
+    const createGameRateLimits = new Map(); // IP -> { count, windowStart }
+    const CREATE_GAME_WINDOW_MS = 60 * 1000;
+
+    function registerGame(game) {
+        games.set(game.id, game);
+        if (game.joinCode) {
+            gamesByCode.set(game.joinCode.toUpperCase(), game);
+        }
     }
-    // Bounded, not just non-negative: `Number.MAX_SAFE_INTEGER` here overflowed
-    // setTimeout's 32-bit delay, which fires immediately, so the turn advanced,
-    // broadcast and hit the database in a ~1ms loop for as long as the room lived.
-    game.turnTimerSeconds = clampInt(turnTimerSeconds, 0, MAX_TURN_TIMER_SECONDS, 0);
-    const player = createPlayerState(ws, playerMeta);
-    const reconnectToken = rotateReconnectToken(player);
-    game.players.set(playerId, player);
 
-    games.set(game.id, game);
-    clientGames.set(ws, { gameId: game.id, playerId });
+    function removeGame(gameId) {
+        const existing = games.get(gameId);
+        if (existing && existing.joinCode) {
+            const codeKey = existing.joinCode.toUpperCase();
+            if (gamesByCode.get(codeKey) === existing) {
+                gamesByCode.delete(codeKey);
+            }
+        }
+        games.delete(gameId);
+    }
 
-    logger.info(`✅ Game created: ${joinCode} by ${playerMeta.name}`);
+    function findGameByCode(joinCode) {
+        if (typeof joinCode !== 'string' || !joinCode) return null;
+        return gamesByCode.get(joinCode.toUpperCase()) || null;
+    }
 
-    // Send welcome with game state - use "WELCOME" type to match @SerialName
-    const response = buildWelcome(game, playerId, reconnectToken);
+    function generateUniqueJoinCode() {
+        for (let attempt = 0; attempt < 25; attempt++) {
+            const code = generateJoinCode();
+            if (!findGameByCode(code)) return code;
+        }
+        return null;
+    }
 
-    // Do not log the payload: WELCOME carries the player's reconnectToken, which
-    // is a bearer credential for resuming this seat.
-    logger.info(`📤 Sending WELCOME for ${joinCode} to ${playerId}`);
-    ws.send(JSON.stringify(response));
+    function getClientIp(req) {
+        if (trustProxy) {
+            const xff = req.headers['x-forwarded-for'];
+            const first = Array.isArray(xff) ? xff[0] : (typeof xff === 'string' ? xff.split(',')[0] : '');
+            const trimmed = first.trim();
+            if (trimmed) return trimmed;
+        }
+        return req.socket?.remoteAddress || 'unknown';
+    }
 
-    // Persist game to database
-    db.saveActiveGame(game).catch(err => logger.error('Failed to save game:', err));
-}
+    function isAllowedOrigin(origin, hostHeader) {
+        if (!origin) return true;
+        if (DEFAULT_ALLOWED_ORIGINS.has(origin) || extraOrigins.has(origin)) {
+            return true;
+        }
+        let parsedOrigin;
+        try {
+            parsedOrigin = new URL(origin);
+        } catch {
+            return false;
+        }
+        if (hostHeader && parsedOrigin.host.toLowerCase() === String(hostHeader).toLowerCase()) {
+            return true;
+        }
+        return extraOrigins.has(parsedOrigin.origin);
+    }
 
-function handleListGames(ws) {
-    const availableGames = [];
+    function safeSend(ws, payload) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+        try {
+            const wire = typeof payload === 'string' ? payload : JSON.stringify(payload);
+            ws.send(wire);
+            return true;
+        } catch (err) {
+            logger.warn(`[${ws.connectionId || 'ws'}] Failed to send WS payload: ${err.message}`);
+            return false;
+        }
+    }
 
-    for (const game of games.values()) {
-        // Only games actually open to newcomers: still in the lobby, not ended,
-        // and not full. Previously this filtered on seat count alone, so in-progress
-        // and already-finished rooms showed up as joinable.
-        if (game.phase !== 'LOBBY') continue;
-        if (game.ended) continue;
-        if (game.players.size >= MAX_PLAYERS) continue;
-
-        availableGames.push({
-            joinCode: game.joinCode,
-            hostName: game.hostName,
-            playerCount: game.players.size,
-            maxPlayers: MAX_PLAYERS,
-            createdAt: game.createdAt
+    function sendError(ws, code, message) {
+        safeSend(ws, {
+            type: 'ERROR',
+            code,
+            message
         });
     }
 
-    logger.info(`📋 Listing ${availableGames.length} available games`);
-
-    ws.send(JSON.stringify({
-        type: "GAMES_LIST",
-        games: availableGames
-    }));
-}
-
-function handleHello(ws, message) {
-    const clientIp = ws.clientIp || 'unknown';
-
-    // Rate limiting for joining games. Only failed attempts are charged against
-    // the budget — see recordJoinAttempt.
-    if (isJoinRateLimited(clientIp)) {
-        logger.warn(`⚠️ Rate check: Join limit exceeded for ${clientIp}`);
-        sendError(ws, 'RATE_LIMITED', 'Demasiados intentos. Espera un momento.');
-        return;
+    function isApiRateLimited(ip) {
+        const record = apiRateLimits.get(ip);
+        if (!record) return false;
+        if (Date.now() - record.windowStart > API_RATE_LIMIT_WINDOW_MS) {
+            apiRateLimits.delete(ip);
+            return false;
+        }
+        return record.count >= API_RATE_LIMIT_MAX;
     }
 
-    const { joinCode, playerMeta, reconnectToken } = message;
-    if (!joinCode || typeof joinCode !== 'string') {
-        recordJoinAttempt(clientIp, false);
-        sendError(ws, 'INVALID_JOIN_CODE', 'Código de partida inválido');
-        return;
+    function recordApiRequest(ip) {
+        const now = Date.now();
+        const record = apiRateLimits.get(ip);
+        const updated = (!record || now - record.windowStart > API_RATE_LIMIT_WINDOW_MS)
+            ? { count: 1, windowStart: now }
+            : { count: record.count + 1, windowStart: record.windowStart };
+        setBoundedMapEntry(apiRateLimits, ip, updated);
     }
 
-    if (!playerMeta || typeof playerMeta.name !== 'string') {
-        recordJoinAttempt(clientIp, false);
-        sendError(ws, 'INVALID_DATA', 'Datos de jugador inválidos');
-        return;
+    function isJoinRateLimited(ip) {
+        const record = joinRateLimits.get(ip);
+        if (!record) return false;
+        if (Date.now() - record.lastAttempt > JOIN_RATE_LIMIT_WINDOW_MS) {
+            joinRateLimits.delete(ip);
+            return false;
+        }
+        return record.attempts >= JOIN_RATE_LIMIT_MAX_ATTEMPTS;
     }
 
-    const game = findGameByCode(joinCode);
-
-    if (!game) {
-        // The signal that matters: someone guessing codes.
-        recordJoinAttempt(clientIp, false);
-        logger.info(`❌ Invalid join code: ${joinCode}`);
-        sendError(ws, 'INVALID_JOIN_CODE', 'Código de partida inválido');
-        return;
+    function recordJoinAttempt(ip, success) {
+        if (success) {
+            joinRateLimits.delete(ip);
+            return;
+        }
+        const record = joinRateLimits.get(ip) || { attempts: 0, lastAttempt: 0 };
+        setBoundedMapEntry(joinRateLimits, ip, {
+            attempts: record.attempts + 1,
+            lastAttempt: Date.now()
+        });
     }
 
-    let playerId = playerMeta.playerId?.value || playerMeta.playerId || null;
+    function isCreateGameRateLimited(ip) {
+        const record = createGameRateLimits.get(ip);
+        if (!record) return false;
+        if (Date.now() - record.windowStart > CREATE_GAME_WINDOW_MS) {
+            createGameRateLimits.delete(ip);
+            return false;
+        }
+        return record.count >= createGameMaxPerMin;
+    }
 
-    // Check if this user is already in the game under a different playerId (e.g. reinstall, different device)
-    if (ws.userId) {
-        for (const [existingPid, player] of game.players.entries()) {
-            if (player.userId === ws.userId) {
-                logger.info(`🔄 Authenticated User ${ws.userId} (${player.name}) recognized as existing player ${existingPid}`);
-                playerId = existingPid; // Resume as the existing player
-                break;
+    function recordCreateGame(ip) {
+        const now = Date.now();
+        const record = createGameRateLimits.get(ip);
+        const updated = (!record || now - record.windowStart > CREATE_GAME_WINDOW_MS)
+            ? { count: 1, windowStart: now }
+            : { count: record.count + 1, windowStart: record.windowStart };
+        setBoundedMapEntry(createGameRateLimits, ip, updated);
+    }
+
+    function pruneExpiredRateLimits() {
+        const now = Date.now();
+        for (const [ip, record] of joinRateLimits) {
+            if (now - record.lastAttempt > JOIN_RATE_LIMIT_WINDOW_MS) {
+                joinRateLimits.delete(ip);
+            }
+        }
+        for (const [ip, record] of apiRateLimits) {
+            if (now - record.windowStart > API_RATE_LIMIT_WINDOW_MS) {
+                apiRateLimits.delete(ip);
+            }
+        }
+        for (const [ip, record] of createGameRateLimits) {
+            if (now - record.windowStart > CREATE_GAME_WINDOW_MS) {
+                createGameRateLimits.delete(ip);
             }
         }
     }
 
-    logger.info(`👤 Player ${playerMeta.name} joining ${joinCode} with id: ${playerId}`);
+    const helmetMiddleware = typeof helmet === 'function' ? helmet : helmet.default;
+    const applyHelmet = helmetMiddleware({
+        hsts: {
+            maxAge: 31536000,
+            includeSubDomains: true
+        },
+        contentSecurityPolicy: {
+            useDefaults: false,
+            directives: {
+                'default-src': ["'self'"],
+                'script-src': ["'self'"],
+                'style-src': ["'self'"],
+                'img-src': ["'self'", 'data:'],
+                'connect-src': ["'self'", 'ws:', 'wss:'],
+                'manifest-src': ["'self'"],
+                'base-uri': ["'self'"],
+                'form-action': ["'self'"],
+                'frame-ancestors': ["'none'"],
+                'object-src': ["'none'"]
+            }
+        }
+    });
 
-    // Check if reconnecting
-    if (game.players.has(playerId)) {
-        // Reconnection - mark as connected again
-        const player = game.players.get(playerId);
-        if (!canReconnectPlayer(ws, player, reconnectToken)) {
-            recordJoinAttempt(clientIp, false);
-            logger.warn(`⚠️ Reconnect rejected for ${joinCode}: invalid token/user binding for ${playerId}`);
-            sendError(ws, 'UNAUTHORIZED', 'Reconnect token invalid or expired');
+    const serveStatic = createStaticFileServer({
+        rootDir: path.join(__dirname, 'public'),
+        logger
+    });
+
+    function handleRequest(req, res) {
+        applyHelmet(req, res, () => {
+            processRequest(req, res);
+        });
+    }
+
+    function processRequest(req, res) {
+        const origin = req.headers.origin;
+        if (origin && DEFAULT_ALLOWED_ORIGINS.has(origin)) {
+            res.setHeader('Access-Control-Allow-Origin', origin);
+        }
+        res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        res.setHeader('Vary', 'Origin');
+
+        if (req.method === 'OPTIONS') {
+            res.writeHead(200);
+            res.end();
             return;
         }
 
-        if (player.ws && player.ws !== ws && player.ws.readyState === WebSocket.OPEN) {
-            player.ws.close(1000, 'Reconnected from another device');
+        let parsedUrl;
+        try {
+            parsedUrl = new URL(req.url || '/', 'http://localhost');
+        } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid URL' }));
+            return;
+        }
+
+        if (req.method === 'GET' && parsedUrl.pathname === '/api/monsters') {
+            const clientIp = getClientIp(req);
+            if (isApiRateLimited(clientIp)) {
+                res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' });
+                res.end(JSON.stringify({ error: 'Too many requests' }));
+                return;
+            }
+            recordApiRequest(clientIp);
+
+            const query = (parsedUrl.searchParams.get('q') || '').slice(0, 100);
+            const rawExpansion = parsedUrl.searchParams.get('expansion');
+            const expansion = rawExpansion && rawExpansion.trim()
+                ? rawExpansion.trim().slice(0, 40)
+                : undefined;
+            const limit = clampInt(parsedUrl.searchParams.get('limit'), 1, 50, 20);
+            const offset = clampInt(parsedUrl.searchParams.get('offset'), 0, 10_000, 0);
+
+            db.searchMonsters(query, { expansion, limit, offset })
+                .then(rows => {
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify(rows));
+                })
+                .catch(err => {
+                    logger.error('API monster search failed:', err);
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Internal server error' }));
+                });
+            return;
+        }
+
+        if (req.method === 'GET' && parsedUrl.pathname === '/health') {
+            db.pingDb()
+                .then(() => {
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ status: 'ok', games: games.size, uptime: process.uptime() }));
+                })
+                .catch(err => {
+                    logger.error('/health DB check failed:', err);
+                    res.writeHead(503, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ status: 'error' }));
+                });
+            return;
+        }
+
+        if (serveStatic(req, res, parsedUrl.pathname)) {
+            return;
+        }
+
+        res.writeHead(404);
+        res.end();
+    }
+
+    let httpServer;
+    let isSsl = false;
+    try {
+        if (fs.existsSync(tlsKeyPath) && fs.existsSync(tlsCertPath)) {
+            const tlsOptions = {
+                key: fs.readFileSync(tlsKeyPath),
+                cert: fs.readFileSync(tlsCertPath)
+            };
+            httpServer = https.createServer(tlsOptions, handleRequest);
+            isSsl = true;
+            logger.info('🔒 SSL Certificates found. Starting in HTTPS/WSS mode.');
+        } else if (tlsExplicitlyConfigured) {
+            throw new Error(`TLS was configured (${tlsKeyPath} / ${tlsCertPath}) but the files are missing or unreadable`);
+        } else {
+            httpServer = http.createServer(handleRequest);
+            logger.info('⚠️ No SSL Certificates found (key.pem/cert.pem). Starting in HTTP/WS mode.');
+        }
+    } catch (e) {
+        if (tlsExplicitlyConfigured) {
+            throw e;
+        }
+        logger.error('Failed to load SSL certs, falling back to HTTP:', e);
+        httpServer = http.createServer(handleRequest);
+    }
+
+    const wss = new WebSocket.Server({
+        server: httpServer,
+        maxPayload: 50 * 1024,
+        verifyClient: (info, callback) => {
+            const origin = info.req.headers.origin;
+            const hostHeader = info.req.headers.host;
+            if (!isAllowedOrigin(origin, hostHeader)) {
+                logger.warn(`Rejected WebSocket upgrade from disallowed origin: ${origin}`);
+                callback(false, 403, 'Forbidden Origin');
+                return;
+            }
+            callback(true);
+        }
+    });
+
+    function debouncedSaveGame(game, delayMs = 500) {
+        const existing = pendingSaves.get(game.id);
+        if (existing) clearTimeout(existing);
+        const handle = setTimeout(() => {
+            pendingSaves.delete(game.id);
+            db.saveActiveGame(game).catch(err =>
+                logger.error(`💾 Debounced save failed for ${game.joinCode}:`, err));
+        }, delayMs);
+        pendingSaves.set(game.id, handle);
+    }
+
+    function cancelPendingSave(gameId) {
+        const handle = pendingSaves.get(gameId);
+        if (!handle) return;
+        clearTimeout(handle);
+        pendingSaves.delete(gameId);
+    }
+
+    const {
+        getNextTurnPlayerId,
+        clearRoomLifecycleTimers,
+        syncTurnTimer,
+        closeGame
+    } = createTurnManager({ games, db, logger, cancelPendingSave });
+
+    const { calculateCombatResult } = createCombatManager();
+
+    const {
+        handleCatalogSearch,
+        handleCatalogAdd
+    } = createCatalogManager({ db, sendError, safeSend, logger });
+
+    const {
+        handleRegister,
+        handleLogin,
+        handleLoginWithToken,
+        handleUpdateProfile,
+        handleDeleteAccount
+    } = createAuthManager({
+        db,
+        logger,
+        sendError,
+        safeSend,
+        jwtSecret,
+        jwtExpirySeconds: JWT_EXPIRY_SECONDS
+    });
+
+    const {
+        handleGetHistory,
+        handleGetLeaderboard
+    } = createHistoryManager({ db, logger, sendError, safeSend });
+
+    const {
+        validateGameOverWinner,
+        finalizeGameOver,
+        handleGameOver,
+        handleEndTurn,
+        handleDisconnect,
+        handleDeleteGame,
+        handleKickPlayer,
+        handleTransferHost,
+        handleSwapPlayers,
+        handleGetHostedGames,
+        handleDeleteHostedGame
+    } = createGameAdminManager({
+        games,
+        clientGames,
+        db,
+        logger,
+        WebSocket,
+        sendError,
+        safeSend,
+        getNextTurnPlayerId,
+        syncTurnTimer,
+        clearRoomLifecycleTimers,
+        cancelPendingSave,
+        removeGame
+    });
+
+    class GameRoom {
+        constructor(hostId, joinCode, hostName, avatarId, gender, hostUserId = null) {
+            this.id = crypto.randomUUID();
+            this.joinCode = joinCode;
+            this.hostId = hostId;
+            this.originalHostId = hostId;
+            this.hostName = hostName;
+            this.pendingHostMigration = null;
+            this.hostAvatarId = avatarId;
+            this.hostGender = gender;
+            this.hostUserId = hostUserId;
+            this.players = new Map();
+            this.kickedUserIds = new Set();
+            this.kickedIps = new Set();
+            this.seq = 0;
+            this.epoch = 0;
+            this.createdAt = Date.now();
+            this.lastActivity = Date.now();
+            this.phase = 'LOBBY';
+            this.ended = false;
+            this.winnerId = null;
+            this.turnPlayerId = hostId;
+            this.playerOrder = [hostId];
+            this.combat = null;
+            this.maxLevel = 10;
+            this.minLevel = 1;
+            this.tiesGoToMonsters = true;
+            this.levelTenOnlyCombat = true;
+            this.allowLevelTenOverride = false;
+            this.turnTimerSeconds = 0;
+            this.turnEndsAt = null;
+            this.turnTimerHandle = null;
+            this.turnTimerKey = null;
+            this.turnTimerNonce = 0;
+        }
+
+        broadcast(message, excludePlayerId = null) {
+            const data = JSON.stringify(message);
+            let sentCount = 0;
+            for (const [playerId, player] of this.players) {
+                if (playerId !== excludePlayerId && safeSend(player.ws, data)) {
+                    sentCount++;
+                }
+            }
+            logger.info(`📢 Broadcast ${message.type} to ${sentCount} players`);
+        }
+
+        buildGameState() {
+            const players = {};
+            for (const [playerId, player] of this.players) {
+                players[playerId] = {
+                    playerId,
+                    name: player.name,
+                    avatarId: player.avatarId || 0,
+                    gender: player.gender || 'M',
+                    level: player.level || 1,
+                    gearBonus: player.gear || 0,
+                    tempCombatBonus: player.tempCombatBonus || 0,
+                    treasures: player.treasures || 0,
+                    hasHalfBreed: player.hasHalfBreed || false,
+                    hasSuperMunchkin: player.hasSuperMunchkin || false,
+                    lastRoll: player.lastRoll ?? null,
+                    reachedMaxLevelViaCombat: player.reachedMaxLevelViaCombat === true,
+                    isConnected: !!player.isConnected,
+                    characterClass: player.characterClass || 'NONE',
+                    characterRace: player.characterRace || 'HUMAN',
+                    secondaryClass: player.secondaryClass || 'NONE',
+                    secondaryRace: player.secondaryRace || 'HUMAN'
+                };
+            }
+
+            if (this.combat) {
+                logger.info(
+                    `📦 buildingGameState: Sending Combat State with ${this.combat.tempBonuses.length} bonuses ` +
+                    `and mods H:${this.combat.heroModifier}/M:${this.combat.monsterModifier}`
+                );
+            }
+
+            return {
+                gameId: this.id,
+                joinCode: this.joinCode,
+                epoch: this.epoch,
+                seq: this.seq,
+                hostId: this.hostId,
+                originalHostId: this.originalHostId,
+                players,
+                combat: this.combat,
+                phase: this.phase,
+                winnerId: this.winnerId,
+                turnPlayerId: this.turnPlayerId,
+                turnEndsAt: this.turnEndsAt,
+                playerOrder: Array.isArray(this.playerOrder) && this.playerOrder.length > 0
+                    ? this.playerOrder
+                    : Array.from(this.players.keys()),
+                createdAt: this.createdAt,
+                settings: {
+                    minLevel: this.minLevel,
+                    maxLevel: this.maxLevel,
+                    tiesGoToMonsters: this.tiesGoToMonsters,
+                    levelTenOnlyCombat: this.levelTenOnlyCombat,
+                    allowLevelTenOverride: this.allowLevelTenOverride,
+                    turnTimerSeconds: this.turnTimerSeconds || 0
+                }
+            };
+        }
+    }
+
+    function buildWelcome(game, playerId, reconnectToken) {
+        return {
+            type: 'WELCOME',
+            gameState: game.buildGameState(),
+            yourPlayerId: playerId,
+            reconnectToken
+        };
+    }
+
+    function createPlayerState(ws, meta, safeName) {
+        return {
+            ws,
+            name: safeName,
+            avatarId: clampInt(meta.avatarId, 0, MAX_AVATAR_ID, 0),
+            gender: normalizeGender(meta.gender),
+            userId: ws.userId || null,
+            lastKnownIp: ws.clientIp || null,
+            reconnectTokenHash: null,
+            level: 1,
+            gear: 0,
+            tempCombatBonus: 0,
+            treasures: 0,
+            characterClass: 'NONE',
+            characterRace: 'HUMAN',
+            secondaryClass: 'NONE',
+            secondaryRace: 'HUMAN',
+            hasHalfBreed: false,
+            hasSuperMunchkin: false,
+            lastRoll: null,
+            reachedMaxLevelViaCombat: false,
+            isConnected: true,
+            joinedAt: Date.now()
+        };
+    }
+
+    function handleCreateGame(ws, message) {
+        const clientIp = ws.clientIp || 'unknown';
+        if (isCreateGameRateLimited(clientIp)) {
+            sendError(ws, 'RATE_LIMITED', 'Demasiadas partidas creadas. Espera un momento.');
+            return;
+        }
+        if (games.size >= maxActiveGames) {
+            sendError(ws, 'SERVER_BUSY', 'Límite de partidas activas alcanzado. Inténtalo más tarde.');
+            return;
+        }
+
+        const { playerMeta, superMunchkin, turnTimerSeconds } = message;
+        if (!isPlainObject(playerMeta) || typeof playerMeta.name !== 'string') {
+            sendError(ws, 'INVALID_DATA', 'Datos de jugador invalidos');
+            return;
+        }
+
+        const hostName = normalizeName(playerMeta.name);
+        if (!hostName) {
+            sendError(ws, 'INVALID_DATA', 'Nombre de jugador inválido');
+            return;
+        }
+
+        const joinCode = generateUniqueJoinCode();
+        if (!joinCode) {
+            sendError(ws, 'SERVER_ERROR', 'No se pudo generar un código de partida único');
+            return;
+        }
+
+        if (clientGames.has(ws)) {
+            handleDisconnect(ws);
+        }
+
+        recordCreateGame(clientIp);
+        const playerId = crypto.randomUUID();
+        logger.info(`🎲 Creating game for ${hostName} with playerId: ${playerId}, superMunchkin: ${!!superMunchkin}`);
+
+        const game = new GameRoom(
+            playerId,
+            joinCode,
+            hostName,
+            clampInt(playerMeta.avatarId, 0, MAX_AVATAR_ID, 0),
+            normalizeGender(playerMeta.gender),
+            ws.userId || null
+        );
+        if (superMunchkin === true) {
+            game.maxLevel = 20;
+        }
+        game.turnTimerSeconds = clampInt(turnTimerSeconds, 0, MAX_TURN_TIMER_SECONDS, 0);
+
+        const player = createPlayerState(ws, playerMeta, hostName);
+        const reconnectToken = rotateReconnectToken(player);
+        game.players.set(playerId, player);
+
+        registerGame(game);
+        clientGames.set(ws, { gameId: game.id, playerId });
+
+        logger.info(`✅ Game created: ${joinCode} by ${hostName}`);
+        logger.info(`📤 Sending WELCOME for ${joinCode} to ${playerId}`);
+        safeSend(ws, buildWelcome(game, playerId, reconnectToken));
+
+        db.saveActiveGame(game).catch(err => logger.error('Failed to save game:', err));
+    }
+
+    function handleListGames(ws) {
+        const availableGames = [];
+        for (const game of games.values()) {
+            if (game.phase !== 'LOBBY') continue;
+            if (game.ended) continue;
+            if (game.players.size >= MAX_PLAYERS) continue;
+
+            availableGames.push({
+                joinCode: game.joinCode,
+                hostName: game.hostName,
+                playerCount: game.players.size,
+                maxPlayers: MAX_PLAYERS,
+                createdAt: game.createdAt
+            });
+        }
+
+        logger.info(`📋 Listing ${availableGames.length} available games`);
+        safeSend(ws, {
+            type: 'GAMES_LIST',
+            games: availableGames
+        });
+    }
+
+    function handleHello(ws, message) {
+        const clientIp = ws.clientIp || 'unknown';
+        if (isJoinRateLimited(clientIp)) {
+            logger.warn(`⚠️ Rate check: Join limit exceeded for ${clientIp}`);
+            sendError(ws, 'RATE_LIMITED', 'Demasiados intentos. Espera un momento.');
+            return;
+        }
+
+        const { joinCode, playerMeta, reconnectToken } = message;
+        if (!joinCode || typeof joinCode !== 'string') {
+            recordJoinAttempt(clientIp, false);
+            sendError(ws, 'INVALID_JOIN_CODE', 'Código de partida inválido');
+            return;
+        }
+
+        if (!isPlainObject(playerMeta) || typeof playerMeta.name !== 'string') {
+            recordJoinAttempt(clientIp, false);
+            sendError(ws, 'INVALID_DATA', 'Datos de jugador inválidos');
+            return;
+        }
+
+        const safeName = normalizeName(playerMeta.name);
+        if (!safeName) {
+            recordJoinAttempt(clientIp, false);
+            sendError(ws, 'INVALID_DATA', 'Nombre de jugador inválido');
+            return;
+        }
+
+        const game = findGameByCode(joinCode);
+        if (!game) {
+            recordJoinAttempt(clientIp, false);
+            logger.info(`❌ Invalid join code: ${joinCode}`);
+            sendError(ws, 'INVALID_JOIN_CODE', 'Código de partida inválido');
+            return;
+        }
+
+        if (game.ended || game.phase === 'FINISHED') {
+            sendError(ws, 'GAME_FINISHED', 'La partida ya ha terminado');
+            return;
+        }
+
+        if (
+            (ws.userId && game.kickedUserIds?.has(ws.userId)) ||
+            (clientIp && clientIp !== 'unknown' && game.kickedIps?.has(clientIp))
+        ) {
+            sendError(ws, 'FORBIDDEN', 'Has sido expulsado de esta partida');
+            return;
+        }
+
+        let playerId = playerMeta.playerId?.value || playerMeta.playerId || null;
+        if (typeof playerId !== 'string') playerId = null;
+
+        if (ws.userId) {
+            for (const [existingPid, player] of game.players.entries()) {
+                if (player.userId === ws.userId) {
+                    logger.info(`🔄 Authenticated User ${ws.userId} (${player.name}) recognized as existing player ${existingPid}`);
+                    playerId = existingPid;
+                    break;
+                }
+            }
+        }
+
+        const existingSocketSeat = clientGames.get(ws);
+        if (
+            existingSocketSeat &&
+            (existingSocketSeat.gameId !== game.id || existingSocketSeat.playerId !== playerId)
+        ) {
+            handleDisconnect(ws);
+        }
+
+        logger.info(`👤 Player ${safeName} joining ${joinCode} with id: ${playerId}`);
+
+        if (playerId && game.players.has(playerId)) {
+            const player = game.players.get(playerId);
+            if (!canReconnectPlayer(ws, player, reconnectToken)) {
+                recordJoinAttempt(clientIp, false);
+                logger.warn(`⚠️ Reconnect rejected for ${joinCode}: invalid token/user binding for ${playerId}`);
+                sendError(ws, 'UNAUTHORIZED', 'Reconnect token invalid or expired');
+                return;
+            }
+
+            if (player.ws && player.ws !== ws && player.ws.readyState === WebSocket.OPEN) {
+                player.ws.close(1000, 'Reconnected from another device');
+            }
+
+            recordJoinAttempt(clientIp, true);
+            const nextReconnectToken = rotateReconnectToken(player);
+            player.ws = ws;
+            player.isConnected = true;
+            player.lastKnownIp = clientIp;
+            clientGames.set(ws, { gameId: game.id, playerId });
+
+            if (!game.turnPlayerId || !game.players.has(game.turnPlayerId)) {
+                game.turnPlayerId = playerId;
+            }
+
+            if (game.cleanupTimer) {
+                clearTimeout(game.cleanupTimer);
+                game.cleanupTimer = null;
+                logger.info(`⏰ Cleanup timer cancelled for ${joinCode}`);
+            }
+
+            if (game.pendingHostMigration && playerId === game.hostId) {
+                clearTimeout(game.pendingHostMigration);
+                game.pendingHostMigration = null;
+                logger.info(`👑 Host ${player.name} reconnected — pending migration cancelled`);
+            }
+
+            if (game.originalHostId === playerId && game.hostId !== playerId) {
+                game.hostId = playerId;
+                game.hostName = player.name;
+                logger.info(`👑 Original host ${player.name} reclaimed host status`);
+            }
+
+            syncTurnTimer(game, 'player reconnected');
+            safeSend(ws, buildWelcome(game, playerId, nextReconnectToken));
+
+            game.seq++;
+            game.broadcast({
+                type: 'STATE_SNAPSHOT',
+                gameState: game.buildGameState(),
+                seq: game.seq
+            });
+
+            db.saveActiveGame(game).catch(err => logger.error('Failed to save after reconnect:', err));
+            logger.info(`🔄 Player ${safeName} reconnected to ${joinCode}`);
+            return;
+        }
+
+        if (game.players.size >= MAX_PLAYERS) {
+            sendError(ws, 'GAME_FULL', 'Partida llena');
+            return;
         }
 
         recordJoinAttempt(clientIp, true);
+        playerId = crypto.randomUUID();
+        const player = createPlayerState(ws, playerMeta, safeName);
         const nextReconnectToken = rotateReconnectToken(player);
-        player.ws = ws;
-        player.isConnected = true;
+        game.players.set(playerId, player);
+        if (!Array.isArray(game.playerOrder)) {
+            game.playerOrder = [];
+        }
+        if (!game.playerOrder.includes(playerId)) {
+            game.playerOrder.push(playerId);
+        }
+
+        if (!game.turnPlayerId || !game.players.has(game.turnPlayerId)) {
+            game.turnPlayerId = playerId;
+        }
+
         clientGames.set(ws, { gameId: game.id, playerId });
-
-        // Cancel cleanup timer if exists
-        if (game.cleanupTimer) {
-            clearTimeout(game.cleanupTimer);
-            game.cleanupTimer = null;
-            logger.info(`⏰ Cleanup timer cancelled for ${joinCode}`);
-        }
-
-        // Cancel pending host migration if this player was the host
-        if (game.pendingHostMigration && playerId === game.hostId) {
-            clearTimeout(game.pendingHostMigration);
-            game.pendingHostMigration = null;
-            logger.info(`👑 Host ${player.name} reconnected — pending migration cancelled`);
-        }
-
-        // Restore original host status if they return after migration already fired
-        if (game.originalHostId === playerId && game.hostId !== playerId) {
-            game.hostId = playerId;
-            game.hostName = player.name;
-            logger.info(`👑 Original host ${player.name} reclaimed host status`);
-        }
-
-        syncTurnTimer(game, 'player reconnected');
-
-        // Send WELCOME with playerId so client can properly navigate
-        ws.send(JSON.stringify(buildWelcome(game, playerId, nextReconnectToken)));
-
-        // Broadcast full STATE_SNAPSHOT to all — ensures every client sees consistent
-        // hostId, isConnected flags, and turnPlayerId after any reconnect
         game.seq++;
+
+        logger.info(`✅ Player ${safeName} joined ${joinCode}`);
+        syncTurnTimer(game, 'player joined');
+
+        safeSend(ws, buildWelcome(game, playerId, nextReconnectToken));
+
         game.broadcast({
-            type: "STATE_SNAPSHOT",
+            type: 'PLAYER_STATUS',
+            playerId,
+            isConnected: true
+        }, playerId);
+
+        game.broadcast({
+            type: 'STATE_SNAPSHOT',
             gameState: game.buildGameState(),
             seq: game.seq
         });
 
-        db.saveActiveGame(game).catch(err => logger.error('Failed to save after reconnect:', err));
-
-        logger.info(`🔄 Player ${playerMeta.name} reconnected to ${joinCode}`);
-        return;
+        db.saveActiveGame(game).catch(err => logger.error('Failed to save game:', err));
     }
 
-    // New player joining
-    if (game.players.size >= MAX_PLAYERS) {
-        sendError(ws, 'GAME_FULL', 'Partida llena');
-        return;
-    }
-
-    recordJoinAttempt(clientIp, true);
-    playerId = uuidv4();
-    const player = createPlayerState(ws, playerMeta);
-    const nextReconnectToken = rotateReconnectToken(player);
-    game.players.set(playerId, player);
-    if (!Array.isArray(game.playerOrder)) {
-        game.playerOrder = [];
-    }
-    if (!game.playerOrder.includes(playerId)) {
-        game.playerOrder.push(playerId);
-    }
-
-    clientGames.set(ws, { gameId: game.id, playerId });
-    game.seq++;
-
-    logger.info(`✅ Player ${playerMeta.name} joined ${joinCode}`);
-    syncTurnTimer(game, 'player joined');
-
-    // Send welcome to new player
-    ws.send(JSON.stringify(buildWelcome(game, playerId, nextReconnectToken)));
-
-    // Broadcast player joined to others
-    game.broadcast({
-        type: "PLAYER_STATUS",
-        playerId: playerId,
-        isConnected: true
-    }, playerId);
-
-    // Send updated state to all
-    game.broadcast({
-        type: "STATE_SNAPSHOT",
-        gameState: game.buildGameState(),
-        seq: game.seq
-    });
-
-    // Persist updated game
-    db.saveActiveGame(game).catch(err => logger.error('Failed to save game:', err));
-}
-
-function handleEvent(ws, message) {
-    const clientData = clientGames.get(ws);
-    if (!clientData) return;
-
-    const game = games.get(clientData.gameId);
-    if (!game) return;
-
-    const { event } = message;
-    const playerId = clientData.playerId;
-    logger.info(`🎯 Event: ${event.type} from ${playerId}`);
-
-    // Security: reject events where the claimed actor doesn't match the authenticated session
-    if (event.actorId && event.actorId !== playerId) {
-        logger.warn(`⚠️ SECURITY: Actor mismatch. Session: ${playerId}, Event.actorId: ${event.actorId}`);
-        sendError(ws, 'FORBIDDEN', 'Action not authorized');
-        return;
-    }
-
-    if (event.targetPlayerId && event.targetPlayerId !== playerId) {
-        sendError(ws, 'FORBIDDEN', 'Action not authorized');
-        return;
-    }
-
-    // Apply event to game state
-    const applied = applyEvent(game, event, playerId, ws);
-    if (!applied) {
-        return;
-    }
-
-    game.seq++;
-    const timerStateChanged = syncTurnTimer(game, `event ${event.type}`);
-    const snapshotFirstEvent = SNAPSHOT_FIRST_EVENT_TYPES.has(event.type);
-
-    if (!snapshotFirstEvent) {
-        // Lightweight events can still be replayed locally by clients.
-        game.broadcast({
-            type: "EVENT_BROADCAST",
-            gameId: game.id,
-            epoch: game.epoch,
-            event,
-            fromPlayerId: playerId,
-            seq: game.seq
-        });
-    }
-
-    if (snapshotFirstEvent || timerStateChanged) {
-        game.broadcast({
-            type: "STATE_SNAPSHOT",
-            gameState: game.buildGameState(),
-            seq: game.seq
-        });
-    }
-
-    // Persist game state after significant events
-    const saveableEvents = [
-        'GAME_START', 'GAME_END',
-        'INC_LEVEL', 'DEC_LEVEL', 'SET_LEVEL',
-        'INC_GEAR', 'DEC_GEAR', 'SET_GEAR',
-        'SET_CLASS', 'SET_RACE',
-        'SET_HALF_BREED', 'SET_SUPER_MUNCHKIN',
-        'END_TURN', 'PLAYER_ROLL',
-        'COMBAT_START', 'COMBAT_END',
-        'COMBAT_ADD_MONSTER', 'COMBAT_REMOVE_MONSTER', 'COMBAT_UPDATE_MONSTER',
-        'COMBAT_ADD_HELPER', 'COMBAT_REMOVE_HELPER',
-        'COMBAT_MODIFY_MODIFIER', 'COMBAT_SET_MODIFIER', 'COMBAT_ADD_BONUS', 'COMBAT_REMOVE_BONUS'
-    ];
-    if (saveableEvents.includes(event.type)) {
-        debouncedSaveGame(game);
-    }
-}
-
-/**
- * Records that a player reached the winning level by killing a monster.
- *
- * `GameSettings.levelTenOnlyCombat` says the winning level may only be reached
- * that way, but nothing tracked *how* a level was gained, so the setting could
- * never be honoured and tapping +1 up to the maximum triggered the win dialog.
- */
-function markMaxLevelIfReached(game, player, levelsGained) {
-    if (levelsGained > 0 && player.level >= game.maxLevel) {
-        player.reachedMaxLevelViaCombat = true;
-    }
-}
-
-function canTouchCombat(game, playerId) {
-    if (!game.combat) return false;
-    return playerId === game.combat.mainPlayerId ||
-           playerId === game.combat.helperPlayerId ||
-           playerId === game.turnPlayerId ||
-           playerId === game.hostId;
-}
-
-function applyEvent(game, event, playerId, ws) {
-    const player = game.players.get(playerId);
-    if (!player) return false;
-
-    // A finished room is a historical record: GAME_OVER has already written it to
-    // history and dropped its active_games row. Continuing to apply gameplay
-    // mutations re-dirtied that state and could re-persist the room.
-    if (game.ended || game.phase === 'FINISHED') {
-        sendError(ws, 'GAME_NOT_FOUND', 'La partida ya ha terminado');
-        return false;
-    }
-
-    switch (event.type) {
-        case 'INC_LEVEL':
-            player.level = Math.min(game.maxLevel, player.level + stepAmount(event.amount));
-            break;
-        case 'DEC_LEVEL':
-            player.level = Math.max(game.minLevel, player.level - stepAmount(event.amount));
-            break;
-        case 'INC_GEAR':
-            player.gear = clampInt(player.gear + stepAmount(event.amount), -GEAR_LIMIT, GEAR_LIMIT, player.gear);
-            break;
-        case 'DEC_GEAR':
-            player.gear = clampInt(player.gear - stepAmount(event.amount), -GEAR_LIMIT, GEAR_LIMIT, player.gear);
-            break;
-        case 'SET_LEVEL':
-            player.level = clampInt(event.level, game.minLevel, game.maxLevel, player.level);
-            break;
-        case 'SET_GEAR':
-            player.gear = clampInt(event.gear, -GEAR_LIMIT, GEAR_LIMIT, player.gear);
-            break;
-        case 'SET_NAME': {
-            const trimmed = normalizeName(event.name);
-            if (!trimmed) {
-                sendError(ws, 'INVALID_DATA', 'Nombre inválido');
-                return false;
-            }
-            player.name = trimmed;
-            // hostName is denormalised onto the room and shown in the join list.
-            if (game.hostId === playerId) game.hostName = trimmed;
-            break;
+    function markMaxLevelIfReached(game, player, prevLevel, levelsGained) {
+        if (levelsGained > 0 && prevLevel < game.maxLevel && player.level >= game.maxLevel) {
+            player.reachedMaxLevelViaCombat = true;
         }
-        case 'SET_AVATAR':
-            player.avatarId = clampInt(event.avatarId, 0, MAX_AVATAR_ID, player.avatarId || 0);
-            break;
-        case 'SET_GENDER':
-            if (!VALID_GENDERS.has(event.gender)) {
-                sendError(ws, 'INVALID_DATA', 'Género inválido');
-                return false;
+    }
+
+    function canTouchCombat(game, playerId) {
+        if (!game.combat) return false;
+        return playerId === game.combat.mainPlayerId ||
+               playerId === game.combat.helperPlayerId ||
+               playerId === game.turnPlayerId ||
+               playerId === game.hostId;
+    }
+
+    function baseSanitizedEvent(event, playerId, extra = {}) {
+        return {
+            type: event.type,
+            eventId: typeof event.eventId === 'string' && event.eventId ? event.eventId.slice(0, 64) : crypto.randomUUID(),
+            timestamp: Number.isFinite(event.timestamp) ? event.timestamp : Date.now(),
+            actorId: playerId,
+            ...extra
+        };
+    }
+
+    function applyEvent(game, event, playerId, ws) {
+        const player = game.players.get(playerId);
+        if (!player) return null;
+
+        if (game.ended || game.phase === 'FINISHED') {
+            sendError(ws, 'GAME_NOT_FOUND', 'La partida ya ha terminado');
+            return null;
+        }
+
+        if (IN_GAME_ONLY_EVENTS.has(event.type) && game.phase !== 'IN_GAME') {
+            sendError(ws, 'INVALID_DATA', 'La partida aún no ha comenzado');
+            return null;
+        }
+
+        const manualLevelCap = requiresCombatToWin(game)
+            ? Math.max(game.minLevel, game.maxLevel - 1)
+            : game.maxLevel;
+
+        let sanitizedEvent = null;
+
+        switch (event.type) {
+            case 'INC_LEVEL': {
+                const step = stepAmount(event.amount);
+                if (!requiresCombatToWin(game) || player.level < manualLevelCap) {
+                    const cap = requiresCombatToWin(game) ? manualLevelCap : game.maxLevel;
+                    player.level = Math.min(cap, player.level + step);
+                }
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    targetPlayerId: playerId,
+                    amount: step
+                });
+                break;
             }
-            player.gender = event.gender;
-            break;
-        case 'SET_HALF_BREED':
-            player.hasHalfBreed = event.enabled === true;
-            // Without the card you cannot hold two races, so the second slot goes
-            // with it rather than lingering and silently applying again later.
-            if (!player.hasHalfBreed) player.secondaryRace = 'HUMAN';
-            break;
-        case 'SET_SUPER_MUNCHKIN':
-            player.hasSuperMunchkin = event.enabled === true;
-            if (!player.hasSuperMunchkin) player.secondaryClass = 'NONE';
-            break;
-        case 'PLAYER_ROLL': {
-            const rollResult = clampInt(event.result, 1, 6, 1);
-            if (game.phase === 'LOBBY') {
-                const allPlayers = Array.from(game.players.values());
-                const allRolled = allPlayers.length > 1 && allPlayers.every(p => p.lastRoll !== null && p.lastRoll !== undefined);
-                if (allRolled) {
-                    const maxRoll = Math.max(...allPlayers.map(p => p.lastRoll || 0));
-                    const tiedAtMax = allPlayers.filter(p => p.lastRoll === maxRoll);
-                    if (tiedAtMax.length > 1 && player.lastRoll === maxRoll) {
-                        for (const p of allPlayers) {
-                            if (p === player) continue;
-                            if (p.lastRoll === maxRoll) {
-                                p.lastRoll = null;
-                            } else {
-                                p.lastRoll = 0;
+            case 'DEC_LEVEL': {
+                const step = stepAmount(event.amount);
+                player.level = Math.max(game.minLevel, player.level - step);
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    targetPlayerId: playerId,
+                    amount: step
+                });
+                break;
+            }
+            case 'SET_LEVEL': {
+                const requested = clampInt(event.level, game.minLevel, game.maxLevel, player.level);
+                if (requiresCombatToWin(game) && requested >= game.maxLevel) {
+                    if (player.level < game.maxLevel) {
+                        player.level = manualLevelCap;
+                    }
+                } else {
+                    player.level = requested;
+                }
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    targetPlayerId: playerId,
+                    level: player.level
+                });
+                break;
+            }
+            case 'INC_GEAR': {
+                const step = stepAmount(event.amount);
+                player.gear = clampInt(player.gear + step, -GEAR_LIMIT, GEAR_LIMIT, player.gear);
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    targetPlayerId: playerId,
+                    amount: step
+                });
+                break;
+            }
+            case 'DEC_GEAR': {
+                const step = stepAmount(event.amount);
+                player.gear = clampInt(player.gear - step, -GEAR_LIMIT, GEAR_LIMIT, player.gear);
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    targetPlayerId: playerId,
+                    amount: step
+                });
+                break;
+            }
+            case 'SET_GEAR': {
+                player.gear = clampInt(event.gear, -GEAR_LIMIT, GEAR_LIMIT, player.gear);
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    targetPlayerId: playerId,
+                    gear: player.gear
+                });
+                break;
+            }
+            case 'SET_NAME': {
+                const trimmed = normalizeName(event.name);
+                if (!trimmed) {
+                    sendError(ws, 'INVALID_DATA', 'Nombre inválido');
+                    return null;
+                }
+                player.name = trimmed;
+                if (game.hostId === playerId) game.hostName = trimmed;
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    targetPlayerId: playerId,
+                    name: trimmed
+                });
+                break;
+            }
+            case 'SET_AVATAR': {
+                player.avatarId = clampInt(event.avatarId, 0, MAX_AVATAR_ID, player.avatarId || 0);
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    targetPlayerId: playerId,
+                    avatarId: player.avatarId
+                });
+                break;
+            }
+            case 'SET_GENDER': {
+                if (!VALID_GENDERS.has(event.gender)) {
+                    sendError(ws, 'INVALID_DATA', 'Género inválido');
+                    return null;
+                }
+                player.gender = event.gender;
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    targetPlayerId: playerId,
+                    gender: event.gender
+                });
+                break;
+            }
+            case 'SET_HALF_BREED': {
+                player.hasHalfBreed = event.enabled === true;
+                if (!player.hasHalfBreed) player.secondaryRace = 'HUMAN';
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    targetPlayerId: playerId,
+                    enabled: player.hasHalfBreed
+                });
+                break;
+            }
+            case 'SET_SUPER_MUNCHKIN': {
+                player.hasSuperMunchkin = event.enabled === true;
+                if (!player.hasSuperMunchkin) player.secondaryClass = 'NONE';
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    targetPlayerId: playerId,
+                    enabled: player.hasSuperMunchkin
+                });
+                break;
+            }
+            case 'SET_CLASS': {
+                if (!VALID_CLASSES.has(event.newClass)) {
+                    sendError(ws, 'INVALID_DATA', 'Clase inválida');
+                    return null;
+                }
+                const isSecondary = event.isSecondary === true;
+                if (isSecondary) {
+                    if (!player.hasSuperMunchkin) {
+                        sendError(ws, 'INVALID_DATA', 'Necesitas Súper Munchkin para una segunda clase');
+                        return null;
+                    }
+                    player.secondaryClass = event.newClass === player.characterClass ? 'NONE' : event.newClass;
+                } else {
+                    player.characterClass = event.newClass;
+                    if (!player.hasSuperMunchkin || player.secondaryClass === player.characterClass) {
+                        player.secondaryClass = 'NONE';
+                    }
+                }
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    targetPlayerId: playerId,
+                    newClass: event.newClass,
+                    isSecondary
+                });
+                break;
+            }
+            case 'SET_RACE': {
+                if (!VALID_RACES.has(event.newRace)) {
+                    sendError(ws, 'INVALID_DATA', 'Raza inválida');
+                    return null;
+                }
+                const isSecondary = event.isSecondary === true;
+                if (isSecondary) {
+                    if (!player.hasHalfBreed) {
+                        sendError(ws, 'INVALID_DATA', 'Necesitas Mestizo para una segunda raza');
+                        return null;
+                    }
+                    player.secondaryRace = event.newRace === player.characterRace ? 'HUMAN' : event.newRace;
+                } else {
+                    player.characterRace = event.newRace;
+                    if (!player.hasHalfBreed || player.secondaryRace === player.characterRace) {
+                        player.secondaryRace = 'HUMAN';
+                    }
+                }
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    targetPlayerId: playerId,
+                    newRace: event.newRace,
+                    isSecondary
+                });
+                break;
+            }
+            case 'PLAYER_ROLL': {
+                const rollResult = clampInt(event.result, 1, 6, 1);
+                const purpose = VALID_DICE_PURPOSES.has(event.purpose) ? event.purpose : 'RANDOM';
+                const computedSuccess = purpose === 'RUN_AWAY'
+                    ? (rollResult + getRunAwayBonus(player)) >= 5
+                    : (event.success === true);
+
+                if (game.phase === 'LOBBY') {
+                    const allPlayers = Array.from(game.players.values());
+                    const allRolled = allPlayers.length > 1 && allPlayers.every(p => p.lastRoll !== null && p.lastRoll !== undefined);
+                    if (allRolled) {
+                        const maxRoll = Math.max(...allPlayers.map(p => p.lastRoll || 0));
+                        const tiedAtMax = allPlayers.filter(p => p.lastRoll === maxRoll);
+                        if (tiedAtMax.length > 1 && player.lastRoll === maxRoll) {
+                            for (const p of allPlayers) {
+                                if (p === player) continue;
+                                if (p.lastRoll === maxRoll) {
+                                    p.lastRoll = null;
+                                } else {
+                                    p.lastRoll = 0;
+                                }
                             }
                         }
                     }
                 }
-            }
-            player.lastRoll = rollResult;
-            if (game.combat && (event.purpose === 'COMBAT' || event.purpose === 'RUN_AWAY')) {
-                game.combat.lastDiceRoll = {
-                    playerId: playerId,
-                    playerName: player.name || 'Jugador',
-                    result: rollResult,
-                    purpose: event.purpose,
-                    success: event.success === true,
-                    timestamp: Date.now()
-                };
-            }
-            break;
-        }
-        case 'COMBAT_START': {
-            if (game.combat) {
-                sendError(ws, 'COMBAT_ALREADY_ACTIVE', 'Ya hay un combate activo');
-                return false;
-            }
-            // The main player must be a real seat in this room; an arbitrary id
-            // would produce a combat nobody is able to end.
-            const mainPlayerId = event.mainPlayerId;
-            if (!mainPlayerId || !game.players.has(mainPlayerId)) {
-                sendError(ws, 'PLAYER_NOT_FOUND', 'Jugador principal no encontrado');
-                return false;
-            }
-            if (playerId !== mainPlayerId && playerId !== game.turnPlayerId && playerId !== game.hostId) {
-                sendError(ws, 'FORBIDDEN', 'Solo el jugador en turno o el anfitrión pueden iniciar el combate');
-                return false;
-            }
-            const initialMonsters = Array.isArray(event.monsters) ? event.monsters : [];
-            if (initialMonsters.length > MAX_MONSTERS_PER_COMBAT) {
-                sendError(ws, 'COMBAT_MONSTER_LIMIT', `Máximo ${MAX_MONSTERS_PER_COMBAT} monstruos por combate`);
-                return false;
-            }
-            game.combat = {
-                mainPlayerId,
-                helperPlayerId: null,
-                // Sanitise here too — COMBAT_ADD_MONSTER clamped but COMBAT_START
-                // did not, so the limits could be bypassed by seeding the combat.
-                monsters: initialMonsters.map(sanitizeMonster),
-                tempBonuses: [],
-                heroModifier: 0,
-                monsterModifier: 0,
-                lastDiceRoll: null,
-                isActive: true
-            };
-            break;
-        }
-        case 'COMBAT_UPDATE_MONSTER': {
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
-            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
-            const incoming = event.monster;
-            if (!incoming || !incoming.id) {
-                sendError(ws, 'INVALID_DATA', 'Monstruo inválido');
-                return false;
-            }
-            // Re-clamp on update: previously only ADD clamped, so a client could
-            // add a legal monster and then update it to any values it liked.
-            const sanitized = sanitizeMonster(incoming);
-            game.combat.monsters = game.combat.monsters.map(m =>
-                m.id === sanitized.id ? sanitized : m
-            );
-            break;
-        }
-        case 'COMBAT_ADD_MONSTER': {
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
-            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
-            if (game.combat.monsters.length >= MAX_MONSTERS_PER_COMBAT) {
-                sendError(ws, 'COMBAT_MONSTER_LIMIT', `Máximo ${MAX_MONSTERS_PER_COMBAT} monstruos por combate`);
-                return false;
-            }
-            game.combat.monsters.push(sanitizeMonster(event.monster));
-            break;
-        }
-        case 'COMBAT_REMOVE_MONSTER':
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
-            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
-            game.combat.monsters = game.combat.monsters.filter(m => m.id !== event.monsterId);
-            break;
-        case 'COMBAT_ADD_HELPER': {
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
-            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
-            if (event.helperId === game.combat.mainPlayerId) {
-                sendError(ws, 'INVALID_HELPER', 'No puedes ayudarte a ti mismo');
-                return false;
-            }
-            if (!game.players.has(event.helperId)) {
-                sendError(ws, 'PLAYER_NOT_FOUND', 'Jugador no encontrado');
-                return false;
-            }
-            game.combat.helperPlayerId = event.helperId;
-            break;
-        }
-        case 'COMBAT_REMOVE_HELPER':
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
-            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
-            game.combat.helperPlayerId = null;
-            break;
-        case 'COMBAT_MODIFY_MODIFIER': {
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
-            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
-            // Munchkin bonus items have no upper bound, so these stay unclamped —
-            // but they must still be finite integers to survive serialisation.
-            const delta = clampInt(event.delta, -MODIFIER_LIMIT, MODIFIER_LIMIT, 0);
-            if (event.target === 'HEROES') {
-                game.combat.heroModifier = clampInt((game.combat.heroModifier || 0) + delta, -MODIFIER_LIMIT, MODIFIER_LIMIT, 0);
-            } else {
-                game.combat.monsterModifier = clampInt((game.combat.monsterModifier || 0) + delta, -MODIFIER_LIMIT, MODIFIER_LIMIT, 0);
-            }
-            break;
-        }
-        case 'COMBAT_SET_MODIFIER': {
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
-            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
-            const value = clampInt(event.value, -MODIFIER_LIMIT, MODIFIER_LIMIT, 0);
-            if (event.target === 'HEROES') game.combat.heroModifier = value;
-            else game.combat.monsterModifier = value;
-            break;
-        }
-        case 'COMBAT_ADD_BONUS': {
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
-            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
-            if (game.combat.tempBonuses.length >= MAX_BONUSES_PER_COMBAT) {
-                sendError(ws, 'COMBAT_BONUS_LIMIT', `Máximo ${MAX_BONUSES_PER_COMBAT} bonificaciones por combate`);
-                return false;
-            }
-            game.combat.tempBonuses.push(sanitizeBonus(event.bonus));
-            break;
-        }
-        case 'COMBAT_REMOVE_BONUS':
-            if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return false; }
-            if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return false; }
-            game.combat.tempBonuses = game.combat.tempBonuses.filter(b => b.id !== event.bonusId);
-            break;
-        case 'COMBAT_END': {
-            if (!game.combat || !canTouchCombat(game, playerId)) {
-                sendError(ws, 'UNAUTHORIZED', 'Solo el jugador en turno, su ayudante o el anfitrión pueden terminar el combate');
-                return false;
-            }
-            const mainPlayer = game.players.get(game.combat.mainPlayerId) || player;
-            const helperPlayerId = game.combat.helperPlayerId ?? null;
 
-            // Server recalculates combat result — do not trust client-supplied values
-            const serverResult = calculateCombatResult(game);
-            let finalOutcome = event.outcome; // Trust ESCAPE (run-away or cancel flow)
-            let finalLevels = 0;
-            let finalTreasures = 0;
-            let finalHelperLevels = 0;
-
-            if (serverResult && event.outcome !== 'ESCAPE') {
-                if (serverResult.outcome !== event.outcome) {
-                    logger.warn(`⚠️ COMBAT_END mismatch: client=${event.outcome} server=${serverResult.outcome} heroes=${serverResult.heroesPower} monsters=${serverResult.monstersPower}`);
+                player.lastRoll = rollResult;
+                if (game.combat && (purpose === 'COMBAT' || purpose === 'RUN_AWAY')) {
+                    game.combat.lastDiceRoll = {
+                        playerId,
+                        playerName: player.name || 'Jugador',
+                        result: rollResult,
+                        purpose,
+                        success: computedSuccess,
+                        timestamp: Date.now()
+                    };
                 }
-                finalOutcome = serverResult.outcome;
-            }
 
-            if (finalOutcome === 'WIN') {
-                finalLevels = serverResult ? serverResult.totalLevels : (event.levelsGained || 0);
-                finalTreasures = serverResult ? serverResult.totalTreasures : (event.treasuresGained || 0);
-                finalHelperLevels = serverResult ? serverResult.helperLevelsGained : (event.helperLevelsGained || 0);
-                mainPlayer.level = Math.min(game.maxLevel, mainPlayer.level + finalLevels);
-                mainPlayer.treasures = (mainPlayer.treasures || 0) + finalTreasures;
-                // You may only reach the winning level by killing a monster, so
-                // the win check needs to know how the level was gained. An Elf
-                // levelling up by *helping* kill one counts too.
-                markMaxLevelIfReached(game, mainPlayer, finalLevels);
-                if (finalHelperLevels > 0 && helperPlayerId) {
-                    const helperPlayer = game.players.get(helperPlayerId);
-                    if (helperPlayer) {
-                        helperPlayer.level = Math.min(game.maxLevel, helperPlayer.level + finalHelperLevels);
-                        markMaxLevelIfReached(game, helperPlayer, finalHelperLevels);
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    result: rollResult,
+                    purpose,
+                    success: computedSuccess
+                });
+                break;
+            }
+            case 'COMBAT_START': {
+                if (game.combat) {
+                    sendError(ws, 'COMBAT_ALREADY_ACTIVE', 'Ya hay un combate activo');
+                    return null;
+                }
+                const mainPlayerId = event.mainPlayerId;
+                if (!mainPlayerId || !game.players.has(mainPlayerId)) {
+                    sendError(ws, 'PLAYER_NOT_FOUND', 'Jugador principal no encontrado');
+                    return null;
+                }
+                if (playerId !== mainPlayerId && playerId !== game.turnPlayerId && playerId !== game.hostId) {
+                    sendError(ws, 'FORBIDDEN', 'Solo el jugador en turno o el anfitrión pueden iniciar el combate');
+                    return null;
+                }
+                const initialMonsters = Array.isArray(event.monsters) ? event.monsters : [];
+                if (initialMonsters.length > MAX_MONSTERS_PER_COMBAT) {
+                    sendError(ws, 'COMBAT_MONSTER_LIMIT', `Máximo ${MAX_MONSTERS_PER_COMBAT} monstruos por combate`);
+                    return null;
+                }
+                const monsters = initialMonsters.map(sanitizeMonster);
+                game.combat = {
+                    mainPlayerId,
+                    helperPlayerId: null,
+                    monsters,
+                    tempBonuses: [],
+                    heroModifier: 0,
+                    monsterModifier: 0,
+                    lastDiceRoll: null,
+                    isActive: true
+                };
+                sanitizedEvent = baseSanitizedEvent(event, playerId, { mainPlayerId, monsters });
+                break;
+            }
+            case 'COMBAT_UPDATE_MONSTER': {
+                if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return null; }
+                if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return null; }
+                const incoming = event.monster;
+                if (!incoming || !incoming.id) {
+                    sendError(ws, 'INVALID_DATA', 'Monstruo inválido');
+                    return null;
+                }
+                const sanitized = sanitizeMonster(incoming);
+                game.combat.monsters = game.combat.monsters.map(m =>
+                    m.id === sanitized.id ? sanitized : m
+                );
+                sanitizedEvent = baseSanitizedEvent(event, playerId, { monster: sanitized });
+                break;
+            }
+            case 'COMBAT_ADD_MONSTER': {
+                if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return null; }
+                if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return null; }
+                if (game.combat.monsters.length >= MAX_MONSTERS_PER_COMBAT) {
+                    sendError(ws, 'COMBAT_MONSTER_LIMIT', `Máximo ${MAX_MONSTERS_PER_COMBAT} monstruos por combate`);
+                    return null;
+                }
+                const monster = sanitizeMonster(event.monster);
+                game.combat.monsters.push(monster);
+                sanitizedEvent = baseSanitizedEvent(event, playerId, { monster });
+                break;
+            }
+            case 'COMBAT_REMOVE_MONSTER': {
+                if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return null; }
+                if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return null; }
+                const monsterId = typeof event.monsterId === 'string' ? event.monsterId : '';
+                game.combat.monsters = game.combat.monsters.filter(m => m.id !== monsterId);
+                sanitizedEvent = baseSanitizedEvent(event, playerId, { monsterId });
+                break;
+            }
+            case 'COMBAT_ADD_HELPER': {
+                if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return null; }
+                if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return null; }
+                if (event.helperId === game.combat.mainPlayerId) {
+                    sendError(ws, 'INVALID_HELPER', 'No puedes ayudarte a ti mismo');
+                    return null;
+                }
+                if (!event.helperId || !game.players.has(event.helperId)) {
+                    sendError(ws, 'PLAYER_NOT_FOUND', 'Jugador no encontrado');
+                    return null;
+                }
+                game.combat.helperPlayerId = event.helperId;
+                sanitizedEvent = baseSanitizedEvent(event, playerId, { helperId: event.helperId });
+                break;
+            }
+            case 'COMBAT_REMOVE_HELPER': {
+                if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return null; }
+                if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return null; }
+                game.combat.helperPlayerId = null;
+                sanitizedEvent = baseSanitizedEvent(event, playerId);
+                break;
+            }
+            case 'COMBAT_SET_MODIFIER': {
+                if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return null; }
+                if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return null; }
+                const value = clampInt(event.value, -MODIFIER_LIMIT, MODIFIER_LIMIT, 0);
+                const target = event.target === 'HEROES' ? 'HEROES' : 'MONSTER';
+                if (target === 'HEROES') game.combat.heroModifier = value;
+                else game.combat.monsterModifier = value;
+                sanitizedEvent = baseSanitizedEvent(event, playerId, { target, value });
+                break;
+            }
+            case 'COMBAT_ADD_BONUS': {
+                if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return null; }
+                if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return null; }
+                if (game.combat.tempBonuses.length >= MAX_BONUSES_PER_COMBAT) {
+                    sendError(ws, 'COMBAT_BONUS_LIMIT', `Máximo ${MAX_BONUSES_PER_COMBAT} bonificaciones por combate`);
+                    return null;
+                }
+                const bonus = sanitizeBonus(event.bonus);
+                game.combat.tempBonuses.push(bonus);
+                sanitizedEvent = baseSanitizedEvent(event, playerId, { bonus });
+                break;
+            }
+            case 'COMBAT_REMOVE_BONUS': {
+                if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return null; }
+                if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return null; }
+                const bonusId = typeof event.bonusId === 'string' ? event.bonusId : '';
+                game.combat.tempBonuses = game.combat.tempBonuses.filter(b => b.id !== bonusId);
+                sanitizedEvent = baseSanitizedEvent(event, playerId, { bonusId });
+                break;
+            }
+            case 'COMBAT_END': {
+                if (!game.combat || !canTouchCombat(game, playerId)) {
+                    sendError(ws, 'UNAUTHORIZED', 'Solo el jugador en turno, su ayudante o el anfitrión pueden terminar el combate');
+                    return null;
+                }
+                if (
+                    event.expectedSeq !== undefined &&
+                    event.expectedSeq !== null &&
+                    Number(event.expectedSeq) !== game.seq
+                ) {
+                    sendError(ws, 'CONFLICT', 'El estado del combate ha cambiado');
+                    safeSend(ws, {
+                        type: 'STATE_SNAPSHOT',
+                        gameState: game.buildGameState(),
+                        seq: game.seq
+                    });
+                    return null;
+                }
+
+                const requestedOutcome = event.outcome;
+                if (requestedOutcome && requestedOutcome !== 'WIN' && requestedOutcome !== 'LOSE' && requestedOutcome !== 'ESCAPE') {
+                    sendError(ws, 'INVALID_DATA', 'Resultado de combate inválido');
+                    return null;
+                }
+
+                const monsters = game.combat.monsters || [];
+                if (requestedOutcome === 'ESCAPE') {
+                    if (monsters.length > 0) {
+                        if (event.cancelled === true) {
+                            if (playerId !== game.combat.mainPlayerId && playerId !== game.hostId) {
+                                sendError(ws, 'FORBIDDEN', 'Solo el jugador principal o el anfitrión pueden cancelar el combate');
+                                return null;
+                            }
+                        } else {
+                            const lastRoll = game.combat.lastDiceRoll;
+                            if (!lastRoll || lastRoll.purpose !== 'RUN_AWAY' || lastRoll.success !== true) {
+                                sendError(ws, 'INVALID_DATA', 'Debes superar la tirada de huida (5+) para escapar');
+                                return null;
+                            }
+                        }
+                    }
+                    game.combat = null;
+                    sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                        outcome: 'ESCAPE',
+                        cancelled: event.cancelled === true,
+                        levelsGained: 0,
+                        treasuresGained: 0,
+                        helperLevelsGained: 0
+                    });
+                    break;
+                }
+
+                if (monsters.length === 0) {
+                    sendError(ws, 'INVALID_DATA', 'No hay monstruos en el combate');
+                    return null;
+                }
+
+                const serverResult = calculateCombatResult(game);
+                if (!serverResult) {
+                    sendError(ws, 'INVALID_DATA', 'No se pudo calcular el resultado del combate');
+                    return null;
+                }
+
+                if (serverResult.outcome !== requestedOutcome) {
+                    logger.warn(
+                        `⚠️ COMBAT_END mismatch: client=${requestedOutcome} server=${serverResult.outcome} ` +
+                        `heroes=${serverResult.heroesPower} monsters=${serverResult.monstersPower}`
+                    );
+                }
+
+                const mainPlayer = game.players.get(game.combat.mainPlayerId) || player;
+                const helperPlayerId = game.combat.helperPlayerId ?? null;
+                const finalOutcome = serverResult.outcome;
+                let finalLevels = 0;
+                let finalTreasures = 0;
+                let finalHelperLevels = 0;
+
+                if (finalOutcome === 'WIN') {
+                    finalLevels = serverResult.totalLevels;
+                    finalTreasures = serverResult.totalTreasures;
+                    finalHelperLevels = serverResult.helperLevelsGained;
+
+                    const prevMainLevel = mainPlayer.level;
+                    mainPlayer.level = Math.min(game.maxLevel, mainPlayer.level + finalLevels);
+                    mainPlayer.treasures = (mainPlayer.treasures || 0) + finalTreasures;
+                    markMaxLevelIfReached(game, mainPlayer, prevMainLevel, finalLevels);
+
+                    if (finalHelperLevels > 0 && helperPlayerId) {
+                        const helperPlayer = game.players.get(helperPlayerId);
+                        if (helperPlayer) {
+                            const prevHelperLevel = helperPlayer.level;
+                            helperPlayer.level = Math.min(game.maxLevel, helperPlayer.level + finalHelperLevels);
+                            markMaxLevelIfReached(game, helperPlayer, prevHelperLevel, finalHelperLevels);
+                        }
                     }
                 }
-            }
 
-            game.combat = null;
-            break;
-        }
-        case 'GAME_START': {
-            // Only the host starts the game. The dedicated admin messages
-            // (GAME_OVER, END_TURN) already enforce their authorization; the
-            // event path must match or it becomes the bypass.
-            if (game.hostId !== playerId) {
-                sendError(ws, 'FORBIDDEN', 'Solo el anfitrión puede iniciar la partida');
-                return false;
+                game.combat = null;
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    outcome: finalOutcome,
+                    levelsGained: finalLevels,
+                    treasuresGained: finalTreasures,
+                    helperLevelsGained: finalHelperLevels
+                });
+                break;
             }
-            if (game.phase !== 'LOBBY') {
-                sendError(ws, 'GAME_ALREADY_STARTED', 'La partida ya ha comenzado');
-                return false;
-            }
-            const order = (Array.isArray(game.playerOrder) && game.playerOrder.length > 0)
-                ? game.playerOrder
-                : Array.from(game.players.keys());
-            let highestPlayerId = null;
-            let highestRoll = 0;
-            for (const pid of order) {
-                const p = game.players.get(pid);
-                if (p && (p.lastRoll || 0) > highestRoll) {
-                    highestRoll = p.lastRoll;
-                    highestPlayerId = pid;
+            case 'GAME_START': {
+                if (game.hostId !== playerId) {
+                    sendError(ws, 'FORBIDDEN', 'Solo el anfitrión puede iniciar la partida');
+                    return null;
                 }
-            }
-            game.turnPlayerId = highestPlayerId || order[0] || game.hostId;
-            game.phase = "IN_GAME";
-            break;
-        }
-        case 'SET_CLASS':
-            if (!VALID_CLASSES.has(event.newClass)) {
-                sendError(ws, 'INVALID_DATA', 'Clase inválida');
-                return false;
-            }
-            if (event.isSecondary) {
-                // A second class only exists while Super Munchkin is in play.
-                if (!player.hasSuperMunchkin) {
-                    sendError(ws, 'INVALID_DATA', 'Necesitas Súper Munchkin para una segunda clase');
-                    return false;
+                if (game.phase !== 'LOBBY') {
+                    sendError(ws, 'GAME_ALREADY_STARTED', 'La partida ya ha comenzado');
+                    return null;
                 }
-                player.secondaryClass = event.newClass;
-            } else {
-                player.characterClass = event.newClass;
-            }
-            break;
-        case 'SET_RACE':
-            if (!VALID_RACES.has(event.newRace)) {
-                sendError(ws, 'INVALID_DATA', 'Raza inválida');
-                return false;
-            }
-            if (event.isSecondary) {
-                // A second race only exists while Half-Breed is in play.
-                if (!player.hasHalfBreed) {
-                    sendError(ws, 'INVALID_DATA', 'Necesitas Mestizo para una segunda raza');
-                    return false;
+                const order = (Array.isArray(game.playerOrder) && game.playerOrder.length > 0)
+                    ? game.playerOrder
+                    : Array.from(game.players.keys());
+                let highestPlayerId = null;
+                let highestRoll = 0;
+                for (const pid of order) {
+                    const p = game.players.get(pid);
+                    if (p && (p.lastRoll || 0) > highestRoll) {
+                        highestRoll = p.lastRoll;
+                        highestPlayerId = pid;
+                    }
                 }
-                player.secondaryRace = event.newRace;
-            } else {
-                player.characterRace = event.newRace;
+                game.turnPlayerId = highestPlayerId || order[0] || game.hostId;
+                game.phase = 'IN_GAME';
+                sanitizedEvent = baseSanitizedEvent(event, playerId);
+                break;
             }
-            break;
-        case 'GAME_END':
-            // Explicit end (e.g. host left). Host-only: any seat could previously
-            // close the room for everyone and write an arbitrary winnerId into the
-            // permanent history/leaderboard.
-            if (game.hostId !== playerId) {
-                sendError(ws, 'FORBIDDEN', 'Solo el anfitrión puede finalizar la partida');
-                return false;
+            case 'GAME_END': {
+                if (game.hostId !== playerId) {
+                    sendError(ws, 'FORBIDDEN', 'Solo el anfitrión puede finalizar la partida');
+                    return null;
+                }
+                const normalizedWinnerId = event.winnerId === '' ? null : (event.winnerId ?? null);
+                const validationErr = validateGameOverWinner(game, normalizedWinnerId);
+                if (validationErr) {
+                    sendError(ws, validationErr.code, validationErr.message);
+                    return null;
+                }
+                logger.info(`🏁 Game ${game.joinCode} explicit end. Winner: ${normalizedWinnerId}`);
+                finalizeGameOver(game, normalizedWinnerId);
+                return { handledAsGameOver: true };
             }
-            if (event.winnerId && !game.players.has(event.winnerId)) {
-                sendError(ws, 'PLAYER_NOT_FOUND', 'Ganador no encontrado');
-                return false;
+            case 'END_TURN': {
+                const turnPlayer = game.turnPlayerId ? game.players.get(game.turnPlayerId) : null;
+                const isTurnOwner = !game.turnPlayerId || game.turnPlayerId === playerId;
+                const isHostAdvancingDisconnected =
+                    game.hostId === playerId &&
+                    turnPlayer != null &&
+                    turnPlayer.isConnected === false;
+
+                if (!isTurnOwner && !isHostAdvancingDisconnected) {
+                    sendError(ws, 'FORBIDDEN', 'No es tu turno');
+                    return null;
+                }
+                const nextPlayerId = getNextTurnPlayerId(game);
+                game.turnPlayerId = nextPlayerId;
+                game.combat = null;
+                logger.info(`cw Turn passed to ${game.players.get(nextPlayerId)?.name}`);
+                sanitizedEvent = baseSanitizedEvent(event, playerId);
+                break;
             }
-            logger.info(`🏁 Game ${game.joinCode} explicit end. Winner: ${event.winnerId}`);
-            closeGame(game, event.winnerId);
-            break;
-        case 'END_TURN': {
-            // Same rule as the dedicated END_TURN message: only the player whose
-            // turn it is may pass it. Otherwise anyone could steal turns and wipe
-            // the active combat (END_TURN clears game.combat).
-            if (game.turnPlayerId && game.turnPlayerId !== playerId) {
-                sendError(ws, 'FORBIDDEN', 'No es tu turno');
-                return false;
-            }
-            const nextPlayerId = getNextTurnPlayerId(game);
-            game.turnPlayerId = nextPlayerId;
-            game.combat = null; // Clear combat state
-            logger.info(`cw Turn passed to ${game.players.get(nextPlayerId)?.name}`);
-            break;
+            default:
+                sendError(ws, 'INVALID_DATA', 'Tipo de evento no soportado');
+                return null;
+        }
+
+        if (player.level < game.maxLevel) {
+            player.reachedMaxLevelViaCombat = false;
+        }
+
+        if (player.level >= game.maxLevel && !game.winnerId) {
+            logger.info(`Player ${player.name} reached Level ${game.maxLevel}; awaiting host confirmation`);
+        }
+
+        return sanitizedEvent;
+    }
+
+    function handleEvent(ws, message) {
+        const clientData = clientGames.get(ws);
+        if (!clientData) return;
+
+        const game = games.get(clientData.gameId);
+        if (!game) return;
+
+        const { event } = message;
+        if (!isPlainObject(event) || typeof event.type !== 'string') {
+            sendError(ws, 'INVALID_DATA', 'Evento inválido');
+            return;
+        }
+
+        const playerId = clientData.playerId;
+        logger.info(`🎯 Event: ${event.type} from ${playerId}`);
+
+        if (event.actorId && event.actorId !== playerId) {
+            logger.warn(`⚠️ SECURITY: Actor mismatch. Session: ${playerId}, Event.actorId: ${event.actorId}`);
+            sendError(ws, 'FORBIDDEN', 'Action not authorized');
+            return;
+        }
+
+        if (event.targetPlayerId && event.targetPlayerId !== playerId) {
+            sendError(ws, 'FORBIDDEN', 'Action not authorized');
+            return;
+        }
+
+        const result = applyEvent(game, event, playerId, ws);
+        if (!result) return;
+        if ('handledAsGameOver' in result) return;
+
+        game.seq++;
+        const timerStateChanged = syncTurnTimer(game, `event ${result.type}`);
+        const snapshotFirstEvent = SNAPSHOT_FIRST_EVENT_TYPES.has(result.type);
+
+        if (!snapshotFirstEvent) {
+            game.broadcast({
+                type: 'EVENT_BROADCAST',
+                gameId: game.id,
+                epoch: game.epoch,
+                event: result,
+                fromPlayerId: playerId,
+                seq: game.seq
+            });
+        }
+
+        if (snapshotFirstEvent || timerStateChanged) {
+            game.broadcast({
+                type: 'STATE_SNAPSHOT',
+                gameState: game.buildGameState(),
+                seq: game.seq
+            });
+        }
+
+        if (SAVEABLE_EVENT_TYPES.has(result.type)) {
+            debouncedSaveGame(game);
         }
     }
 
-    // Dropping back below the winning level revokes the claim, so climbing back
-    // up by hand afterwards does not inherit the earlier kill.
-    if (player.level < game.maxLevel) {
-        player.reachedMaxLevelViaCombat = false;
-    }
+    function dispatchMessage(ws, message) {
+        logger.info(`[${ws.connectionId}] 📨 Received: ${message.type}`);
 
-    if (player.level >= game.maxLevel && !game.winnerId) {
-        logger.info(`Player ${player.name} reached Level ${game.maxLevel}; awaiting host confirmation`);
-        return true;
-    }
-
-    return true;
-}
-
-// Rate limiting for join game
-const joinRateLimits = new Map(); // IP -> { attempts: number, lastAttempt: timestamp }
-const JOIN_RATE_LIMIT_MAX_ATTEMPTS = 10;
-const JOIN_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
-
-function isJoinRateLimited(ip) {
-    const record = joinRateLimits.get(ip);
-    if (!record) return false;
-
-    // Reset if window expired
-    if (Date.now() - record.lastAttempt > JOIN_RATE_LIMIT_WINDOW_MS) {
-        joinRateLimits.delete(ip);
-        return false;
-    }
-
-    return record.attempts >= JOIN_RATE_LIMIT_MAX_ATTEMPTS;
-}
-
-/**
- * Records the outcome of a join attempt.
- *
- * Only failures count. This limit exists to stop join-code guessing, and a guess
- * is by definition a failure — charging successful joins and reconnects against
- * the same budget punished legitimate play instead. Two ways that used to bite:
- * several players behind one NAT (a household shares a public IP) burned six
- * attempts just sitting down, and the client retries a dropped connection up to
- * MAX_RECONNECT_ATTEMPTS (15) times, so one flaky link could blow a 10-attempt
- * budget by itself and lock out everyone on that address.
- */
-function recordJoinAttempt(ip, success) {
-    if (success) {
-        joinRateLimits.delete(ip);
-        return;
-    }
-    const record = joinRateLimits.get(ip) || { attempts: 0, lastAttempt: 0 };
-    record.attempts++;
-    record.lastAttempt = Date.now();
-    joinRateLimits.set(ip, record);
-}
-
-/**
- * Entries are only dropped when the same IP comes back after its window expired,
- * so a stream of distinct IPs grew this map for the process lifetime. Sweep it
- * on the periodic cleanup instead.
- */
-function pruneJoinRateLimits() {
-    const now = Date.now();
-    let removed = 0;
-    for (const [ip, record] of joinRateLimits) {
-        if (now - record.lastAttempt > JOIN_RATE_LIMIT_WINDOW_MS) {
-            joinRateLimits.delete(ip);
-            removed++;
+        const clientData = clientGames.get(ws);
+        if (clientData && games.has(clientData.gameId)) {
+            games.get(clientData.gameId).lastActivity = Date.now();
         }
-    }
-    if (removed > 0) {
-        logger.info(`🧹 Pruned ${removed} expired join rate-limit entries`);
-    }
-}
 
-
-function sendError(ws, code, message) {
-    if (ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({
-        type: "ERROR",
-        code,
-        message
-    }));
-}
-
-// Cleanup old games every hour
-setInterval(() => {
-    const now = Date.now();
-    const maxAge = 4 * 60 * 60 * 1000; // 4 hours
-
-    for (const [gameId, game] of games) {
-        const lastActivity = game.lastActivity || game.createdAt;
-        if (now - lastActivity > maxAge) {
-            clearRoomLifecycleTimers(game, 'cleaning up old game');
-            cancelPendingSave(gameId);
-            games.delete(gameId);
-            db.deleteActiveGame(gameId).catch(err => logger.error('Failed to delete game from DB:', err));
-            logger.info(`🧹 Cleaned up old game ${game.joinCode} due to inactivity`);
+        switch (message.type) {
+            case 'HELLO':
+            case 'HelloMessage':
+                handleHello(ws, message);
+                return null;
+            case 'CREATE_GAME':
+            case 'CreateGameMessage':
+                handleCreateGame(ws, message);
+                return null;
+            case 'EVENT_REQUEST':
+            case 'EventMessage':
+                handleEvent(ws, message);
+                return null;
+            case 'PING':
+            case 'PingMessage':
+                safeSend(ws, { type: 'PONG', timestamp: Date.now() });
+                return null;
+            case 'LIST_GAMES':
+            case 'ListGamesMessage':
+                handleListGames(ws);
+                return null;
+            case 'REGISTER':
+                return handleRegister(ws, message);
+            case 'LOGIN':
+                return handleLogin(ws, message);
+            case 'LOGIN_WITH_TOKEN':
+                return handleLoginWithToken(ws, message);
+            case 'CATALOG_SEARCH':
+                handleCatalogSearch(ws, message);
+                return null;
+            case 'CATALOG_ADD':
+                handleCatalogAdd(ws, message);
+                return null;
+            case 'GAME_OVER':
+                handleGameOver(ws, message);
+                return null;
+            case 'GET_HISTORY':
+                handleGetHistory(ws, message);
+                return null;
+            case 'GET_LEADERBOARD':
+                handleGetLeaderboard(ws);
+                return null;
+            case 'UPDATE_PROFILE':
+                return handleUpdateProfile(ws, message);
+            case 'DELETE_ACCOUNT':
+                return handleDeleteAccount(ws, message);
+            case 'END_TURN':
+                handleEndTurn(ws);
+                return null;
+            case 'KICK_PLAYER':
+                handleKickPlayer(ws, message);
+                return null;
+            case 'TRANSFER_HOST':
+                handleTransferHost(ws, message);
+                return null;
+            case 'SWAP_PLAYERS':
+                handleSwapPlayers(ws, message);
+                return null;
+            case 'GET_HOSTED_GAMES':
+                handleGetHostedGames(ws);
+                return null;
+            case 'DELETE_HOSTED_GAME':
+                handleDeleteHostedGame(ws, message);
+                return null;
+            case 'DELETE_GAME':
+                handleDeleteGame(ws);
+                return null;
+            default:
+                logger.info('Unknown message type:', message.type);
+                return null;
         }
     }
 
-    pruneJoinRateLimits();
+    function handleMessage(ws, message) {
+        if (!isPlainObject(message) || typeof message.type !== 'string') {
+            sendError(ws, 'INVALID_DATA', 'Formato de mensaje inválido');
+            return;
+        }
 
-    // Same unbounded-growth issue as the join limiter.
-    const apiCutoff = Date.now() - API_RATE_LIMIT_WINDOW_MS;
-    for (const [ip, record] of apiRateLimits) {
-        if (record.windowStart < apiCutoff) apiRateLimits.delete(ip);
+        if (ws._authPromise) {
+            const next = ws._authPromise
+                .catch(() => {})
+                .then(() => {
+                    if (ws.readyState !== WebSocket.OPEN) return;
+                    try {
+                        return dispatchMessage(ws, message);
+                    } catch (err) {
+                        logger.error(`[${ws.connectionId}] Error handling queued message:`, err);
+                        sendError(ws, 'SERVER_ERROR', 'An internal server error occurred while processing your message.');
+                    }
+                });
+            const tracked = next.finally(() => {
+                if (ws._authPromise === tracked) {
+                    ws._authPromise = null;
+                }
+            });
+            ws._authPromise = tracked;
+            return;
+        }
+
+        const result = dispatchMessage(ws, message);
+        if (AUTH_CHAINED_MESSAGES.has(message.type) && result && typeof result.then === 'function') {
+            const tracked = Promise.resolve(result).finally(() => {
+                if (ws._authPromise === tracked) {
+                    ws._authPromise = null;
+                }
+            });
+            ws._authPromise = tracked;
+        }
     }
 
-    // Cleanup database orphans
-    db.cleanupOldGames().catch(err => logger.error('Failed to cleanup DB:', err));
-}, 60 * 60 * 1000);
+    wss.on('connection', (rawWs, req) => {
+        const ws = /** @type {AppWebSocket} */ (rawWs);
+        const clientIp = getClientIp(req);
+        ws.clientIp = clientIp;
+        ws.connectionId = 'conn_' + crypto.randomUUID().substring(0, 8);
+        ws.isAlive = true;
+        ws._authPromise = null;
 
-// Log server health metrics every 30 minutes
-setInterval(() => {
-    let totalPlayers = 0;
-    for (const game of games.values()) {
-        totalPlayers += game.players.size;
+        logger.info(`[${ws.connectionId}] 📱 Client connected from ${clientIp}`);
+
+        ws.on('pong', () => {
+            ws.isAlive = true;
+        });
+
+        ws.on('message', (messageStr) => {
+            const rawText = String(messageStr);
+            let message;
+            try {
+                message = JSON.parse(rawText);
+            } catch (e) {
+                logger.error(`[${ws.connectionId}] ❌ Invalid JSON received (${rawText.length} bytes), ignoring`);
+                return;
+            }
+            try {
+                handleMessage(ws, message);
+            } catch (e) {
+                logger.error(`[${ws.connectionId}] Error handling message:`, e);
+                sendError(ws, 'SERVER_ERROR', 'An internal server error occurred while processing your message.');
+            }
+        });
+
+        ws.on('close', () => {
+            try {
+                logger.info(`[${ws.connectionId}] 🔌 Client disconnected`);
+                handleDisconnect(ws);
+            } catch (e) {
+                logger.error(`[${ws.connectionId}] Error in handleDisconnect:`, e);
+            }
+        });
+
+        ws.on('error', (err) => {
+            logger.error(`[${ws.connectionId}] WebSocket error:`, err);
+        });
+    });
+
+    const heartbeatInterval = setInterval(() => {
+        for (const rawClient of wss.clients) {
+            const client = /** @type {AppWebSocket} */ (rawClient);
+            if (client.isAlive === false) {
+                client.terminate();
+                continue;
+            }
+            client.isAlive = false;
+            try {
+                client.ping();
+            } catch (err) {
+                logger.warn(`Failed to ping WS client: ${err.message}`);
+                client.terminate();
+            }
+        }
+    }, HEARTBEAT_INTERVAL_MS);
+    heartbeatInterval.unref();
+
+    const cleanupInterval = setInterval(() => {
+        const now = Date.now();
+        const maxAge = 4 * 60 * 60 * 1000;
+
+        for (const [gameId, game] of games) {
+            const lastActivity = game.lastActivity || game.createdAt;
+            if (now - lastActivity > maxAge) {
+                clearRoomLifecycleTimers(game, 'cleaning up old game');
+                cancelPendingSave(gameId);
+                removeGame(gameId);
+                db.deleteActiveGame(gameId).catch(err => logger.error('Failed to delete game from DB:', err));
+                logger.info(`🧹 Cleaned up old game ${game.joinCode} due to inactivity`);
+            }
+        }
+
+        pruneExpiredRateLimits();
+        db.cleanupOldGames().catch(err => logger.error('Failed to cleanup DB:', err));
+    }, 60 * 60 * 1000);
+    cleanupInterval.unref();
+
+    const metricsInterval = setInterval(() => {
+        let totalPlayers = 0;
+        for (const game of games.values()) {
+            totalPlayers += game.players.size;
+        }
+        const memUsage = process.memoryUsage();
+        logger.info(
+            `📊 Metrics | Active Games: ${games.size} | Total Players: ${totalPlayers} | ` +
+            `RAM (Heap Used): ${(memUsage.heapUsed / 1024 / 1024).toFixed(2)} MB | ` +
+            `Uptime: ${(process.uptime() / 60).toFixed(2)} mins`
+        );
+    }, 30 * 60 * 1000);
+    metricsInterval.unref();
+
+    async function loadGamesFromDatabase() {
+        try {
+            const savedGames = await db.loadActiveGames();
+            for (const saved of savedGames) {
+                const game = new GameRoom(saved.hostId, saved.joinCode, saved.hostName, 0, DEFAULT_GENDER);
+                game.id = saved.id;
+                game.phase = saved.phase;
+                game.ended = saved.phase === 'FINISHED';
+                game.turnPlayerId = saved.turnPlayerId;
+                game.combat = saved.combat;
+                game.createdAt = saved.createdAt;
+                game.seq = saved.seq;
+                game.maxLevel = saved.maxLevel || 10;
+                game.turnTimerSeconds = clampInt(saved.turnTimerSeconds, 0, MAX_TURN_TIMER_SECONDS, 0);
+                game.turnEndsAt = saved.turnEndsAt || null;
+                game.winnerId = saved.winnerId || null;
+                game.originalHostId = saved.originalHostId || saved.hostId;
+                game.hostUserId = saved.hostUserId || null;
+                game.playerOrder = Array.isArray(saved.playerOrder) && saved.playerOrder.length > 0
+                    ? saved.playerOrder
+                    : Object.keys(saved.players || {});
+
+                for (const [playerId, playerData] of Object.entries(saved.players)) {
+                    game.players.set(playerId, {
+                        ws: null,
+                        name: normalizeName(playerData.name) || 'Jugador',
+                        avatarId: clampInt(playerData.avatarId, 0, MAX_AVATAR_ID, 0),
+                        gender: normalizeGender(playerData.gender),
+                        userId: playerData.userId,
+                        lastKnownIp: null,
+                        reconnectTokenHash: playerData.reconnectTokenHash || null,
+                        level: playerData.level || 1,
+                        gear: playerData.gear || 0,
+                        tempCombatBonus: playerData.tempCombatBonus || 0,
+                        treasures: playerData.treasures || 0,
+                        characterClass: playerData.characterClass || 'NONE',
+                        characterRace: playerData.characterRace || 'HUMAN',
+                        secondaryClass: playerData.secondaryClass || 'NONE',
+                        secondaryRace: playerData.secondaryRace || 'HUMAN',
+                        hasHalfBreed: playerData.hasHalfBreed || false,
+                        hasSuperMunchkin: playerData.hasSuperMunchkin || false,
+                        lastRoll: playerData.lastRoll ?? null,
+                        reachedMaxLevelViaCombat: playerData.reachedMaxLevelViaCombat === true,
+                        isConnected: false,
+                        joinedAt: playerData.joinedAt
+                    });
+                }
+
+                registerGame(game);
+                syncTurnTimer(game, 'restored game');
+                logger.info(`🔄 Restored game ${game.joinCode} with ${game.players.size} players`);
+            }
+        } catch (err) {
+            logger.error('❌ Failed to load games from database:', err);
+        }
     }
-    const memUsage = process.memoryUsage();
-    logger.info(`📊 Metrics | Active Games: ${games.size} | Total Players: ${totalPlayers} | RAM (Heap Used): ${(memUsage.heapUsed / 1024 / 1024).toFixed(2)} MB | Uptime: ${(process.uptime() / 60).toFixed(2)} mins`);
-}, 30 * 60 * 1000);
 
+    let stopping = false;
 
-// Graceful shutdown: persist all active games before exiting
-async function gracefulShutdown(signal, exitCode = 0) {
-    logger.info(`🛑 Received ${signal}. Saving active games and shutting down...`);
-    try {
-        // Flush any pending debounced saves immediately
+    async function stop() {
+        if (stopping) return;
+        stopping = true;
+
+        clearInterval(heartbeatInterval);
+        clearInterval(cleanupInterval);
+        clearInterval(metricsInterval);
+
         for (const [gameId, handle] of pendingSaves) {
             clearTimeout(handle);
             pendingSaves.delete(gameId);
         }
+
         const savePromises = [];
         for (const game of games.values()) {
             clearRoomLifecycleTimers(game, 'graceful shutdown');
-            savePromises.push(db.saveActiveGame(game).catch(err => logger.error(`Failed to save game ${game.joinCode}:`, err)));
+            if (!game.ended) {
+                savePromises.push(
+                    db.saveActiveGame(game).catch(err =>
+                        logger.error(`Failed to save game ${game.joinCode}:`, err))
+                );
+            }
         }
         await Promise.all(savePromises);
-        logger.info(`✅ Saved ${savePromises.length} active games. Exiting.`);
-    } catch (err) {
-        logger.error('Error during shutdown:', err);
+
+        for (const client of wss.clients) {
+            try {
+                client.close(1001, 'Server shutting down');
+            } catch (err) {
+                logger.warn(`Failed to close client cleanly: ${err.message}`);
+            }
+        }
+
+        await new Promise((resolve) => wss.close(() => resolve()));
+        if (httpServer.listening) {
+            await new Promise((resolve) => httpServer.close(() => resolve()));
+        }
+        logger.info(`✅ Saved ${savePromises.length} active games and stopped listeners.`);
     }
-    process.exit(exitCode);
+
+    async function start() {
+        await db.ready;
+        await loadGamesFromDatabase();
+        await new Promise((resolve, reject) => {
+            httpServer.once('error', reject);
+            httpServer.listen(port, '0.0.0.0', () => {
+                httpServer.removeListener('error', reject);
+                const addr = httpServer.address();
+                const boundPort = typeof addr === 'object' && addr ? addr.port : port;
+                const protocol = isSsl ? 'HTTPS/WSS' : 'HTTP/WS';
+                logger.info(`✅ Server listening on port ${boundPort} (${protocol})`);
+                logger.info('✅ Server ready to accept connections');
+                resolve();
+            });
+        });
+    }
+
+    return {
+        server: httpServer,
+        wss,
+        games,
+        start,
+        stop,
+        loadGamesFromDatabase
+    };
 }
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+if (require.main === module) {
+    let app;
+    let exiting = false;
 
-process.on('uncaughtException', (err) => {
-    logger.error('💥 Uncaught Exception:', err);
-    // Exit non-zero: a crash reported as success stops process supervisors
-    // (systemd, pm2, Docker restart policies) from restarting the server.
-    gracefulShutdown('uncaughtException', 1);
-});
+    async function shutdown(signal, exitCode = 0) {
+        if (exiting) return;
+        exiting = true;
+        logger.info(`🛑 Received ${signal}. Saving active games and shutting down...`);
+        try {
+            if (app) {
+                await app.stop();
+            }
+            await db.closeDb();
+        } catch (err) {
+            logger.error('Error during shutdown:', err);
+            exitCode = exitCode || 1;
+        }
+        process.exit(exitCode);
+    }
 
-process.on('unhandledRejection', (reason) => {
-    logger.error('💥 Unhandled Rejection:', reason);
-});
-
-// Wait for the schema, restore persisted rooms, and only then accept traffic, so
-// a reconnect immediately after a restart finds its game instead of being told
-// the join code is invalid.
-db.ready
-    .then(() => loadGamesFromDatabase())
-    .catch(err => logger.error('❌ Failed to restore games on startup:', err))
-    .finally(() => {
-        startListening();
-        logger.info('✅ Server ready to accept connections');
+    process.on('SIGTERM', () => shutdown('SIGTERM', 0));
+    process.on('SIGINT', () => shutdown('SIGINT', 0));
+    process.on('uncaughtException', (err) => {
+        logger.error('💥 Uncaught Exception:', err);
+        shutdown('uncaughtException', 1);
     });
+    process.on('unhandledRejection', (reason) => {
+        logger.error('💥 Unhandled Rejection:', reason);
+        shutdown('unhandledRejection', 1);
+    });
+
+    try {
+        app = createAppServer();
+        app.start().catch((err) => {
+            logger.error('❌ Fatal error during startup:', err);
+            process.exit(1);
+        });
+    } catch (err) {
+        logger.error(`❌ FATAL: ${err.message}`);
+        process.exit(1);
+    }
+}
+
+module.exports = { createAppServer };
