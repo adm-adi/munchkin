@@ -1146,7 +1146,7 @@ function openProfileModal() {
             const { reply, auth } = await authenticatedRequest(WS_URL, session.authToken, payload);
             const nextToken = reply.token || auth?.token || session.authToken;
             const nextUser = reply.user || profile;
-            session.saveAuth({ token: nextToken, user: nextUser });
+            session.saveAuth(nextToken, nextUser);
             app.drafts.identityName = nextUser.username || app.drafts.identityName;
             app.drafts.identityAvatar = nextUser.avatarId ?? app.drafts.identityAvatar;
             app.drafts.identityGender = nextUser.gender || app.drafts.identityGender;
@@ -1342,7 +1342,7 @@ function authView() {
         render();
         try {
             const reply = await oneOffRequest(WS_URL, messages.login(email, password));
-            session.saveAuth({ token: reply.token, user: reply.user });
+            session.saveAuth(reply.token, reply.user);
             app.drafts.identityName = reply.user.username || app.drafts.identityName;
             app.drafts.identityAvatar = reply.user.avatarId ?? app.drafts.identityAvatar;
             app.drafts.identityGender = reply.user.gender || app.drafts.identityGender;
@@ -1381,7 +1381,7 @@ function authView() {
                 avatarId: app.drafts.authAvatar,
                 gender: app.drafts.authGender
             }));
-            session.saveAuth({ token: reply.token, user: reply.user });
+            session.saveAuth(reply.token, reply.user);
             app.drafts.identityName = reply.user.username || username;
             app.drafts.identityAvatar = reply.user.avatarId ?? app.drafts.authAvatar;
             app.drafts.identityGender = reply.user.gender || app.drafts.authGender;

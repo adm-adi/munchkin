@@ -43,6 +43,9 @@ export const session = {
     get authToken() { return readKey(KEYS.auth)?.authToken || null; },
     get profile() { return readKey(KEYS.auth)?.profile || null; },
     saveAuth(token, profile) {
+        if (token !== null && token !== undefined && typeof token !== 'string') {
+            throw new TypeError('session.saveAuth expects (token, profile)');
+        }
         writeKey(KEYS.auth, { authToken: token || null, profile: profile || null });
     },
     updateProfile(profile) {

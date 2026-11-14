@@ -1,0 +1,945 @@
+[
+  {
+    "id": "solo_win",
+    "description": "Solo hero defeats an undead monster cleanly with a one-shot hero potion",
+    "tiesGoToMonsters": true,
+    "players": [
+      {
+        "playerId": "p1",
+        "name": "Hero",
+        "level": 5,
+        "gear": 3,
+        "tempCombatBonus": 0,
+        "gender": "M",
+        "characterClass": "NONE",
+        "secondaryClass": null,
+        "characterRace": "HUMAN",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      }
+    ],
+    "combat": {
+      "mainPlayerId": "p1",
+      "helperPlayerId": null,
+      "heroModifier": 0,
+      "monsterModifier": 0,
+      "tempBonuses": [
+        {
+          "id": "b1",
+          "label": "Potion",
+          "amount": 3,
+          "appliesTo": "HEROES"
+        }
+      ],
+      "monsters": [
+        {
+          "id": "m1",
+          "name": "Skeleton",
+          "baseLevel": 6,
+          "flatModifier": 0,
+          "isUndead": true,
+          "levels": 1,
+          "treasures": 2,
+          "conditionalModifiers": []
+        }
+      ]
+    },
+    "expected": {
+      "heroesPower": 11,
+      "monstersPower": 6,
+      "outcome": "WIN",
+      "totalLevels": 1,
+      "totalTreasures": 2,
+      "helperLevelsGained": 0,
+      "warriorTieBreak": false,
+      "isWarriorInvolved": false,
+      "marginToWin": 0
+    }
+  },
+  {
+    "id": "solo_loss",
+    "description": "Solo non-warrior loses to a stronger monster and gets zero rewards with marginToWin = gap + 1",
+    "tiesGoToMonsters": true,
+    "players": [
+      {
+        "playerId": "p1",
+        "name": "Rookie",
+        "level": 2,
+        "gear": 2,
+        "tempCombatBonus": 0,
+        "gender": "F",
+        "characterClass": "NONE",
+        "secondaryClass": null,
+        "characterRace": "HUMAN",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      }
+    ],
+    "combat": {
+      "mainPlayerId": "p1",
+      "helperPlayerId": null,
+      "heroModifier": 0,
+      "monsterModifier": 0,
+      "tempBonuses": [],
+      "monsters": [
+        {
+          "id": "m1",
+          "name": "Plutonium Dragon",
+          "baseLevel": 10,
+          "flatModifier": 0,
+          "isUndead": false,
+          "levels": 2,
+          "treasures": 3,
+          "conditionalModifiers": []
+        }
+      ]
+    },
+    "expected": {
+      "heroesPower": 4,
+      "monstersPower": 10,
+      "outcome": "LOSE",
+      "totalLevels": 0,
+      "totalTreasures": 0,
+      "helperLevelsGained": 0,
+      "warriorTieBreak": false,
+      "isWarriorInvolved": false,
+      "marginToWin": 7
+    }
+  },
+  {
+    "id": "normal_tie_loss",
+    "description": "Tie goes to monsters by default for non-warriors with marginToWin = 1 and rewards zeroed",
+    "tiesGoToMonsters": true,
+    "players": [
+      {
+        "playerId": "p1",
+        "name": "Thief",
+        "level": 4,
+        "gear": 4,
+        "tempCombatBonus": 0,
+        "gender": "M",
+        "characterClass": "THIEF",
+        "secondaryClass": null,
+        "characterRace": "HUMAN",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      }
+    ],
+    "combat": {
+      "mainPlayerId": "p1",
+      "helperPlayerId": null,
+      "heroModifier": 0,
+      "monsterModifier": 0,
+      "tempBonuses": [],
+      "monsters": [
+        {
+          "id": "m1",
+          "name": "3872 Orcs",
+          "baseLevel": 8,
+          "flatModifier": 0,
+          "isUndead": false,
+          "levels": 1,
+          "treasures": 2,
+          "conditionalModifiers": []
+        }
+      ]
+    },
+    "expected": {
+      "heroesPower": 8,
+      "monstersPower": 8,
+      "outcome": "LOSE",
+      "totalLevels": 0,
+      "totalTreasures": 0,
+      "helperLevelsGained": 0,
+      "warriorTieBreak": false,
+      "isWarriorInvolved": false,
+      "marginToWin": 1
+    }
+  },
+  {
+    "id": "warrior_tie_break",
+    "description": "Warrior wins ties even when tiesGoToMonsters is true",
+    "tiesGoToMonsters": true,
+    "players": [
+      {
+        "playerId": "p1",
+        "name": "Conan",
+        "level": 4,
+        "gear": 4,
+        "tempCombatBonus": 0,
+        "gender": "M",
+        "characterClass": "WARRIOR",
+        "secondaryClass": null,
+        "characterRace": "HUMAN",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      }
+    ],
+    "combat": {
+      "mainPlayerId": "p1",
+      "helperPlayerId": null,
+      "heroModifier": 0,
+      "monsterModifier": 0,
+      "tempBonuses": [],
+      "monsters": [
+        {
+          "id": "m1",
+          "name": "3872 Orcs",
+          "baseLevel": 8,
+          "flatModifier": 0,
+          "isUndead": false,
+          "levels": 1,
+          "treasures": 2,
+          "conditionalModifiers": []
+        }
+      ]
+    },
+    "expected": {
+      "heroesPower": 8,
+      "monstersPower": 8,
+      "outcome": "WIN",
+      "totalLevels": 1,
+      "totalTreasures": 2,
+      "helperLevelsGained": 0,
+      "warriorTieBreak": true,
+      "isWarriorInvolved": true,
+      "marginToWin": 0
+    }
+  },
+  {
+    "id": "ties_to_heroes_non_warrior_tie",
+    "description": "When tiesGoToMonsters is false, a non-warrior wins on a tie without warriorTieBreak",
+    "tiesGoToMonsters": false,
+    "players": [
+      {
+        "playerId": "p1",
+        "name": "Merlin",
+        "level": 4,
+        "gear": 4,
+        "tempCombatBonus": 0,
+        "gender": "M",
+        "characterClass": "WIZARD",
+        "secondaryClass": null,
+        "characterRace": "HUMAN",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      }
+    ],
+    "combat": {
+      "mainPlayerId": "p1",
+      "helperPlayerId": null,
+      "heroModifier": 0,
+      "monsterModifier": 0,
+      "tempBonuses": [],
+      "monsters": [
+        {
+          "id": "m1",
+          "name": "Stone Golem",
+          "baseLevel": 8,
+          "flatModifier": 0,
+          "isUndead": false,
+          "levels": 1,
+          "treasures": 1,
+          "conditionalModifiers": []
+        }
+      ]
+    },
+    "expected": {
+      "heroesPower": 8,
+      "monstersPower": 8,
+      "outcome": "WIN",
+      "totalLevels": 1,
+      "totalTreasures": 1,
+      "helperLevelsGained": 0,
+      "warriorTieBreak": false,
+      "isWarriorInvolved": false,
+      "marginToWin": 0
+    }
+  },
+  {
+    "id": "ties_to_heroes_loss",
+    "description": "When tiesGoToMonsters is false, non-warrior loss marginToWin equals monstersPower - heroesPower",
+    "tiesGoToMonsters": false,
+    "players": [
+      {
+        "playerId": "p1",
+        "name": "Apprentice",
+        "level": 3,
+        "gear": 2,
+        "tempCombatBonus": 0,
+        "gender": "F",
+        "characterClass": "WIZARD",
+        "secondaryClass": null,
+        "characterRace": "HUMAN",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      }
+    ],
+    "combat": {
+      "mainPlayerId": "p1",
+      "helperPlayerId": null,
+      "heroModifier": 0,
+      "monsterModifier": 0,
+      "tempBonuses": [],
+      "monsters": [
+        {
+          "id": "m1",
+          "name": "Stone Golem",
+          "baseLevel": 8,
+          "flatModifier": 0,
+          "isUndead": false,
+          "levels": 1,
+          "treasures": 2,
+          "conditionalModifiers": []
+        }
+      ]
+    },
+    "expected": {
+      "heroesPower": 5,
+      "monstersPower": 8,
+      "outcome": "LOSE",
+      "totalLevels": 0,
+      "totalTreasures": 0,
+      "helperLevelsGained": 0,
+      "warriorTieBreak": false,
+      "isWarriorInvolved": false,
+      "marginToWin": 3
+    }
+  },
+  {
+    "id": "dual_cleric_vs_undead",
+    "description": "Main Cleric and helper Cleric each gain +3 against Undead (+6 total)",
+    "tiesGoToMonsters": true,
+    "players": [
+      {
+        "playerId": "p1",
+        "name": "Acolyte",
+        "level": 3,
+        "gear": 2,
+        "tempCombatBonus": 0,
+        "gender": "M",
+        "characterClass": "CLERIC",
+        "secondaryClass": null,
+        "characterRace": "HUMAN",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      },
+      {
+        "playerId": "p2",
+        "name": "Friar",
+        "level": 2,
+        "gear": 1,
+        "tempCombatBonus": 0,
+        "gender": "F",
+        "characterClass": "CLERIC",
+        "secondaryClass": null,
+        "characterRace": "DWARF",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      }
+    ],
+    "combat": {
+      "mainPlayerId": "p1",
+      "helperPlayerId": "p2",
+      "heroModifier": 0,
+      "monsterModifier": 0,
+      "tempBonuses": [],
+      "monsters": [
+        {
+          "id": "m1",
+          "name": "Undead Lich",
+          "baseLevel": 12,
+          "flatModifier": 0,
+          "isUndead": true,
+          "levels": 2,
+          "treasures": 3,
+          "conditionalModifiers": []
+        }
+      ]
+    },
+    "expected": {
+      "heroesPower": 14,
+      "monstersPower": 12,
+      "outcome": "WIN",
+      "totalLevels": 2,
+      "totalTreasures": 3,
+      "helperLevelsGained": 0,
+      "warriorTieBreak": false,
+      "isWarriorInvolved": false,
+      "marginToWin": 0
+    }
+  },
+  {
+    "id": "super_munchkin_warrior_cleric_undead_tie",
+    "description": "Super Munchkin Warrior+Cleric gains +3 vs Undead to reach a tie and wins via Warrior tie-break",
+    "tiesGoToMonsters": true,
+    "players": [
+      {
+        "playerId": "p1",
+        "name": "Paladin",
+        "level": 5,
+        "gear": 4,
+        "tempCombatBonus": 0,
+        "gender": "M",
+        "characterClass": "WARRIOR",
+        "secondaryClass": "CLERIC",
+        "characterRace": "HUMAN",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": true
+      }
+    ],
+    "combat": {
+      "mainPlayerId": "p1",
+      "helperPlayerId": null,
+      "heroModifier": 0,
+      "monsterModifier": 0,
+      "tempBonuses": [],
+      "monsters": [
+        {
+          "id": "m1",
+          "name": "Death Knight",
+          "baseLevel": 12,
+          "flatModifier": 0,
+          "isUndead": true,
+          "levels": 1,
+          "treasures": 2,
+          "conditionalModifiers": []
+        }
+      ]
+    },
+    "expected": {
+      "heroesPower": 12,
+      "monstersPower": 12,
+      "outcome": "WIN",
+      "totalLevels": 1,
+      "totalTreasures": 2,
+      "helperLevelsGained": 0,
+      "warriorTieBreak": true,
+      "isWarriorInvolved": true,
+      "marginToWin": 0
+    }
+  },
+  {
+    "id": "half_breed_elf_helper_multi_monster_win",
+    "description": "Half-Breed Elf helper gains 1 level per defeated monster on WIN",
+    "tiesGoToMonsters": true,
+    "players": [
+      {
+        "playerId": "p1",
+        "name": "Leader",
+        "level": 6,
+        "gear": 4,
+        "tempCombatBonus": 0,
+        "gender": "F",
+        "characterClass": "NONE",
+        "secondaryClass": null,
+        "characterRace": "HUMAN",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      },
+      {
+        "playerId": "p2",
+        "name": "Legolas",
+        "level": 3,
+        "gear": 2,
+        "tempCombatBonus": 0,
+        "gender": "M",
+        "characterClass": "NONE",
+        "secondaryClass": null,
+        "characterRace": "DWARF",
+        "secondaryRace": "ELF",
+        "hasHalfBreed": true,
+        "hasSuperMunchkin": false
+      }
+    ],
+    "combat": {
+      "mainPlayerId": "p1",
+      "helperPlayerId": "p2",
+      "heroModifier": 0,
+      "monsterModifier": 0,
+      "tempBonuses": [],
+      "monsters": [
+        {
+          "id": "m1",
+          "name": "Goblin",
+          "baseLevel": 4,
+          "flatModifier": 0,
+          "isUndead": false,
+          "levels": 1,
+          "treasures": 1,
+          "conditionalModifiers": []
+        },
+        {
+          "id": "m2",
+          "name": "Troll",
+          "baseLevel": 8,
+          "flatModifier": 0,
+          "isUndead": false,
+          "levels": 1,
+          "treasures": 2,
+          "conditionalModifiers": []
+        }
+      ]
+    },
+    "expected": {
+      "heroesPower": 15,
+      "monstersPower": 12,
+      "outcome": "WIN",
+      "totalLevels": 2,
+      "totalTreasures": 3,
+      "helperLevelsGained": 2,
+      "warriorTieBreak": false,
+      "isWarriorInvolved": false,
+      "marginToWin": 0
+    }
+  },
+  {
+    "id": "half_breed_elf_helper_loss_zero_rewards",
+    "description": "Half-Breed Elf helper gets 0 levels and all monster rewards become 0 on LOSE",
+    "tiesGoToMonsters": true,
+    "players": [
+      {
+        "playerId": "p1",
+        "name": "Leader",
+        "level": 5,
+        "gear": 2,
+        "tempCombatBonus": 0,
+        "gender": "M",
+        "characterClass": "NONE",
+        "secondaryClass": null,
+        "characterRace": "HUMAN",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      },
+      {
+        "playerId": "p2",
+        "name": "Elrond",
+        "level": 3,
+        "gear": 1,
+        "tempCombatBonus": 0,
+        "gender": "M",
+        "characterClass": "NONE",
+        "secondaryClass": null,
+        "characterRace": "HUMAN",
+        "secondaryRace": "ELF",
+        "hasHalfBreed": true,
+        "hasSuperMunchkin": false
+      }
+    ],
+    "combat": {
+      "mainPlayerId": "p1",
+      "helperPlayerId": "p2",
+      "heroModifier": 0,
+      "monsterModifier": 0,
+      "tempBonuses": [],
+      "monsters": [
+        {
+          "id": "m1",
+          "name": "Ancient Wyrm",
+          "baseLevel": 16,
+          "flatModifier": 0,
+          "isUndead": false,
+          "levels": 2,
+          "treasures": 4,
+          "conditionalModifiers": []
+        }
+      ]
+    },
+    "expected": {
+      "heroesPower": 11,
+      "monstersPower": 16,
+      "outcome": "LOSE",
+      "totalLevels": 0,
+      "totalTreasures": 0,
+      "helperLevelsGained": 0,
+      "warriorTieBreak": false,
+      "isWarriorInvolved": false,
+      "marginToWin": 6
+    }
+  },
+  {
+    "id": "bonuses_and_warrior_margin",
+    "description": "Combines tempCombatBonus, tempBonuses HEROES/MONSTER, heroModifier, monsterModifier, and flatModifier with Warrior helper margin",
+    "tiesGoToMonsters": true,
+    "players": [
+      {
+        "playerId": "p1",
+        "name": "Main",
+        "level": 2,
+        "gear": 1,
+        "tempCombatBonus": 2,
+        "gender": "F",
+        "characterClass": "NONE",
+        "secondaryClass": null,
+        "characterRace": "HUMAN",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      },
+      {
+        "playerId": "p2",
+        "name": "Mercenary",
+        "level": 3,
+        "gear": 2,
+        "tempCombatBonus": 1,
+        "gender": "M",
+        "characterClass": "WARRIOR",
+        "secondaryClass": null,
+        "characterRace": "HUMAN",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      }
+    ],
+    "combat": {
+      "mainPlayerId": "p1",
+      "helperPlayerId": "p2",
+      "heroModifier": 3,
+      "monsterModifier": 4,
+      "tempBonuses": [
+        {
+          "id": "b1",
+          "label": "Magic Missile",
+          "amount": 2,
+          "appliesTo": "HEROES"
+        },
+        {
+          "id": "b2",
+          "label": "Ancient Curse",
+          "amount": 2,
+          "appliesTo": "MONSTER"
+        }
+      ],
+      "monsters": [
+        {
+          "id": "m1",
+          "name": "Enraged Hydra",
+          "baseLevel": 12,
+          "flatModifier": 3,
+          "isUndead": false,
+          "levels": 2,
+          "treasures": 4,
+          "conditionalModifiers": []
+        }
+      ]
+    },
+    "expected": {
+      "heroesPower": 16,
+      "monstersPower": 21,
+      "outcome": "LOSE",
+      "totalLevels": 0,
+      "totalTreasures": 0,
+      "helperLevelsGained": 0,
+      "warriorTieBreak": false,
+      "isWarriorInvolved": true,
+      "marginToWin": 5
+    }
+  },
+  {
+    "id": "conditional_modifiers_all_variants",
+    "description": "Exercises RACE_ID, CLASS_ID, and GENDER across PER_MATCHING_PLAYER, ONCE_IF_MATCH, MAIN_ONLY, HELPER_ONLY, and ANY_PARTICIPANT",
+    "tiesGoToMonsters": true,
+    "players": [
+      {
+        "playerId": "p1",
+        "name": "Scout",
+        "level": 5,
+        "gear": 3,
+        "tempCombatBonus": 0,
+        "gender": "M",
+        "characterClass": "THIEF",
+        "secondaryClass": null,
+        "characterRace": "ELF",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      },
+      {
+        "playerId": "p2",
+        "name": "ClericElf",
+        "level": 4,
+        "gear": 2,
+        "tempCombatBonus": 0,
+        "gender": "F",
+        "characterClass": "CLERIC",
+        "secondaryClass": null,
+        "characterRace": "DWARF",
+        "secondaryRace": "ELF",
+        "hasHalfBreed": true,
+        "hasSuperMunchkin": false
+      }
+    ],
+    "combat": {
+      "mainPlayerId": "p1",
+      "helperPlayerId": "p2",
+      "heroModifier": 0,
+      "monsterModifier": 0,
+      "tempBonuses": [],
+      "monsters": [
+        {
+          "id": "m1",
+          "name": "Grudge Monster",
+          "baseLevel": 10,
+          "flatModifier": 0,
+          "isUndead": false,
+          "levels": 2,
+          "treasures": 3,
+          "conditionalModifiers": [
+            {
+              "id": "cm1",
+              "conditionType": "RACE_ID",
+              "conditionValue": "ELF",
+              "side": "MONSTER",
+              "amount": 3,
+              "scope": "ANY_PARTICIPANT",
+              "applyMode": "PER_MATCHING_PLAYER"
+            },
+            {
+              "id": "cm2",
+              "conditionType": "CLASS_ID",
+              "conditionValue": "THIEF",
+              "side": "MONSTER",
+              "amount": 2,
+              "scope": "MAIN_ONLY",
+              "applyMode": "ONCE_IF_MATCH"
+            },
+            {
+              "id": "cm3",
+              "conditionType": "GENDER",
+              "conditionValue": "M",
+              "side": "MONSTER",
+              "amount": 5,
+              "scope": "HELPER_ONLY",
+              "applyMode": "ONCE_IF_MATCH"
+            },
+            {
+              "id": "cm4",
+              "conditionType": "GENDER",
+              "conditionValue": "F",
+              "side": "HEROES",
+              "amount": 4,
+              "scope": "HELPER_ONLY",
+              "applyMode": "ONCE_IF_MATCH"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "heroesPower": 18,
+      "monstersPower": 18,
+      "outcome": "LOSE",
+      "totalLevels": 0,
+      "totalTreasures": 0,
+      "helperLevelsGained": 0,
+      "warriorTieBreak": false,
+      "isWarriorInvolved": false,
+      "marginToWin": 1
+    }
+  },
+  {
+    "id": "inactive_secondary_slots_ignored",
+    "description": "Secondary class and secondary race have no effect without hasSuperMunchkin or hasHalfBreed",
+    "tiesGoToMonsters": true,
+    "players": [
+      {
+        "playerId": "p1",
+        "name": "Pretender",
+        "level": 4,
+        "gear": 2,
+        "tempCombatBonus": 0,
+        "gender": "M",
+        "characterClass": "NONE",
+        "secondaryClass": "CLERIC",
+        "characterRace": "HUMAN",
+        "secondaryRace": "ELF",
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      },
+      {
+        "playerId": "p2",
+        "name": "Stout",
+        "level": 3,
+        "gear": 3,
+        "tempCombatBonus": 0,
+        "gender": "F",
+        "characterClass": "WARRIOR",
+        "secondaryClass": null,
+        "characterRace": "DWARF",
+        "secondaryRace": "ELF",
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      }
+    ],
+    "combat": {
+      "mainPlayerId": "p1",
+      "helperPlayerId": "p2",
+      "heroModifier": 0,
+      "monsterModifier": 0,
+      "tempBonuses": [],
+      "monsters": [
+        {
+          "id": "m1",
+          "name": "Banshee",
+          "baseLevel": 12,
+          "flatModifier": 0,
+          "isUndead": true,
+          "levels": 1,
+          "treasures": 2,
+          "conditionalModifiers": [
+            {
+              "id": "cm1",
+              "conditionType": "RACE_ID",
+              "conditionValue": "ELF",
+              "side": "MONSTER",
+              "amount": 5,
+              "scope": "ANY_PARTICIPANT",
+              "applyMode": "ONCE_IF_MATCH"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "heroesPower": 12,
+      "monstersPower": 12,
+      "outcome": "WIN",
+      "totalLevels": 1,
+      "totalTreasures": 2,
+      "helperLevelsGained": 0,
+      "warriorTieBreak": true,
+      "isWarriorInvolved": true,
+      "marginToWin": 0
+    }
+  },
+  {
+    "id": "empty_monsters",
+    "description": "Empty monsters array yields monstersPower 0 and 0 rewards/helperLevelsGained in pure combat calculators",
+    "tiesGoToMonsters": true,
+    "players": [
+      {
+        "playerId": "p1",
+        "name": "Lone",
+        "level": 3,
+        "gear": 2,
+        "tempCombatBonus": 0,
+        "gender": "M",
+        "characterClass": "NONE",
+        "secondaryClass": null,
+        "characterRace": "HUMAN",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      },
+      {
+        "playerId": "p2",
+        "name": "ElfSidekick",
+        "level": 2,
+        "gear": 1,
+        "tempCombatBonus": 0,
+        "gender": "F",
+        "characterClass": "NONE",
+        "secondaryClass": null,
+        "characterRace": "ELF",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      }
+    ],
+    "combat": {
+      "mainPlayerId": "p1",
+      "helperPlayerId": "p2",
+      "heroModifier": 0,
+      "monsterModifier": 0,
+      "tempBonuses": [],
+      "monsters": []
+    },
+    "expected": {
+      "heroesPower": 8,
+      "monstersPower": 0,
+      "outcome": "WIN",
+      "totalLevels": 0,
+      "totalTreasures": 0,
+      "helperLevelsGained": 0,
+      "warriorTieBreak": false,
+      "isWarriorInvolved": false,
+      "marginToWin": 0
+    }
+  },
+  {
+    "id": "warrior_helper_elf_tie_break_undead",
+    "description": "Main Cleric (+3 vs Undead) plus Elf Warrior helper tie Undead monster, winning via Warrior tie-break with helper gaining 1 Elf level",
+    "tiesGoToMonsters": true,
+    "players": [
+      {
+        "playerId": "p1",
+        "name": "Priest",
+        "level": 4,
+        "gear": 1,
+        "tempCombatBonus": 0,
+        "gender": "M",
+        "characterClass": "CLERIC",
+        "secondaryClass": null,
+        "characterRace": "HUMAN",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      },
+      {
+        "playerId": "p2",
+        "name": "ElvenBlade",
+        "level": 2,
+        "gear": 1,
+        "tempCombatBonus": 0,
+        "gender": "F",
+        "characterClass": "WARRIOR",
+        "secondaryClass": null,
+        "characterRace": "ELF",
+        "secondaryRace": null,
+        "hasHalfBreed": false,
+        "hasSuperMunchkin": false
+      }
+    ],
+    "combat": {
+      "mainPlayerId": "p1",
+      "helperPlayerId": "p2",
+      "heroModifier": 0,
+      "monsterModifier": 0,
+      "tempBonuses": [],
+      "monsters": [
+        {
+          "id": "m1",
+          "name": "Vampire",
+          "baseLevel": 11,
+          "flatModifier": 0,
+          "isUndead": true,
+          "levels": 2,
+          "treasures": 2,
+          "conditionalModifiers": []
+        }
+      ]
+    },
+    "expected": {
+      "heroesPower": 11,
+      "monstersPower": 11,
+      "outcome": "WIN",
+      "totalLevels": 2,
+      "totalTreasures": 2,
+      "helperLevelsGained": 1,
+      "warriorTieBreak": true,
+      "isWarriorInvolved": true,
+      "marginToWin": 0
+    }
+  }
+]

@@ -242,3 +242,114 @@ test('calculateCombatResult includes tempCombatBonus, zeroes rewards on LOSE, an
     assert.strictEqual(winRes.totalTreasures, 3);
     assert.strictEqual(winRes.marginToWin, 0);
 });
+
+const fs = require('node:fs');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+
+const EXPECTED_COMBAT_KEYS = [
+    'heroesPower',
+    'monstersPower',
+    'outcome',
+    'totalLevels',
+    'totalTreasures',
+    'helperLevelsGained',
+    'warriorTieBreak',
+    'isWarriorInvolved',
+    'marginToWin'
+];
+
+test('shared cross-platform combat vectors match both server combatManager and web combat.mjs', async () => {
+    const vectorsPath = path.join(__dirname, '..', 'shared', 'combat_vectors.json');
+    const vectors = JSON.parse(fs.readFileSync(vectorsPath, 'utf8'));
+    assert.ok(Array.isArray(vectors) && vectors.length >= 12, 'expected >= 12 shared combat vectors');
+
+    const webCombat = await import(pathToFileURL(path.join(__dirname, 'public', 'js', 'combat.mjs')).href);
+
+    for (const vector of vectors) {
+        const serverPlayers = new Map();
+        /** @type {Record<string, any>} */
+        const webPlayers = {};
+
+        for (const p of vector.players) {
+            const normalized = {
+                ...p,
+                secondaryClass: p.secondaryClass ?? 'NONE',
+                secondaryRace: p.secondaryRace ?? 'HUMAN',
+                gearBonus: p.gear ?? 0
+            };
+            serverPlayers.set(p.playerId, normalized);
+            webPlayers[p.playerId] = normalized;
+        }
+
+        const serverRes = calculateCombatResult({
+            tiesGoToMonsters: vector.tiesGoToMonsters,
+            players: serverPlayers,
+            combat: vector.combat
+        });
+        const webRes = webCombat.calculateResult(vector.combat, {
+            players: webPlayers,
+            settings: { tiesGoToMonsters: vector.tiesGoToMonsters }
+        });
+
+        for (const key of EXPECTED_COMBAT_KEYS) {
+            assert.strictEqual(
+                serverRes[key],
+                vector.expected[key],
+                `server vector "${vector.id}" mismatch on ${key}`
+            );
+            assert.strictEqual(
+                webRes[key],
+                vector.expected[key],
+                `web vector "${vector.id}" mismatch on ${key}`
+            );
+            assert.strictEqual(
+                serverRes[key],
+                webRes[key],
+                `server/web divergence on vector "${vector.id}" field ${key}`
+            );
+        }
+    }
+});
+
+test('getRunAwayBonus and web runAwayBonus match for Elf, Halfling, Half-Breed Elf+Halfling, and Human', async () => {
+    const webCombat = await import(pathToFileURL(path.join(__dirname, 'public', 'js', 'combat.mjs')).href);
+
+    const cases = [
+        {
+            label: 'Human gets 0',
+            player: player({ characterRace: 'HUMAN', hasHalfBreed: false }),
+            expected: 0
+        },
+        {
+            label: 'Elf gets +1',
+            player: player({ characterRace: 'ELF', hasHalfBreed: false }),
+            expected: 1
+        },
+        {
+            label: 'Halfling gets -1',
+            player: player({ characterRace: 'HALFLING', hasHalfBreed: false }),
+            expected: -1
+        },
+        {
+            label: 'Half-Breed Elf+Halfling nets 0',
+            player: player({ characterRace: 'ELF', secondaryRace: 'HALFLING', hasHalfBreed: true }),
+            expected: 0
+        },
+        {
+            label: 'Half-Breed Halfling+Elf nets 0',
+            player: player({ characterRace: 'HALFLING', secondaryRace: 'ELF', hasHalfBreed: true }),
+            expected: 0
+        },
+        {
+            label: 'Inactive secondary Elf does not give +1',
+            player: player({ characterRace: 'HALFLING', secondaryRace: 'ELF', hasHalfBreed: false }),
+            expected: -1
+        }
+    ];
+
+    for (const c of cases) {
+        assert.strictEqual(getRunAwayBonus(c.player), c.expected, `server: ${c.label}`);
+        assert.strictEqual(webCombat.runAwayBonus(c.player), c.expected, `web: ${c.label}`);
+    }
+});

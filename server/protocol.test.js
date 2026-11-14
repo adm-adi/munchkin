@@ -16,7 +16,8 @@ const {
     TestClient,
     registerUser,
     createGame,
-    joinGame
+    joinGame,
+    pollUntil
 } = require('./testServer');
 
 async function winCombatToLevel10(client, playerId, prefix) {
@@ -359,9 +360,16 @@ test('a finished game credits the winner and counts a game for both players', as
     assert.strictEqual(finished.gameState.phase, 'FINISHED');
 
     // Recording happens asynchronously after the snapshot goes out.
-    await new Promise(r => setTimeout(r, 500));
-
-    const board = await winner.client.request({ type: 'GET_LEADERBOARD' }, ['LEADERBOARD_RESULT', 'ERROR']);
+    const board = await pollUntil(async () => {
+        const res = await winner.client.request({ type: 'GET_LEADERBOARD' }, ['LEADERBOARD_RESULT', 'ERROR']);
+        if (
+            res.type === 'LEADERBOARD_RESULT' &&
+            res.leaderboard.some(e => e.id === winnerUserId && e.gamesPlayed >= 1)
+        ) {
+            return res;
+        }
+        return null;
+    });
     assert.strictEqual(board.type, 'LEADERBOARD_RESULT', JSON.stringify(board));
 
     const winnerRow = board.leaderboard.find(e => e.id === winnerUserId);
@@ -422,13 +430,18 @@ test('history names the winner and flags whether it was you', async () => {
     champ.client.drain();
     champ.client.send({ type: 'GAME_OVER', gameId, winnerId: champPlayerId });
     await champ.client.waitFor(['STATE_SNAPSHOT']);
-    await new Promise(r => setTimeout(r, 500));
 
-    // The winner's own view.
-    const mine = await champ.client.request(
-        { type: 'GET_HISTORY', userId: champ.reply.user.id },
-        ['HISTORY_RESULT', 'ERROR']
-    );
+    // The winner's own view (polled until async DB recording commits).
+    const mine = await pollUntil(async () => {
+        const res = await champ.client.request(
+            { type: 'GET_HISTORY', userId: champ.reply.user.id },
+            ['HISTORY_RESULT', 'ERROR']
+        );
+        if (res.type === 'HISTORY_RESULT' && res.games.some(g => g.id === gameId)) {
+            return res;
+        }
+        return null;
+    });
     assert.strictEqual(mine.type, 'HISTORY_RESULT', JSON.stringify(mine));
     const wonGame = mine.games.find(g => g.id === gameId);
     assert.ok(wonGame, 'the finished game must appear in the history');
@@ -567,9 +580,17 @@ test('guests never appear in the ranking', async () => {
 
     host.client.send({ type: 'GAME_OVER', gameId, winnerId: guestPlayerId });
     await host.client.waitFor(['STATE_SNAPSHOT']);
-    await new Promise(r => setTimeout(r, 500));
 
-    const board = await host.client.request({ type: 'GET_LEADERBOARD' }, ['LEADERBOARD_RESULT']);
+    const board = await pollUntil(async () => {
+        const res = await host.client.request({ type: 'GET_LEADERBOARD' }, ['LEADERBOARD_RESULT', 'ERROR']);
+        if (
+            res.type === 'LEADERBOARD_RESULT' &&
+            res.leaderboard.some(e => e.id === hostUserId && e.gamesPlayed >= 1)
+        ) {
+            return res;
+        }
+        return null;
+    });
     // The host played, so appears with no win. The guest appears nowhere.
     const hostRow = board.leaderboard.find(e => e.id === hostUserId);
     assert.ok(hostRow, 'the account that played must appear');
@@ -1702,6 +1723,7 @@ test('TRANSFER_HOST enforces host authority and transfers both hostId and origin
     assert.strictEqual(denied.type, 'ERROR');
     assert.strictEqual(denied.code, 'PERMISSION_DENIED');
 
+    const guestSnapPromise = guest.waitFor(['STATE_SNAPSHOT']);
     const transferred = await host.request(
         { type: 'TRANSFER_HOST', targetPlayerId: guestId },
         ['STATE_SNAPSHOT', 'ERROR']
@@ -1710,7 +1732,9 @@ test('TRANSFER_HOST enforces host authority and transfers both hostId and origin
     assert.strictEqual(transferred.gameState.hostId, guestId);
     assert.strictEqual(transferred.gameState.originalHostId, guestId);
 
-    await guest.settle();
+    const guestSnap = await guestSnapPromise;
+    assert.strictEqual(guestSnap.gameState.hostId, guestId, 'recipient client snapshot must update hostId');
+    assert.strictEqual(guestSnap.gameState.originalHostId, guestId);
     const oldHostDenied = await host.request(
         { type: 'KICK_PLAYER', targetPlayerId: guestId },
         ['ERROR', 'STATE_SNAPSHOT']
@@ -1807,7 +1831,13 @@ test('DELETE_ACCOUNT requires password, removes credentials, and preserves anony
     victim.client.drain();
     victim.client.send({ type: 'GAME_OVER', gameId, winnerId: victimPlayerId });
     await victim.client.waitFor(['STATE_SNAPSHOT']);
-    await new Promise(r => setTimeout(r, 300));
+    await pollUntil(async () => {
+        const res = await victim.client.request(
+            { type: 'GET_HISTORY', userId: victim.reply.user.id },
+            ['HISTORY_RESULT', 'ERROR']
+        );
+        return res.type === 'HISTORY_RESULT' && res.games.some(g => g.id === gameId);
+    });
 
     // Unauthenticated client cannot delete an account.
     const anon = await TestClient.connect(server.url);
@@ -1930,13 +1960,20 @@ test('COMBAT_END enforces non-empty monsters, expectedSeq CONFLICT, serverResult
     await host.request(ev('GAME_START', hostId), ['STATE_SNAPSHOT', 'ERROR']);
     await host.request(ev('COMBAT_START', hostId, { mainPlayerId: hostId }), ['STATE_SNAPSHOT', 'ERROR']);
 
-    // 0 monsters WIN is rejected.
+    // 0 monsters WIN and LOSE are both rejected (QA-08).
     const emptyWin = await host.request(
         ev('COMBAT_END', hostId, { outcome: 'WIN' }),
         ['ERROR', 'STATE_SNAPSHOT']
     );
     assert.strictEqual(emptyWin.type, 'ERROR');
     assert.strictEqual(emptyWin.code, 'INVALID_DATA');
+
+    const emptyLose = await host.request(
+        ev('COMBAT_END', hostId, { outcome: 'LOSE' }),
+        ['ERROR', 'STATE_SNAPSHOT']
+    );
+    assert.strictEqual(emptyLose.type, 'ERROR');
+    assert.strictEqual(emptyLose.code, 'INVALID_DATA');
 
     // Add level-10 monster (Host power 1 vs Monster 10).
     const added = await host.request(
@@ -2218,4 +2255,212 @@ test('HTTP endpoints (/health, /api/monsters, static /sw.js ETag/304/br) and WS 
         });
     });
     assert.strictEqual(wsStatus, 403);
+});
+
+test('helper disconnect during active combat cleans up helperPlayerId and broadcasts updated snapshot (QA-04)', async () => {
+    const { client: host, welcome } = await createGame(server.url, 'CombatDiscHost');
+    const hostId = welcome.yourPlayerId;
+    const code = welcome.gameState.joinCode;
+    const { client: helper, welcome: helperWelcome } = await joinGame(server.url, code, 'CombatDiscHelper');
+    const helperId = helperWelcome.yourPlayerId;
+
+    await Promise.all([host.settle(), helper.settle()]);
+    await host.request(ev('GAME_START', hostId), ['STATE_SNAPSHOT', 'ERROR']);
+    await host.request(ev('COMBAT_START', hostId, { mainPlayerId: hostId }), ['STATE_SNAPSHOT', 'ERROR']);
+    await host.request(
+        ev('COMBAT_ADD_MONSTER', hostId, {
+            monster: { id: 'disc-mon', name: 'Gargoyle', baseLevel: 6, levels: 1, treasures: 2 }
+        }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+
+    const withHelper = await host.request(
+        ev('COMBAT_ADD_HELPER', hostId, { helperId }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    assert.strictEqual(withHelper.gameState.combat.helperPlayerId, helperId);
+
+    host.drain();
+    await helper.close();
+
+    // Server broadcasts PLAYER_STATUS(isConnected: false) plus STATE_SNAPSHOT clearing helperPlayerId.
+    const statusMsg = await host.waitFor(['PLAYER_STATUS']);
+    assert.strictEqual(statusMsg.playerId, helperId);
+    assert.strictEqual(statusMsg.isConnected, false);
+
+    const snap = await host.waitFor(['STATE_SNAPSHOT']);
+    assert.ok(snap.gameState.combat, 'active combat must remain open for main player');
+    assert.strictEqual(snap.gameState.combat.helperPlayerId, null, 'disconnected helper must be cleared');
+
+    await host.close();
+});
+
+test('kicking turnPlayerId while another peer is offline falls back safely and reconnect restores turn cleanly (QA-04)', async () => {
+    const { client: host, welcome } = await createGame(server.url, 'KickTurnHost');
+    const hostId = welcome.yourPlayerId;
+    const code = welcome.gameState.joinCode;
+    const { client: guestA, welcome: welcomeA } = await joinGame(server.url, code, 'KickTurnGuestA');
+    const guestAId = welcomeA.yourPlayerId;
+    const { client: guestB, welcome: welcomeB } = await joinGame(server.url, code, 'KickTurnGuestB');
+    const guestBId = welcomeB.yourPlayerId;
+
+    await Promise.all([host.settle(), guestA.settle(), guestB.settle()]);
+
+    // Deterministic roll order so guestA starts the turn: guestA=6, guestB=4, host=2.
+    await host.request(ev('PLAYER_ROLL', hostId, { result: 2 }), ['STATE_SNAPSHOT', 'ERROR']);
+    await guestA.request(ev('PLAYER_ROLL', guestAId, { result: 6 }), ['STATE_SNAPSHOT', 'ERROR']);
+    await guestB.request(ev('PLAYER_ROLL', guestBId, { result: 4 }), ['STATE_SNAPSHOT', 'ERROR']);
+    await Promise.all([host.settle(), guestA.settle(), guestB.settle()]);
+
+    const started = await host.request(ev('GAME_START', hostId), ['STATE_SNAPSHOT', 'ERROR']);
+    assert.strictEqual(started.type, 'STATE_SNAPSHOT', JSON.stringify(started));
+    assert.strictEqual(started.gameState.turnPlayerId, guestAId);
+
+    // Take guestB offline before kicking the current turn owner (guestA).
+    host.drain();
+    await guestB.close();
+    const offlineStatus = await host.waitFor(['PLAYER_STATUS']);
+    assert.strictEqual(offlineStatus.playerId, guestBId);
+    assert.strictEqual(offlineStatus.isConnected, false);
+
+    // Kick guestA (turnPlayerId) -> skips offline guestB and falls back safely to connected host (never null).
+    const kickedSnap = await host.request(
+        { type: 'KICK_PLAYER', targetPlayerId: guestAId },
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    assert.strictEqual(kickedSnap.type, 'STATE_SNAPSHOT', JSON.stringify(kickedSnap));
+    assert.strictEqual(kickedSnap.gameState.turnPlayerId, hostId, 'turnPlayerId must fall back to connected host');
+    assert.ok(!kickedSnap.gameState.players[guestAId], 'kicked player must be removed');
+
+    // Host remains active as turnPlayerId even with guestB offline and can execute turns.
+    const soloTurnSnap = await host.request({ type: 'END_TURN' }, ['STATE_SNAPSHOT', 'ERROR']);
+    assert.strictEqual(soloTurnSnap.type, 'STATE_SNAPSHOT');
+    assert.strictEqual(soloTurnSnap.gameState.turnPlayerId, hostId);
+
+    await host.close();
+    await guestA.close();
+
+    // Also verify an offline peer reconnecting via reconnectToken receives its turn cleanly again via END_TURN.
+    const r2 = await createGame(server.url, 'ReconnectTurnHost');
+    const r2HostId = r2.welcome.yourPlayerId;
+    const r2Code = r2.welcome.gameState.joinCode;
+    const p1 = await joinGame(server.url, r2Code, 'Peer1');
+    const p1Id = p1.welcome.yourPlayerId;
+    const p2 = await joinGame(server.url, r2Code, 'Peer2');
+    const p2Id = p2.welcome.yourPlayerId;
+    const p2Token = p2.welcome.reconnectToken;
+
+    await Promise.all([r2.client.settle(), p1.client.settle(), p2.client.settle()]);
+    await r2.client.request(ev('PLAYER_ROLL', r2HostId, { result: 4 }), ['STATE_SNAPSHOT', 'ERROR']);
+    await p1.client.request(ev('PLAYER_ROLL', p1Id, { result: 2 }), ['STATE_SNAPSHOT', 'ERROR']);
+    await p2.client.request(ev('PLAYER_ROLL', p2Id, { result: 6 }), ['STATE_SNAPSHOT', 'ERROR']);
+    await Promise.all([r2.client.settle(), p1.client.settle(), p2.client.settle()]);
+
+    const r2Start = await r2.client.request(ev('GAME_START', r2HostId), ['STATE_SNAPSHOT', 'ERROR']);
+    assert.strictEqual(r2Start.gameState.turnPlayerId, p2Id);
+
+    r2.client.drain();
+    await p2.client.close();
+    await r2.client.waitFor(['PLAYER_STATUS']);
+
+    // While p2 is offline, host advances past disconnected p2 onto host.
+    const skippedOffline = await r2.client.request({ type: 'END_TURN' }, ['STATE_SNAPSHOT', 'ERROR']);
+    assert.strictEqual(skippedOffline.gameState.turnPlayerId, r2HostId);
+
+    // Reconnect p2 with reconnectToken, then rotate turns cleanly to restore turn to p2.
+    const { client: p2Back, welcome: p2Welcome } = await joinGame(server.url, r2Code, 'Peer2', {
+        playerMeta: { name: 'Peer2', avatarId: 0, gender: 'F', playerId: p2Id },
+        reconnectToken: p2Token
+    });
+    assert.strictEqual(p2Welcome.type, 'WELCOME', JSON.stringify(p2Welcome));
+    assert.strictEqual(p2Welcome.yourPlayerId, p2Id);
+    await Promise.all([r2.client.settle(), p1.client.settle(), p2Back.settle()]);
+
+    const toP1 = await r2.client.request({ type: 'END_TURN' }, ['STATE_SNAPSHOT', 'ERROR']);
+    assert.strictEqual(toP1.gameState.turnPlayerId, p1Id);
+    const p1Notified = await p1.client.waitFor(['STATE_SNAPSHOT']);
+    assert.strictEqual(p1Notified.gameState.turnPlayerId, p1Id);
+
+    const toP2 = await p1.client.request({ type: 'END_TURN' }, ['STATE_SNAPSHOT', 'ERROR']);
+    assert.strictEqual(toP2.gameState.turnPlayerId, p2Id, 'reconnected peer must cleanly receive turn');
+
+    await p2Back.close();
+    await p1.client.close();
+    await r2.client.close();
+});
+
+test('level 9->10 requires combat win and only freezes turn timer once reachedMaxLevelViaCombat is true (QA-03)', async () => {
+    const { client: host, welcome } = await createGame(server.url, 'WinGateHost', {
+        turnTimerSeconds: 60
+    });
+    const hostId = welcome.yourPlayerId;
+    const code = welcome.gameState.joinCode;
+    const { client: guest, welcome: guestWelcome } = await joinGame(server.url, code, 'WinGateGuest');
+    const guestId = guestWelcome.yourPlayerId;
+
+    await Promise.all([host.settle(), guest.settle()]);
+
+    const started = await host.request(ev('GAME_START', hostId), ['STATE_SNAPSHOT', 'ERROR']);
+    assert.strictEqual(started.type, 'STATE_SNAPSHOT');
+    assert.ok(Number.isFinite(started.gameState.turnEndsAt) && started.gameState.turnEndsAt > Date.now());
+
+    // Manual SET_LEVEL to 10 clamps at 9, keeps reachedMaxLevelViaCombat false, and does NOT freeze turnEndsAt.
+    const manualSet = await host.request(
+        {
+            type: 'EVENT_REQUEST',
+            event: {
+                type: 'SET_LEVEL',
+                eventId: 'qa03-set-10',
+                actorId: hostId,
+                targetPlayerId: hostId,
+                timestamp: Date.now(),
+                level: 10
+            }
+        },
+        ['EVENT_BROADCAST', 'ERROR']
+    );
+    assert.strictEqual(manualSet.type, 'EVENT_BROADCAST');
+    assert.strictEqual(manualSet.event.level, 9, 'manual SET_LEVEL cannot pass level 9 without combat');
+
+    const preCombatSnap = await host.request(ev('COMBAT_START', hostId, { mainPlayerId: hostId }), ['STATE_SNAPSHOT', 'ERROR']);
+    assert.strictEqual(preCombatSnap.gameState.players[hostId].level, 9);
+    assert.strictEqual(preCombatSnap.gameState.players[hostId].reachedMaxLevelViaCombat, false);
+    assert.ok(
+        preCombatSnap.gameState.turnEndsAt !== null && preCombatSnap.gameState.turnEndsAt > Date.now(),
+        'turn timer must remain active when level is capped at 9'
+    );
+
+    // Winning combat from 9 -> 10 sets reachedMaxLevelViaCombat === true and freezes turnEndsAt === null.
+    await host.request(
+        ev('COMBAT_ADD_MONSTER', hostId, {
+            monster: { id: 'qa03-boss', name: 'Potted Plant', baseLevel: 1, levels: 1, treasures: 1 }
+        }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    const combatWinSnap = await host.request(
+        ev('COMBAT_END', hostId, { outcome: 'WIN', levelsGained: 1, treasuresGained: 1 }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    assert.strictEqual(combatWinSnap.type, 'STATE_SNAPSHOT');
+    assert.strictEqual(combatWinSnap.gameState.players[hostId].level, 10);
+    assert.strictEqual(combatWinSnap.gameState.players[hostId].reachedMaxLevelViaCombat, true);
+    assert.strictEqual(combatWinSnap.gameState.turnEndsAt, null, 'pending winner confirmation must freeze turn timer');
+
+    // Dropping back below 10 clears reachedMaxLevelViaCombat and resumes the turn timer.
+    host.drain();
+    host.send(ev('DEC_LEVEL', hostId, { targetPlayerId: hostId, amount: 1 }));
+    await host.waitFor(['EVENT_BROADCAST']);
+    const resumedSnap = await host.waitFor(['STATE_SNAPSHOT']);
+    assert.strictEqual(resumedSnap.gameState.players[hostId].level, 9);
+    assert.strictEqual(resumedSnap.gameState.players[hostId].reachedMaxLevelViaCombat, false);
+    assert.ok(
+        resumedSnap.gameState.turnEndsAt !== null && resumedSnap.gameState.turnEndsAt > Date.now(),
+        'dropping below level 10 must clear pending winner lock and re-arm turnEndsAt'
+    );
+
+    // Guest remains unaffected below 10.
+    assert.strictEqual(resumedSnap.gameState.players[guestId].reachedMaxLevelViaCombat, false);
+
+    await guest.close();
+    await host.close();
 });

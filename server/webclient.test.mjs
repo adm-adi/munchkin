@@ -21,7 +21,11 @@
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
+import fs from 'node:fs';
 import http from 'node:http';
+import path from 'node:path';
+import vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
 
 import { startServer } from './testServer.js';
@@ -32,6 +36,8 @@ import {
 import { calculateResult, runAwayBonus } from './public/js/combat.mjs';
 import { GameSocket, ConnState, ServerError, oneOffRequest, authenticatedRequest } from './public/js/net.mjs';
 import { session } from './public/js/session.mjs';
+import { SUPPORTED_LANGS, AVATARS, avatarName, setLang, getLang } from './public/js/i18n.mjs';
+import { encodeQrMatrix, createQrSvg } from './public/js/ui.mjs';
 
 let server;
 let baseHttp;
@@ -945,6 +951,323 @@ describe('web client against the real server', () => {
             assert.ok(unknown, 'reducer crashed on unknown target');
         } finally {
             host.leave();
+        }
+    });
+});
+
+describe('web client modules: session, i18n, engine, and QR renderer (QA-09)', () => {
+    test('session.clearAuth wipes seat/reconnectToken/auth cleanly and tolerates corrupt or missing localStorage', () => {
+        const hadStorage = Object.prototype.hasOwnProperty.call(globalThis, 'localStorage');
+        const origStorage = globalThis.localStorage;
+        const store = new Map();
+
+        const memStorage = {
+            getItem: (k) => (store.has(k) ? store.get(k) : null),
+            setItem: (k, v) => { store.set(k, String(v)); },
+            removeItem: (k) => { store.delete(k); }
+        };
+
+        try {
+            globalThis.localStorage = memStorage;
+
+            session.saveAuth('jwt-token-1', { id: 'u1', username: 'Hero' });
+            session.saveIdentity({ name: 'Hero', avatarId: 2, gender: 'M' });
+            session.saveSeat({ joinCode: 'JOIN99', reconnectToken: 'rec-secret', playerId: 'p1' });
+
+            assert.throws(() => session.saveAuth({ token: 'bad' }), TypeError);
+            assert.strictEqual(session.authToken, 'jwt-token-1');
+            assert.strictEqual(session.seat.reconnectToken, 'rec-secret');
+
+            session.clearAuth();
+            assert.strictEqual(session.authToken, null);
+            assert.strictEqual(session.profile, null);
+            assert.strictEqual(session.seat, null);
+            assert.strictEqual(session.identity, null);
+            assert.strictEqual(store.size, 0);
+
+            // Corrupt auth/identity entries must not throw or wipe unrelated seat storage
+            session.saveSeat({ joinCode: 'KEEP01', reconnectToken: 'keep-tok', playerId: 'p2' });
+            store.set('munchkin.auth', '{not valid json');
+            store.set('munchkin.identity', '["array-not-object"]');
+
+            assert.strictEqual(session.authToken, null);
+            assert.strictEqual(session.profile, null);
+            assert.strictEqual(session.identity, null);
+            assert.deepStrictEqual(
+                { joinCode: session.seat.joinCode, reconnectToken: session.seat.reconnectToken, playerId: session.seat.playerId },
+                { joinCode: 'KEEP01', reconnectToken: 'keep-tok', playerId: 'p2' }
+            );
+
+            // Absent / throwing localStorage must never crash clearAuth or getters
+            delete globalThis.localStorage;
+            assert.doesNotThrow(() => session.clearAuth());
+            assert.strictEqual(session.authToken, null);
+            assert.strictEqual(session.seat, null);
+
+            globalThis.localStorage = {
+                getItem() { throw new Error('SecurityError'); },
+                setItem() { throw new Error('QuotaExceededError'); },
+                removeItem() { throw new Error('SecurityError'); }
+            };
+            assert.doesNotThrow(() => session.clearAuth());
+            assert.doesNotThrow(() => session.saveSeat({ joinCode: 'X', reconnectToken: 'Y', playerId: 'p1' }));
+            assert.strictEqual(session.authToken, null);
+        } finally {
+            if (hadStorage) globalThis.localStorage = origStorage;
+            else delete globalThis.localStorage;
+        }
+    });
+
+    test('i18n has 100% key parity across es/en/fr and canonical AVATARS 0..7 match Android', () => {
+        assert.deepStrictEqual(SUPPORTED_LANGS, ['es', 'en', 'fr']);
+
+        const here = path.dirname(fileURLToPath(import.meta.url));
+        const i18nSrc = fs.readFileSync(path.join(here, 'public', 'js', 'i18n.mjs'), 'utf8');
+        const runnable = `${i18nSrc.replace(/^export\s+/gm, '')}\n;LABELS_BY_LANG;`;
+        const labelsByLang = vm.runInNewContext(runnable, { globalThis: {} });
+
+        const esSections = Object.keys(labelsByLang.es).sort();
+        for (const lang of ['en', 'fr']) {
+            assert.deepStrictEqual(
+                Object.keys(labelsByLang[lang]).sort(),
+                esSections,
+                `${lang} top-level i18n sections must match es`
+            );
+
+            for (const section of esSections) {
+                const esKeys = Object.keys(labelsByLang.es[section]).sort();
+                const langKeys = Object.keys(labelsByLang[lang][section]).sort();
+                assert.deepStrictEqual(
+                    langKeys,
+                    esKeys,
+                    `i18n.${lang}.${section} keys must have 100% parity with es`
+                );
+
+                if (section === 'abilities') {
+                    for (const key of esKeys) {
+                        assert.strictEqual(
+                            labelsByLang[lang].abilities[key].length,
+                            labelsByLang.es.abilities[key].length,
+                            `abilities.${key} length mismatch for ${lang}`
+                        );
+                    }
+                } else {
+                    for (const key of esKeys) {
+                        const esVal = labelsByLang.es[section][key];
+                        const langVal = labelsByLang[lang][section][key];
+                        assert.ok(
+                            typeof langVal === 'string' && langVal.trim().length > 0,
+                            `i18n.${lang}.${section}.${key} must be a non-empty string`
+                        );
+                        const esPlaceholders = [...esVal.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort();
+                        const langPlaceholders = [...langVal.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort();
+                        assert.deepStrictEqual(
+                            langPlaceholders,
+                            esPlaceholders,
+                            `placeholder mismatch in i18n.${lang}.${section}.${key}`
+                        );
+                    }
+                }
+            }
+        }
+
+        // Canonical 8 avatars (0..7) match AvatarResources.kt slot order & localized names
+        assert.deepStrictEqual(
+            AVATARS.map(a => [a.id, a.key]),
+            [
+                [0, 'WARRIOR'],
+                [1, 'WIZARD'],
+                [2, 'THIEF'],
+                [3, 'CLERIC'],
+                [4, 'HUMAN'],
+                [5, 'ELF'],
+                [6, 'DWARF'],
+                [7, 'HALFLING']
+            ]
+        );
+
+        const prevLang = getLang();
+        try {
+            setLang('es');
+            assert.deepStrictEqual(
+                AVATARS.map(a => avatarName(a.id)),
+                ['Guerrero', 'Mago', 'Ladrón', 'Clérigo', 'Humano', 'Elfo', 'Enano', 'Mediano']
+            );
+            setLang('en');
+            assert.deepStrictEqual(
+                AVATARS.map(a => avatarName(a.id)),
+                ['Warrior', 'Wizard', 'Thief', 'Cleric', 'Human', 'Elf', 'Dwarf', 'Halfling']
+            );
+            setLang('fr');
+            assert.strictEqual(AVATARS.map(a => avatarName(a.id)).filter(Boolean).length, 8);
+        } finally {
+            setLang(prevLang);
+        }
+    });
+
+    test('engine applyEvent handles PLAYER_ROLL tie-break, reachedMaxLevelViaCombat lifecycle, and GAME_END winnerId', () => {
+        const lobbyState = {
+            gameId: 'eng-1',
+            joinCode: 'ENG1',
+            hostId: 'p1',
+            phase: 'LOBBY',
+            seq: 1,
+            settings: { maxLevel: 10, levelTenOnlyCombat: true, allowLevelTenOverride: false },
+            playerOrder: ['p1', 'p2', 'p3'],
+            players: {
+                p1: { playerId: 'p1', name: 'P1', level: 1, gearBonus: 0, lastRoll: 5 },
+                p2: { playerId: 'p2', name: 'P2', level: 1, gearBonus: 0, lastRoll: 5 },
+                p3: { playerId: 'p3', name: 'P3', level: 1, gearBonus: 0, lastRoll: 2 }
+            },
+            combat: null
+        };
+
+        // Tie-break re-roll by p1 resets other tied player (p2 -> null), eliminates non-tied (p3 -> 0), preserves p1's roll
+        const afterTieBreak = applyEvent(lobbyState, events.playerRoll('p1', 6));
+        assert.strictEqual(afterTieBreak.players.p1.lastRoll, 6);
+        assert.strictEqual(afterTieBreak.players.p2.lastRoll, null);
+        assert.strictEqual(afterTieBreak.players.p3.lastRoll, 0);
+
+        // COMBAT_END WIN from level 9 -> 10 marks reachedMaxLevelViaCombat = true
+        const combatState = {
+            gameId: 'eng-1',
+            joinCode: 'ENG1',
+            hostId: 'p1',
+            phase: 'IN_GAME',
+            seq: 10,
+            settings: { maxLevel: 10, levelTenOnlyCombat: true, allowLevelTenOverride: false },
+            playerOrder: ['p1', 'p2'],
+            players: {
+                p1: { playerId: 'p1', name: 'P1', level: 9, gearBonus: 0, treasures: 0, reachedMaxLevelViaCombat: false },
+                p2: { playerId: 'p2', name: 'P2', level: 10, gearBonus: 0, treasures: 0, reachedMaxLevelViaCombat: false }
+            },
+            combat: {
+                mainPlayerId: 'p1',
+                helperPlayerId: null,
+                monsters: [{ id: 'm1', name: 'Boss', baseLevel: 5, flatModifier: 0, isUndead: false, levels: 1, treasures: 2, conditionalModifiers: [] }],
+                tempBonuses: [],
+                heroModifier: 0,
+                monsterModifier: 0
+            }
+        };
+
+        const afterCombatWin = applyEvent(combatState, events.combatEnd('p1', 'WIN', {
+            levelsGained: 1,
+            treasuresGained: 2
+        }));
+        assert.strictEqual(afterCombatWin.players.p1.level, 10);
+        assert.strictEqual(afterCombatWin.players.p1.reachedMaxLevelViaCombat, true);
+        assert.strictEqual(afterCombatWin.combat, null);
+
+        // SET_LEVEL dropping below 10 clears reachedMaxLevelViaCombat
+        const dropped = applyEvent(afterCombatWin, {
+            eventId: 'e-set-9',
+            type: 'SET_LEVEL',
+            actorId: 'p1',
+            targetPlayerId: 'p1',
+            timestamp: Date.now(),
+            level: 9
+        });
+        assert.strictEqual(dropped.players.p1.level, 9);
+        assert.strictEqual(dropped.players.p1.reachedMaxLevelViaCombat, false);
+
+        // Already at level 10 before combat cannot forge reachedMaxLevelViaCombat = true
+        const alreadyTenCombat = {
+            ...afterCombatWin,
+            players: {
+                ...afterCombatWin.players,
+                p2: { playerId: 'p2', name: 'P2', level: 10, gearBonus: 0, treasures: 0, reachedMaxLevelViaCombat: false }
+            },
+            combat: {
+                mainPlayerId: 'p2',
+                helperPlayerId: null,
+                monsters: [{ id: 'm2', name: 'Rat', baseLevel: 1, flatModifier: 0, isUndead: false, levels: 1, treasures: 1, conditionalModifiers: [] }],
+                tempBonuses: [],
+                heroModifier: 0,
+                monsterModifier: 0
+            }
+        };
+        const afterAlreadyTen = applyEvent(alreadyTenCombat, events.combatEnd('p2', 'WIN', { levelsGained: 1, treasuresGained: 1 }));
+        assert.strictEqual(afterAlreadyTen.players.p2.level, 10);
+        assert.strictEqual(afterAlreadyTen.players.p2.reachedMaxLevelViaCombat, false);
+
+        // GAME_END adopts event.winnerId and closes combat
+        const finished = applyEvent(afterCombatWin, events.gameEnd('p1', 'p1'));
+        assert.strictEqual(finished.phase, 'FINISHED');
+        assert.strictEqual(finished.winnerId, 'p1');
+        assert.strictEqual(finished.combat, null);
+    });
+
+    test('ui QR encoder and createQrSvg produce valid SVG markup for universal join URLs', () => {
+        const hadNode = Object.prototype.hasOwnProperty.call(globalThis, 'Node');
+        const hadDoc = Object.prototype.hasOwnProperty.call(globalThis, 'document');
+        const origNode = globalThis.Node;
+        const origDoc = globalThis.document;
+
+        function escapeAttr(val) {
+            return String(val)
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        class MockSvgNode {
+            constructor(tagName, namespaceURI) {
+                this.tagName = tagName;
+                this.namespaceURI = namespaceURI;
+                this.attributes = Object.create(null);
+                this.children = [];
+            }
+            setAttribute(name, value) {
+                this.attributes[name] = String(value);
+            }
+            appendChild(child) {
+                this.children.push(child);
+                return child;
+            }
+            toXml() {
+                const attrs = Object.entries(this.attributes)
+                    .map(([k, v]) => ` ${k}="${escapeAttr(v)}"`)
+                    .join('');
+                if (this.children.length === 0) {
+                    return `<${this.tagName}${attrs}/>`;
+                }
+                return `<${this.tagName}${attrs}>${this.children.map(c => c.toXml()).join('')}</${this.tagName}>`;
+            }
+        }
+
+        try {
+            globalThis.Node = MockSvgNode;
+            globalThis.document = {
+                createElementNS(ns, tag) {
+                    return new MockSvgNode(tag, ns);
+                }
+            };
+
+            const payload = 'https://munchking-sirpepo.duckdns.org/#/join/ABCD1234';
+            const { size, grid } = encodeQrMatrix(payload);
+            assert.ok(size >= 29 && size % 4 === 1, `expected valid QR matrix version dimension, got ${size}`);
+            assert.strictEqual(grid.length, size * size);
+            // 7x7 finder corners must be dark at (0,0), (0,size-1), (size-1,0)
+            assert.strictEqual(grid[0], 1);
+            assert.strictEqual(grid[size - 1], 1);
+            assert.strictEqual(grid[(size - 1) * size], 1);
+
+            const svgNode = createQrSvg(payload, { label: 'QR ABCD1234', margin: 2 });
+            const markup = svgNode.toXml();
+            assert.ok(markup.startsWith('<svg '), 'expected <svg> root element');
+            assert.ok(markup.endsWith('</svg>'), 'expected closing </svg> tag');
+            assert.ok(markup.includes(`viewBox="0 0 ${size + 4} ${size + 4}"`));
+            assert.ok(markup.includes('aria-label="QR ABCD1234"'));
+            assert.ok(markup.includes('<rect x="0" y="0"'));
+            assert.match(markup, /<path d="M[\d,]+h1v1h-1z/);
+            assert.ok(!markup.includes('style='), 'CSP forbids inline style attributes');
+        } finally {
+            if (hadNode) globalThis.Node = origNode;
+            else delete globalThis.Node;
+            if (hadDoc) globalThis.document = origDoc;
+            else delete globalThis.document;
         }
     });
 });

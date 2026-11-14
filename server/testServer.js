@@ -233,4 +233,31 @@ async function joinGame(url, joinCode, name, extra = {}) {
     return { client, welcome };
 }
 
-module.exports = { startServer, TestClient, registerUser, createGame, joinGame };
+/**
+ * Polls an async/sync predicate until it returns a truthy value or the timeout expires.
+ * Replaces fixed sleeps when waiting on asynchronous SQLite persistence or broadcasts.
+ * @template T
+ * @param {() => Promise<T> | T} predicate
+ * @param {{ timeoutMs?: number, intervalMs?: number }} [opts]
+ * @returns {Promise<NonNullable<T>>}
+ */
+async function pollUntil(predicate, { timeoutMs = 3000, intervalMs = 25 } = {}) {
+    const deadline = Date.now() + timeoutMs;
+    let lastError = null;
+    while (true) {
+        try {
+            const value = await predicate();
+            if (value) return /** @type {NonNullable<T>} */ (value);
+            lastError = null;
+        } catch (err) {
+            lastError = err;
+        }
+        if (Date.now() >= deadline) {
+            if (lastError) throw lastError;
+            throw new Error(`pollUntil timed out after ${timeoutMs}ms`);
+        }
+        await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+}
+
+module.exports = { startServer, TestClient, registerUser, createGame, joinGame, pollUntil };
