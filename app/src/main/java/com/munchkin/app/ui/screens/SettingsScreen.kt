@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,6 +37,8 @@ import com.munchkin.app.util.LocaleManager
 @Composable
 fun SettingsScreen(
     isCheckingUpdate: Boolean = false,
+    largeNumbersMode: Boolean = false,
+    onToggleLargeNumbersMode: (Boolean) -> Unit = {},
     onBack: () -> Unit,
     onCheckUpdate: () -> Unit
 ) {
@@ -64,6 +67,7 @@ fun SettingsScreen(
 
         Scaffold(
             containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
                 TopAppBar(
                     title = {
@@ -100,6 +104,7 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
+                    .navigationBarsPadding()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -121,16 +126,36 @@ fun SettingsScreen(
                             icon = Icons.Default.Refresh,
                             iconTint = NeonPrimary,
                             title = stringResource(R.string.check_updates),
-                            subtitle = if (isCheckingUpdate) stringResource(R.string.connecting)
-                                       else stringResource(R.string.ok),
+                            subtitle = if (isCheckingUpdate) {
+                                stringResource(R.string.connecting)
+                            } else {
+                                stringResource(R.string.check_updates_subtitle)
+                            },
                             onClick = onCheckUpdate,
                             isLoading = isCheckingUpdate
                         )
                     }
                 }
 
+                // Display Section
+                EntranceAnimation(delayMs = 60) {
+                    GlassSettingsSection(
+                        title = stringResource(R.string.display),
+                        titleColor = NeonPrimaryLight
+                    ) {
+                        GlassSettingsSwitchItem(
+                            icon = Icons.Default.TextFields,
+                            iconTint = NeonPrimaryLight,
+                            title = stringResource(R.string.large_numbers),
+                            subtitle = stringResource(R.string.large_numbers_subtitle),
+                            checked = largeNumbersMode,
+                            onCheckedChange = onToggleLargeNumbersMode
+                        )
+                    }
+                }
+
                 // Language Section
-                EntranceAnimation(delayMs = 80) {
+                EntranceAnimation(delayMs = 120) {
                     GlassSettingsSection(
                         title = stringResource(R.string.language),
                         titleColor = NeonSecondary
@@ -140,7 +165,7 @@ fun SettingsScreen(
                                 icon = Icons.Default.Language,
                                 iconTint = NeonSecondary,
                                 title = stringResource(R.string.language),
-                                subtitle = currentLocale.displayName,
+                                subtitle = stringResource(currentLocale.labelRes),
                                 onClick = { showLanguageDropdown = true }
                             )
                             DropdownMenu(
@@ -152,9 +177,7 @@ fun SettingsScreen(
                                     DropdownMenuItem(
                                         text = {
                                             Text(
-                                                if (locale == LocaleManager.AppLocale.SYSTEM)
-                                                    stringResource(R.string.language_system)
-                                                else locale.displayName,
+                                                text = stringResource(locale.labelRes),
                                                 color = NeonGray100
                                             )
                                         },
@@ -179,17 +202,17 @@ fun SettingsScreen(
                     }
                 }
 
-                // Developer Section
-                EntranceAnimation(delayMs = 160) {
+                // Developer / Credits Section
+                EntranceAnimation(delayMs = 180) {
                     GlassSettingsSection(
-                        title = "Developer",
+                        title = stringResource(R.string.developer_section),
                         titleColor = NeonGold
                     ) {
                         GlassSettingsItem(
                             icon = Icons.Default.Code,
                             iconTint = NeonGold,
-                            title = "Developer",
-                            subtitle = "Alejandro. El mejor del mundo y te callas."
+                            title = stringResource(R.string.developer_section),
+                            subtitle = stringResource(R.string.developer_credit)
                         )
                     }
                 }
@@ -286,6 +309,7 @@ private fun GlassSettingsItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 56.dp)
             .then(
                 if (onClick != null && !isLoading)
                     Modifier.clickable { onClick() }
@@ -295,7 +319,6 @@ private fun GlassSettingsItem(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Icon box with neon glow
         Box(
             modifier = Modifier
                 .size(44.dp)
@@ -330,7 +353,7 @@ private fun GlassSettingsItem(
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodyMedium,
-                color = NeonGray400
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
@@ -338,9 +361,71 @@ private fun GlassSettingsItem(
             Icon(
                 Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = NeonGray500,
-                modifier = Modifier.size(18.dp)
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
             )
         }
+    }
+}
+
+@Composable
+private fun GlassSettingsSwitchItem(
+    icon: ImageVector,
+    iconTint: Color,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clickable(role = Role.Switch) { onCheckedChange(!checked) }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(iconTint.copy(alpha = 0.15f))
+                .border(1.dp, iconTint.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = NeonGray100
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = NeonBackground,
+                checkedTrackColor = NeonSecondary,
+                uncheckedThumbColor = NeonGray200,
+                uncheckedTrackColor = NeonSurfaceVariant,
+                uncheckedBorderColor = GlassBorder
+            )
+        )
     }
 }

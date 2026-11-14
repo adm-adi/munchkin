@@ -1,47 +1,103 @@
 package com.munchkin.app.ui.components
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.WifiOff
-import androidx.compose.ui.res.stringResource
-import com.munchkin.app.R
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Paint
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.munchkin.app.R
 import com.munchkin.app.core.Gender
 import com.munchkin.app.core.PlayerState
-import com.munchkin.app.ui.theme.*
+import com.munchkin.app.ui.theme.AvatarResources
+import com.munchkin.app.ui.theme.DungeonBorder
+import com.munchkin.app.ui.theme.DungeonDangerFill
+import com.munchkin.app.ui.theme.DungeonSuccessFill
+import com.munchkin.app.ui.theme.NeonGray100
+import com.munchkin.app.ui.theme.NeonGray200
+import com.munchkin.app.ui.theme.NeonGray300
+import com.munchkin.app.ui.theme.NeonPrimary
+import com.munchkin.app.ui.theme.NeonPrimaryLight
+import com.munchkin.app.ui.theme.NeonSecondary
+import com.munchkin.app.ui.theme.NeonSurface
+import com.munchkin.app.ui.theme.NeonSurfaceVariant
+import com.munchkin.app.ui.theme.NeonWarning
+import com.munchkin.app.ui.theme.getAvatarColor
 
 /**
- * Large counter component for level/gear with animated number changes.
+ * Animated counter button for Level / Gear / Modifiers with >=48dp touch targets
+ * and deferred graphicsLayer animations.
  */
 @Composable
 fun CounterButton(
@@ -56,112 +112,119 @@ fun CounterButton(
     enabled: Boolean = true
 ) {
     val haptic = LocalHapticFeedback.current
-    
-    // Shake animation when at limit
+
     var shouldShake by remember { mutableStateOf(false) }
-    val shakeOffset by animateFloatAsState(
+    val shakeOffsetState = animateFloatAsState(
         targetValue = if (shouldShake) 10f else 0f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioHighBouncy,
             stiffness = Spring.StiffnessHigh
         ),
         finishedListener = { shouldShake = false },
-        label = "shake"
+        label = "counterShake"
     )
-    
-    // Scale animation on value change
+
     var lastValue by remember { mutableIntStateOf(value) }
-    val scale by animateFloatAsState(
-        targetValue = if (value != lastValue) 1.2f else 1f,
+    val scaleState = animateFloatAsState(
+        targetValue = if (value != lastValue) 1.15f else 1f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
         ),
-        label = "scale"
+        label = "counterScale"
     )
-    
+
     LaunchedEffect(value) {
         lastValue = value
     }
-    
+
     val displayValue = if (showSign && value >= 0) "+$value" else value.toString()
-    
+    val canDecrement = enabled && (minValue == null || value > minValue)
+    val canIncrement = enabled && (maxValue == null || value < maxValue)
+
     Column(
-        modifier = modifier
-            .graphicsLayer { translationX = shakeOffset },
+        modifier = modifier.graphicsLayer { translationX = shakeOffsetState.value },
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = NeonGray300
         )
-        
+
         Spacer(modifier = Modifier.height(8.dp))
-        
+
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Decrement button
-            FilledIconButton(
-                enabled = enabled,
+            FilledTonalIconButton(
                 onClick = {
-                    if (minValue != null && value <= minValue) {
-                        shouldShake = true
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    } else {
+                    if (canDecrement) {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         onDecrement()
-                    }
-                },
-                modifier = Modifier.size(56.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                )
-            ) {
-                Icon(
-                    Icons.Default.Remove,
-                    contentDescription = "Decrementar",
-                    modifier = Modifier.size(28.dp)
-                )
-            }
-            
-            // Value display
-            Text(
-                text = displayValue,
-                style = MaterialTheme.typography.displayMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 48.sp
-                ),
-                modifier = Modifier
-                    .widthIn(min = 80.dp)
-                    .graphicsLayer { scaleX = scale; scaleY = scale },
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.primary
-            )
-            
-            // Increment button
-            FilledIconButton(
-                enabled = enabled,
-                onClick = {
-                    if (maxValue != null && value >= maxValue) {
+                    } else {
                         shouldShake = true
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    } else {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onIncrement()
                     }
                 },
-                modifier = Modifier.size(56.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                enabled = enabled,
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = if (canDecrement) NeonSurfaceVariant else NeonSurface,
+                    contentColor = if (canDecrement) NeonGray100 else NeonGray300.copy(alpha = 0.5f)
                 )
             ) {
                 Icon(
-                    Icons.Default.Add,
-                    contentDescription = "Incrementar",
-                    modifier = Modifier.size(28.dp)
+                    imageVector = Icons.Default.Remove,
+                    contentDescription = stringResource(R.string.cd_decrement, label)
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .sizeIn(minWidth = 56.dp, minHeight = 48.dp)
+                    .graphicsLayer {
+                        val s = scaleState.value
+                        scaleX = s
+                        scaleY = s
+                    }
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(NeonSurfaceVariant)
+                    .border(1.dp, DungeonBorder, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = displayValue,
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontFeatureSettings = "tnum"
+                    ),
+                    color = NeonGray100
+                )
+            }
+
+            FilledTonalIconButton(
+                onClick = {
+                    if (canIncrement) {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onIncrement()
+                    } else {
+                        shouldShake = true
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
+                },
+                enabled = enabled,
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = if (canIncrement) NeonSurfaceVariant else NeonSurface,
+                    contentColor = if (canIncrement) NeonGray100 else NeonGray300.copy(alpha = 0.5f)
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = stringResource(R.string.cd_increment, label)
                 )
             }
         }
@@ -169,8 +232,7 @@ fun CounterButton(
 }
 
 /**
- * Player avatar circle with image (gender-aware) or colored-initial fallback.
- * Lookup order: avatar_{g}_{id} → avatar_m_{id} → avatar_{id} → colored initial.
+ * Circular player avatar rendered from canonical class/race drawable resources.
  */
 @Composable
 fun PlayerAvatar(
@@ -188,7 +250,6 @@ fun PlayerAvatar(
         modifier = modifier.size(size.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Glow ring when border shown
         if (showBorder) {
             Box(
                 modifier = Modifier
@@ -211,7 +272,7 @@ fun PlayerAvatar(
                     )
                 )
                 .then(
-                    if (showBorder) Modifier.border(2.dp, NeonPrimary.copy(alpha = 0.8f), CircleShape)
+                    if (showBorder) Modifier.border(2.dp, NeonPrimaryLight.copy(alpha = 0.85f), CircleShape)
                     else Modifier
                 ),
             contentAlignment = Alignment.Center
@@ -227,178 +288,187 @@ fun PlayerAvatar(
 }
 
 /**
- * Compact player card for board view.
+ * Player summary card used across Table, Board, and Lobby screens.
+ * Turn glow animation is strictly deferred to drawBehind with zero Paint shadow allocations.
  */
 @Composable
 fun PlayerCard(
     player: PlayerState,
     isMe: Boolean,
     isHost: Boolean,
+    modifier: Modifier = Modifier,
     isTurn: Boolean = false,
     showDisconnectedBadge: Boolean = true,
     showStats: Boolean = true,
     onToggleGender: (() -> Unit)? = null,
     onKickPlayer: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
     actions: @Composable (RowScope.() -> Unit) = {}
 ) {
     val accentColor = when {
         isTurn -> NeonWarning
-        isMe -> NeonPrimary
+        isMe -> NeonPrimaryLight
         isHost -> NeonSecondary
-        else -> NeonGray500
+        else -> DungeonBorder
     }
     val borderColor by animateColorAsState(
         targetValue = accentColor,
-        label = "borderColor"
+        label = "playerCardBorderColor"
     )
 
-    // Pulsing glow for current turn player
-    val glowAlpha = if (isTurn) {
+    val glowAlphaState = if (isTurn) {
         val transition = rememberInfiniteTransition(label = "turnGlow")
         transition.animateFloat(
-            initialValue = 0.2f, targetValue = 0.7f,
+            initialValue = 0.2f,
+            targetValue = 0.65f,
             animationSpec = infiniteRepeatable(
-                tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse
+                tween(900, easing = FastOutSlowInEasing),
+                RepeatMode.Reverse
             ),
             label = "turnGlowAlpha"
-        ).value
-    } else 0f
+        )
+    } else {
+        null
+    }
 
     val containerBg = when {
-        isTurn -> NeonWarning.copy(alpha = 0.07f)
-        isMe -> NeonPrimary.copy(alpha = 0.06f)
-        else -> GlassBase
+        isTurn -> NeonSurfaceVariant
+        isMe -> NeonSurface
+        else -> NeonSurface.copy(alpha = 0.92f)
     }
     val borderWidth = if (isTurn || isMe) 1.5.dp else 1.dp
     val shape = RoundedCornerShape(16.dp)
+    val hostDescription = stringResource(R.string.host)
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .then(
-                if (isTurn) Modifier.drawBehind {
-                    drawIntoCanvas { canvas ->
-                        val paint = Paint().also { p ->
-                            p.asFrameworkPaint().apply {
-                                isAntiAlias = true
-                                color = android.graphics.Color.TRANSPARENT
-                                setShadowLayer(14.dp.toPx(), 0f, 0f,
-                                    NeonWarning.copy(alpha = glowAlpha).toArgb())
-                            }
-                        }
-                        canvas.drawRoundRect(0f, 0f, size.width, size.height,
-                            16.dp.toPx(), 16.dp.toPx(), paint)
+                if (glowAlphaState != null) {
+                    Modifier.drawBehind {
+                        val a = glowAlphaState.value
+                        val r = 16.dp.toPx()
+                        drawRoundRect(
+                            color = NeonWarning.copy(alpha = a * 0.22f),
+                            cornerRadius = CornerRadius(r, r),
+                            style = Stroke(width = 8.dp.toPx())
+                        )
+                        drawRoundRect(
+                            color = NeonWarning.copy(alpha = a * 0.35f),
+                            cornerRadius = CornerRadius(r, r),
+                            style = Stroke(width = 3.dp.toPx())
+                        )
                     }
-                } else Modifier
+                } else {
+                    Modifier
+                }
             )
             .clip(shape)
             .background(containerBg)
             .border(
                 width = borderWidth,
-                brush = Brush.linearGradient(
-                    listOf(borderColor.copy(alpha = if (isTurn) glowAlpha else 0.6f),
-                           borderColor.copy(alpha = 0.2f))
-                ),
+                color = if (isTurn) borderColor.copy(alpha = 0.85f) else borderColor,
                 shape = shape
             )
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
     ) {
-        // Glass highlight overlay
-        Box(
+        Row(
             modifier = Modifier
-                .matchParentSize()
-                .background(
-                    Brush.linearGradient(
-                        0f to Color.White.copy(alpha = 0.05f),
-                        0.5f to Color.Transparent
-                    )
+                .fillMaxWidth()
+                .then(
+                    if (!player.isConnected && showDisconnectedBadge) {
+                        Modifier.graphicsLayer { alpha = 0.6f }
+                    } else {
+                        Modifier
+                    }
                 )
-        )
-        Box {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(if (!player.isConnected && showDisconnectedBadge) Modifier.graphicsLayer { alpha = 0.55f } else Modifier)
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Avatar with glow for current player
-                Box {
-                    if (isMe) {
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .background(
-                                    com.munchkin.app.ui.theme.NeonPrimary.copy(alpha = 0.2f),
-                                    CircleShape
-                                )
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            PlayerAvatar(
+                player = player,
+                size = 48,
+                showBorder = isMe
+            )
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = player.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = if (isMe) FontWeight.SemiBold else FontWeight.Medium,
+                        color = NeonGray100,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (isHost) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "👑",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.semantics { contentDescription = hostDescription }
                         )
                     }
-                    PlayerAvatar(
-                        player = player,
-                        size = 48,
-                        showBorder = isMe
-                    )
-                }
-                
-                Spacer(modifier = Modifier.width(16.dp))
-                
-                // Name and traits
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = player.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = if (isMe) FontWeight.SemiBold else FontWeight.Normal,
-                            color = com.munchkin.app.ui.theme.NeonGray100,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
-                        if (isHost) {
-                            Spacer(modifier = Modifier.width(6.dp))
+                    if (isMe) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = NeonPrimary
+                        ) {
                             Text(
-                                text = "👑",
-                                style = MaterialTheme.typography.bodySmall
+                                text = stringResource(R.string.you),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = NeonGray100,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
-                        if (isMe) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = com.munchkin.app.ui.theme.NeonPrimary.copy(alpha = 0.2f)
-                            ) {
-                                Text(
-                                    text = "TÚ",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = com.munchkin.app.ui.theme.NeonPrimary,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-                        
-                        Spacer(modifier = Modifier.width(8.dp))
-                        
-                        // Gender Icon (Clickable for self)
-                        val genderSymbol = when (player.gender) {
-                            Gender.M -> "♂"
-                            Gender.F -> "♀"
-                            Gender.NA -> "Ø"
-                        }
-                        val genderColor = when (player.gender) {
-                            Gender.M -> Color(0xFF42A5F5) // Blue
-                            Gender.F -> Color(0xFFEC407A) // Pink
-                            Gender.NA -> com.munchkin.app.ui.theme.NeonGray400
-                        }
-                        
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    val genderSymbol = when (player.gender) {
+                        Gender.M -> "♂"
+                        Gender.F -> "♀"
+                        Gender.NA -> "Ø"
+                    }
+                    val genderLabel = when (player.gender) {
+                        Gender.M -> stringResource(R.string.gender_male)
+                        Gender.F -> stringResource(R.string.gender_female)
+                        Gender.NA -> stringResource(R.string.gender_na)
+                    }
+                    val genderColor = when (player.gender) {
+                        Gender.M -> Color(0xFF64B5F6)
+                        Gender.F -> Color(0xFFF48FB1)
+                        Gender.NA -> NeonGray300
+                    }
+                    val canToggleGender = isMe && onToggleGender != null
+                    val genderCd = stringResource(R.string.cd_toggle_gender, genderLabel)
+
+                    Box(
+                        modifier = Modifier
+                            .then(
+                                if (canToggleGender) {
+                                    Modifier
+                                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                        .clip(CircleShape)
+                                        .clickable(
+                                            role = Role.Button,
+                                            onClick = { onToggleGender?.invoke() }
+                                        )
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .semantics { contentDescription = genderCd },
+                        contentAlignment = Alignment.Center
+                    ) {
                         Surface(
                             shape = CircleShape,
-                            color = genderColor.copy(alpha = 0.1f),
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .then(if (isMe && onToggleGender != null) Modifier.clickable { onToggleGender() } else Modifier)
+                            color = genderColor.copy(alpha = 0.16f)
                         ) {
                             Text(
                                 text = genderSymbol,
@@ -408,23 +478,27 @@ fun PlayerCard(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                             )
                         }
+                    }
+                }
+
+                if (isTurn || (!player.isConnected && showDisconnectedBadge)) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (isTurn) {
-                            Spacer(modifier = Modifier.width(6.dp))
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
-                                color = com.munchkin.app.ui.theme.NeonWarning.copy(alpha = 0.2f)
+                                color = NeonSecondary
                             ) {
                                 Text(
-                                    text = "TURNO",
+                                    text = stringResource(R.string.turn_badge),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = com.munchkin.app.ui.theme.NeonWarning,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    fontWeight = FontWeight.Bold
+                                    color = NeonSurface,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
                         }
                         if (!player.isConnected && showDisconnectedBadge) {
-                            Spacer(modifier = Modifier.width(6.dp))
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
                                 color = MaterialTheme.colorScheme.errorContainer
@@ -432,231 +506,244 @@ fun PlayerCard(
                                 Text(
                                     text = stringResource(R.string.player_disconnected),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    fontWeight = FontWeight.Bold
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
                         }
                     }
                 }
-                    
-                    // Stats and Actions column
-                Column(horizontalAlignment = Alignment.End) {
-                    // Stats Row (Level & Power) - only shown in game, not lobby
-                    if (showStats) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
+            }
+
+            Column(horizontalAlignment = Alignment.End) {
+                if (showStats) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = NeonSurfaceVariant,
+                            border = BorderStroke(1.dp, DungeonBorder)
                         ) {
-                            // Level
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = com.munchkin.app.ui.theme.NeonPrimary.copy(alpha = 0.15f)
-                                ) {
-                                    Text(
-                                        text = "Nivel ${player.level}",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = com.munchkin.app.ui.theme.NeonPrimary,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-
-                            // Power
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = com.munchkin.app.ui.theme.NeonGray500.copy(alpha = 0.15f)
-                                ) {
-                                    Text(
-                                        text = "Fuerza ${player.combatPower}",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = com.munchkin.app.ui.theme.NeonGray100,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                
-                    // Custom Actions
-                    Row {
-                        actions()
-                    }
-
-                    // Kick button (host only, disconnected players)
-                    if (!player.isConnected && showDisconnectedBadge && onKickPlayer != null) {
-                        var showKickConfirm by remember { mutableStateOf(false) }
-                        IconButton(onClick = { showKickConfirm = true }) {
-                            Icon(
-                                Icons.Default.PersonRemove,
-                                contentDescription = stringResource(R.string.kick_player),
-                                tint = MaterialTheme.colorScheme.error
+                            Text(
+                                text = stringResource(R.string.player_level_format, player.level),
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontFeatureSettings = "tnum"
+                                ),
+                                color = NeonPrimaryLight,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
-                        if (showKickConfirm) {
-                            AlertDialog(
-                                onDismissRequest = { showKickConfirm = false },
-                                title = { Text(stringResource(R.string.kick_player)) },
-                                text = { Text(stringResource(R.string.confirm_kick, player.name)) },
-                                confirmButton = {
-                                    TextButton(onClick = {
-                                        showKickConfirm = false
-                                        onKickPlayer()
-                                    }) {
-                                        Text(
-                                            stringResource(R.string.kick_player),
-                                            color = MaterialTheme.colorScheme.error
-                                        )
-                                    }
-                                },
-                                dismissButton = {
-                                    TextButton(onClick = { showKickConfirm = false }) {
-                                        Text(stringResource(R.string.cancel))
-                                    }
-                                }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = NeonSurfaceVariant,
+                            border = BorderStroke(1.dp, DungeonBorder)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.player_power_format, player.combatPower),
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontFeatureSettings = "tnum"
+                                ),
+                                color = NeonGray100,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
                     }
                 }
+
+                Row {
+                    actions()
+                }
+
+                if (!player.isConnected && showDisconnectedBadge && onKickPlayer != null) {
+                    var showKickConfirm by remember { mutableStateOf(false) }
+                    IconButton(
+                        onClick = { showKickConfirm = true },
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PersonRemove,
+                            contentDescription = stringResource(R.string.kick_player),
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    if (showKickConfirm) {
+                        AlertDialog(
+                            onDismissRequest = { showKickConfirm = false },
+                            containerColor = NeonSurface,
+                            titleContentColor = NeonGray100,
+                            textContentColor = NeonGray200,
+                            title = { Text(stringResource(R.string.kick_player)) },
+                            text = { Text(stringResource(R.string.confirm_kick, player.name)) },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        showKickConfirm = false
+                                        onKickPlayer()
+                                    },
+                                    modifier = Modifier.heightIn(min = 48.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.kick_player),
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(
+                                    onClick = { showKickConfirm = false },
+                                    modifier = Modifier.heightIn(min = 48.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.cancel),
+                                        color = NeonGray300
+                                    )
+                                }
+                            }
+                        )
+                    }
+                }
             }
-
-
         }
     }
 }
 
 /**
- * Trait chip for race/class display.
+ * Trait chip for race/class display with localized removal contentDescription.
  */
 @Composable
 fun TraitChip(
     name: String,
-    onRemove: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onRemove: (() -> Unit)? = null
 ) {
     InputChip(
         selected = true,
         onClick = { onRemove?.invoke() },
-        label = { Text(name) },
-        modifier = modifier,
+        label = { Text(text = name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        modifier = modifier.then(if (onRemove != null) Modifier.heightIn(min = 48.dp) else Modifier),
+        colors = InputChipDefaults.inputChipColors(
+            selectedContainerColor = NeonSurfaceVariant,
+            selectedLabelColor = NeonGray100,
+            selectedTrailingIconColor = NeonGray300
+        ),
+        border = InputChipDefaults.inputChipBorder(
+            enabled = true,
+            selected = true,
+            selectedBorderColor = DungeonBorder
+        ),
         trailingIcon = if (onRemove != null) {
             {
                 Icon(
-                    Icons.Default.Remove,
-                    contentDescription = "Quitar",
+                    imageVector = Icons.Default.Close,
+                    contentDescription = stringResource(R.string.remove),
                     modifier = Modifier.size(16.dp)
                 )
             }
-        } else null
+        } else {
+            null
+        }
     )
 }
 
 /**
- * Combat result banner with animation.
+ * Combat result banner indicating current hero/monster margin with WCAG AA contrast.
  */
 @Composable
 fun CombatResultBanner(
     isWin: Boolean,
     difference: Int,
-    marginToWin: Int = difference, // Default to diff if not provided (for backward compat)
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    marginToWin: Int = difference
 ) {
-    val backgroundColor by animateColorAsState(
-        targetValue = if (isWin) 
-            MaterialTheme.colorScheme.tertiary
-        else 
-            MaterialTheme.colorScheme.error,
-        animationSpec = tween(300),
-        label = "bannerColor"
+    val containerColor by animateColorAsState(
+        targetValue = if (isWin) DungeonSuccessFill else DungeonDangerFill,
+        label = "combatBannerBg"
     )
-    
-    // Pulse animation
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val scale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.05f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(500),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseScale"
-    )
-    
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .graphicsLayer { scaleX = scale; scaleY = scale },
-        colors = CardDefaults.cardColors(containerColor = backgroundColor),
-        shape = RoundedCornerShape(16.dp)
+    val contentColor = NeonGray100
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = containerColor
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(24.dp),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = if (isWin) "¡VICTORIA!" else "DERROTA",
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
+                text = if (isWin) {
+                    stringResource(R.string.result_win)
+                } else {
+                    stringResource(R.string.result_lose)
+                },
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black),
+                color = contentColor
             )
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = if (isWin) 
-                    "Ganas por $difference" 
-                else 
-                    "Te faltan $marginToWin para ganar",
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White.copy(alpha = 0.9f)
+                text = if (isWin) {
+                    stringResource(R.string.win_by, kotlin.math.abs(difference))
+                } else {
+                    stringResource(R.string.combat_margin_to_win, kotlin.math.abs(marginToWin))
+                },
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    fontFeatureSettings = "tnum"
+                ),
+                color = contentColor
             )
         }
     }
 }
 
+/**
+ * Quick modifier +/- button strip with >=48dp touch height and localized accessibility labels.
+ */
 @Composable
 fun QuickModifierButtons(
     onModify: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val values = listOf(1, 2, 3, 5, 10)
-    
-    Column(modifier = modifier.fillMaxWidth()) {
-        // Negative Row
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            values.asReversed().forEach { amount ->
-                CompactButton(
-                    text = "-$amount",
-                    onClick = { onModify(-amount) },
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+            values.reversed().forEach { v ->
+                CompactModifierButton(
+                    text = "-$v",
+                    delta = -v,
+                    onClick = { onModify(-v) },
+                    containerColor = DungeonDangerFill,
+                    contentColor = NeonGray100,
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        // Positive Row
+
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            values.forEach { amount ->
-                CompactButton(
-                    text = "+$amount",
-                    onClick = { onModify(amount) },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            values.forEach { v ->
+                CompactModifierButton(
+                    text = "+$v",
+                    delta = v,
+                    onClick = { onModify(v) },
+                    containerColor = DungeonSuccessFill,
+                    contentColor = NeonGray100,
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
@@ -664,31 +751,34 @@ fun QuickModifierButtons(
 }
 
 @Composable
-private fun CompactButton(
+private fun CompactModifierButton(
     text: String,
+    delta: Int,
     onClick: () -> Unit,
     containerColor: Color,
-    contentColor: Color
+    contentColor: Color,
+    modifier: Modifier = Modifier
 ) {
+    val cd = stringResource(R.string.cd_modify_modifier, delta)
     FilledTonalButton(
         onClick = onClick,
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .semantics { contentDescription = cd },
+        shape = RoundedCornerShape(12.dp),
         colors = ButtonDefaults.filledTonalButtonColors(
             containerColor = containerColor,
             contentColor = contentColor
         ),
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
-        // 48dp is the accessibility minimum, and these are the most tapped
-        // controls in the app: every combat modifier goes through them, often
-        // in a hurry with the table waiting.
-        modifier = Modifier
-            .widthIn(min = 48.dp)
-            .height(48.dp),
-        shape = RoundedCornerShape(8.dp)
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold
+            style = MaterialTheme.typography.labelLarge.copy(
+                fontWeight = FontWeight.Bold,
+                fontFeatureSettings = "tnum"
+            ),
+            maxLines = 1
         )
     }
 }

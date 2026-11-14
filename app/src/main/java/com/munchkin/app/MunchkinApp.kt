@@ -1,24 +1,24 @@
 package com.munchkin.app
 
 import android.app.Application
-import android.content.Context
+import com.munchkin.app.di.AppContainer
+import com.munchkin.app.di.DefaultAppContainer
+import com.munchkin.app.ui.components.SoundManager
 
 /**
  * Application class for Munchkin Mesa Tracker.
- * Provides global access to application context.
+ * Owns the explicit [AppContainer] dependency graph.
  */
 class MunchkinApp : Application() {
-    
-    companion object {
-        private lateinit var instance: MunchkinApp
-        
-        val context: Context
-            get() = instance.applicationContext
-    }
-    
+
     override fun onCreate() {
         super.onCreate()
-        instance = this
-        // SoundManager auto-initializes
+        container = DefaultAppContainer(this)
+        SoundManager.init(this)
+    }
+
+    companion object {
+        lateinit var container: AppContainer
+            private set
     }
 }

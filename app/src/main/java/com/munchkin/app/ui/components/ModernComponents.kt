@@ -1,44 +1,96 @@
 package com.munchkin.app.ui.components
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Paint
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.munchkin.app.ui.theme.*
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GLASS CARD — core glass-morphism surface
-// ─────────────────────────────────────────────────────────────────────────────
+import com.munchkin.app.R
+import com.munchkin.app.ui.theme.DungeonBorder
+import com.munchkin.app.ui.theme.DungeonDangerFill
+import com.munchkin.app.ui.theme.GlassBase
+import com.munchkin.app.ui.theme.GlassBorder
+import com.munchkin.app.ui.theme.GradientNeonPurple
+import com.munchkin.app.ui.theme.NeonError
+import com.munchkin.app.ui.theme.NeonGray100
+import com.munchkin.app.ui.theme.NeonGray200
+import com.munchkin.app.ui.theme.NeonGray300
+import com.munchkin.app.ui.theme.NeonPrimary
+import com.munchkin.app.ui.theme.NeonPrimaryLight
+import com.munchkin.app.ui.theme.NeonSurface
+import com.munchkin.app.ui.theme.NeonSurfaceVariant
+import com.munchkin.app.ui.theme.NeonWarning
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import java.util.Locale
 
 /**
- * Glass-morphism card with optional neon glow, gradient border, and inner highlight.
- * Simulates glass without blur (compatible with all API levels).
+ * Dungeon Edition dark stone surface card with optional subtle ambient border glow.
+ * Glow halos are rendered with GPU strokes rather than per-frame Paint shadow allocations.
  */
 @Composable
 fun GlassCard(
@@ -48,131 +100,51 @@ fun GlassCard(
     containerColor: Color = GlassBase,
     glowColor: Color? = null,
     onClick: (() -> Unit)? = null,
+    contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
     val shape = RoundedCornerShape(cornerRadius)
+    val resolvedContainer = if (containerColor == GlassBase) NeonSurface.copy(alpha = 0.92f) else containerColor
+    val resolvedBorder = if (borderColor == GlassBorder) DungeonBorder else borderColor
 
-    // Animated glow intensity (only computed when glowColor != null)
-    val glowAlpha = if (glowColor != null) {
-        val transition = rememberInfiniteTransition(label = "glow")
-        transition.animateFloat(
-            initialValue = 0.28f,
-            targetValue = 0.72f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1400, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "glowAlpha"
-        ).value
-    } else 0f
-
-    // Press interaction for click feedback
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val pressScale by animateFloatAsState(
-        targetValue = if (isPressed) 0.975f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh),
-        label = "pressScale"
-    )
-
-    Box(
-        modifier = modifier
-            .scale(pressScale)
-            .then(
-                if (glowColor != null) Modifier.drawBehind {
-                    drawIntoCanvas { canvas ->
-                        val glowPaint = Paint().also { p ->
-                            p.asFrameworkPaint().apply {
-                                isAntiAlias = true
-                                color = android.graphics.Color.TRANSPARENT
-                                setShadowLayer(
-                                    20.dp.toPx(), 0f, 0f,
-                                    glowColor.copy(alpha = glowAlpha).toArgb()
-                                )
-                            }
-                        }
-                        canvas.drawRoundRect(
-                            left = 0f, top = 0f,
-                            right = size.width, bottom = size.height,
-                            radiusX = cornerRadius.toPx(),
-                            radiusY = cornerRadius.toPx(),
-                            paint = glowPaint
-                        )
-                    }
-                } else Modifier
+    val glowModifier = if (glowColor != null) {
+        Modifier.drawBehind {
+            val radiusPx = cornerRadius.toPx()
+            drawRoundRect(
+                color = glowColor.copy(alpha = 0.14f),
+                cornerRadius = CornerRadius(radiusPx, radiusPx),
+                style = Stroke(width = 6.dp.toPx())
             )
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(
-                    if (onClick != null) Modifier.clickable(
-                        interactionSource = interactionSource,
-                        indication = null
-                    ) { onClick() }
-                    else Modifier
-                )
-                .border(
-                    width = 1.dp,
-                    brush = Brush.linearGradient(
-                        0f to borderColor.copy(alpha = 0.75f),
-                        0.5f to borderColor.copy(alpha = 0.35f),
-                        1f to borderColor.copy(alpha = 0.15f)
-                    ),
-                    shape = shape
-                ),
-            shape = shape,
-            color = containerColor,
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp
-        ) {
-            Box {
-                // Inner glass highlight — simulates light catching glass at top-left
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(
-                            brush = Brush.linearGradient(
-                                0f to Color.White.copy(alpha = 0.07f),
-                                0.45f to Color.Transparent,
-                                1f to Color.Black.copy(alpha = 0.06f)
-                            )
-                        )
-                )
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    content = content
-                )
-            }
         }
+    } else {
+        Modifier
+    }
+
+    val clickModifier = if (onClick != null) {
+        Modifier.clickable(onClick = onClick)
+    } else {
+        Modifier
+    }
+
+    Surface(
+        modifier = modifier
+            .then(glowModifier)
+            .clip(shape)
+            .then(clickModifier),
+        shape = shape,
+        color = resolvedContainer,
+        border = BorderStroke(1.dp, resolvedBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(contentPadding),
+            content = content
+        )
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// NEON GLOW CARD — pulsing colored border (for active/turn states)
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-fun NeonGlowCard(
-    modifier: Modifier = Modifier,
-    glowColor: Color = NeonWarning,
-    cornerRadius: Dp = 20.dp,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    GlassCard(
-        modifier = modifier,
-        cornerRadius = cornerRadius,
-        borderColor = glowColor.copy(alpha = 0.7f),
-        containerColor = glowColor.copy(alpha = 0.06f),
-        glowColor = glowColor,
-        content = content
-    )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ENTRANCE ANIMATION — fade + scale in, optionally staggered by index
-// ─────────────────────────────────────────────────────────────────────────────
-
+/**
+ * Entrance animation wrapper with staggered delay.
+ */
 @Composable
 fun EntranceAnimation(
     modifier: Modifier = Modifier,
@@ -181,30 +153,26 @@ fun EntranceAnimation(
 ) {
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        if (delayMs > 0) kotlinx.coroutines.delay(delayMs.toLong())
+        if (delayMs > 0) delay(delayMs.toLong())
         visible = true
     }
+
     AnimatedVisibility(
         visible = visible,
         modifier = modifier,
-        enter = fadeIn(animationSpec = tween(350, easing = FastOutSlowInEasing)) +
-                scaleIn(
-                    initialScale = 0.92f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    )
-                ),
-        exit = fadeOut(tween(200)) + scaleOut(targetScale = 0.95f)
+        enter = fadeIn(animationSpec = tween(durationMillis = 360)) +
+            slideInVertically(
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
+                initialOffsetY = { it / 6 }
+            )
     ) {
         content()
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GRADIENT BUTTON — with press scale and animated shimmer
-// ─────────────────────────────────────────────────────────────────────────────
-
+/**
+ * Primary Dungeon Edition gradient button with deferred press-scale animation.
+ */
 @Composable
 fun GradientButton(
     text: String,
@@ -216,100 +184,65 @@ fun GradientButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.96f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh),
-        label = "btnScale"
+    val scaleState = animateFloatAsState(
+        targetValue = if (isPressed && enabled) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f),
+        label = "gradientButtonScale"
     )
-    val alpha = if (enabled) 1f else 0.45f
 
-    // Shimmer offset animation
-    val shimmerTransition = rememberInfiniteTransition(label = "shimmer")
-    val shimmerOffset by shimmerTransition.animateFloat(
-        initialValue = -1f,
-        targetValue = 2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2200, easing = LinearEasing, delayMillis = 600),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "shimmerOffset"
-    )
+    val shape = RoundedCornerShape(16.dp)
+    val brush = if (enabled) {
+        Brush.horizontalGradient(colors = gradientColors)
+    } else {
+        Brush.horizontalGradient(colors = listOf(NeonSurfaceVariant, NeonSurfaceVariant))
+    }
 
     Box(
         modifier = modifier
-            .scale(scale)
-            .height(56.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .drawBehind {
-                // Subtle outer glow on button
-                drawIntoCanvas { canvas ->
-                    if (enabled) {
-                        val paint = Paint().also { p ->
-                            p.asFrameworkPaint().apply {
-                                isAntiAlias = true
-                                color = android.graphics.Color.TRANSPARENT
-                                setShadowLayer(
-                                    12.dp.toPx(), 0f, 2.dp.toPx(),
-                                    gradientColors.first().copy(alpha = 0.4f).toArgb()
-                                )
-                            }
-                        }
-                        canvas.drawRoundRect(0f, 0f, size.width, size.height,
-                            16.dp.toPx(), 16.dp.toPx(), paint)
-                    }
-                }
+            .graphicsLayer {
+                val s = scaleState.value
+                scaleX = s
+                scaleY = s
             }
-            .background(
-                brush = Brush.horizontalGradient(gradientColors),
-                alpha = alpha
-            )
-            .then(
-                // Shimmer overlay
-                Modifier.background(
-                    brush = Brush.linearGradient(
-                        0f to Color.Transparent,
-                        (shimmerOffset - 0.2f).coerceIn(0f, 1f) to Color.Transparent,
-                        shimmerOffset.coerceIn(0f, 1f) to Color.White.copy(alpha = 0.18f),
-                        (shimmerOffset + 0.2f).coerceIn(0f, 1f) to Color.Transparent,
-                        1f to Color.Transparent
-                    ),
-                    alpha = if (enabled) 1f else 0f
-                )
-            )
+            .heightIn(min = 52.dp)
+            .clip(shape)
+            .background(brush = brush, shape = shape)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                enabled = enabled
-            ) { onClick() },
+                enabled = enabled,
+                onClick = onClick
+            )
+            .padding(horizontal = 20.dp, vertical = 14.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            icon?.let {
+            if (icon != null) {
                 Icon(
-                    imageVector = it,
+                    imageVector = icon,
                     contentDescription = null,
-                    tint = Color.White,
+                    tint = if (enabled) NeonGray100 else NeonGray300,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
             }
             Text(
                 text = text,
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-                fontWeight = FontWeight.Bold
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = if (enabled) NeonGray100 else NeonGray300,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GLASS OUTLINED BUTTON
-// ─────────────────────────────────────────────────────────────────────────────
-
+/**
+ * Outlined secondary action button styled for Dungeon Edition stone surfaces.
+ */
 @Composable
 fun GlassOutlinedButton(
     text: String,
@@ -319,44 +252,44 @@ fun GlassOutlinedButton(
     icon: ImageVector? = null,
     color: Color = NeonGray100
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.96f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh),
-        label = "outlinedBtnScale"
-    )
-
+    val resolvedColor = if (enabled) color else NeonGray300
     OutlinedButton(
         onClick = onClick,
+        modifier = modifier.heightIn(min = 48.dp),
         enabled = enabled,
-        interactionSource = interactionSource,
-        modifier = modifier
-            .height(56.dp)
-            .scale(scale),
         shape = RoundedCornerShape(16.dp),
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            if (enabled) color.copy(alpha = 0.45f) else color.copy(alpha = 0.2f)
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (enabled) resolvedColor.copy(alpha = 0.55f) else DungeonBorder
         ),
         colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = color,
-            containerColor = Color.White.copy(alpha = 0.04f)
-        )
+            containerColor = NeonSurfaceVariant.copy(alpha = 0.65f),
+            contentColor = resolvedColor,
+            disabledContainerColor = NeonSurfaceVariant.copy(alpha = 0.35f),
+            disabledContentColor = NeonGray300
+        ),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp)
     ) {
-        icon?.let {
-            Icon(imageVector = it, contentDescription = null, modifier = Modifier.size(20.dp))
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
             Spacer(modifier = Modifier.width(8.dp))
         }
-        Text(text = text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GLASS TEXT FIELD
-// ─────────────────────────────────────────────────────────────────────────────
-
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Styled text input field using Dungeon Edition surface & high-contrast parchment ink tokens.
+ */
 @Composable
 fun GlassTextField(
     value: String,
@@ -373,187 +306,40 @@ fun GlassTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier,
-        label = label?.let { { Text(it) } },
-        placeholder = placeholder?.let { { Text(it, color = NeonGray500) } },
-        leadingIcon = leadingIcon?.let { { Icon(it, contentDescription = null, tint = NeonGray400) } },
-        trailingIcon = trailingIcon,
-        singleLine = singleLine,
         enabled = enabled,
-        shape = RoundedCornerShape(16.dp),
+        singleLine = singleLine,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = NeonGray100),
+        label = label?.let { { Text(text = it, color = NeonGray300) } },
+        placeholder = placeholder?.let { { Text(text = it, color = NeonGray300.copy(alpha = 0.8f)) } },
+        leadingIcon = leadingIcon?.let {
+            {
+                Icon(
+                    imageVector = it,
+                    contentDescription = null,
+                    tint = NeonGray300
+                )
+            }
+        },
+        trailingIcon = trailingIcon,
+        shape = RoundedCornerShape(14.dp),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = NeonPrimary,
-            unfocusedBorderColor = GlassBorder,
-            focusedLabelColor = NeonPrimary,
-            unfocusedLabelColor = NeonGray400,
-            cursorColor = NeonPrimary,
-            focusedContainerColor = NeonPrimary.copy(alpha = 0.08f),
-            unfocusedContainerColor = Color.White.copy(alpha = 0.04f),
-            disabledContainerColor = Color.White.copy(alpha = 0.02f),
-            disabledBorderColor = NeonGray500.copy(alpha = 0.3f),
+            focusedContainerColor = NeonSurfaceVariant,
+            unfocusedContainerColor = NeonSurfaceVariant,
+            disabledContainerColor = NeonSurface,
+            focusedBorderColor = NeonPrimaryLight,
+            unfocusedBorderColor = DungeonBorder,
+            disabledBorderColor = DungeonBorder.copy(alpha = 0.5f),
             focusedTextColor = NeonGray100,
-            unfocusedTextColor = NeonGray200
+            unfocusedTextColor = NeonGray100,
+            disabledTextColor = NeonGray300,
+            cursorColor = NeonPrimaryLight
         )
     )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// STAT COUNTER — animated stat display with glass card
-// ─────────────────────────────────────────────────────────────────────────────
-
-@OptIn(ExperimentalAnimationApi::class)
-@Composable
-fun StatCounter(
-    value: Int,
-    label: String,
-    onIncrement: () -> Unit,
-    onDecrement: () -> Unit,
-    modifier: Modifier = Modifier,
-    accentColor: Color = NeonPrimary,
-    containerColor: Color = GlassBase,
-    showSign: Boolean = false,
-    minValue: Int = Int.MIN_VALUE,
-    maxValue: Int = Int.MAX_VALUE
-) {
-    GlassCard(
-        modifier = modifier,
-        containerColor = containerColor,
-        borderColor = accentColor.copy(alpha = 0.4f),
-        glowColor = null
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                text = label.uppercase(),
-                style = MaterialTheme.typography.labelSmall,
-                color = accentColor.copy(alpha = 0.8f),
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.5.sp
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Decrement
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (value > minValue) Color.White.copy(alpha = 0.08f)
-                            else Color.White.copy(alpha = 0.03f)
-                        )
-                        .border(1.dp, GlassBorderDim, CircleShape)
-                        .clickable(enabled = value > minValue, onClick = onDecrement),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Default.Remove,
-                        contentDescription = null,
-                        tint = if (value > minValue) NeonGray100 else NeonGray500
-                    )
-                }
-
-                // Value
-                AnimatedContent(
-                    targetState = value,
-                    transitionSpec = {
-                        if (targetState > initialState) {
-                            slideInVertically { -it } + fadeIn() togetherWith
-                                    slideOutVertically { it } + fadeOut()
-                        } else {
-                            slideInVertically { it } + fadeIn() togetherWith
-                                    slideOutVertically { -it } + fadeOut()
-                        }.using(SizeTransform(clip = false))
-                    },
-                    label = "value"
-                ) { v ->
-                    val display = if (showSign && v > 0) "+$v" else v.toString()
-                    Text(
-                        text = display,
-                        style = MaterialTheme.typography.displayMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = accentColor
-                    )
-                }
-
-                // Increment
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(
-                            brush = Brush.linearGradient(listOf(accentColor, accentColor.copy(alpha = 0.7f)))
-                        )
-                        .clickable(enabled = value < maxValue, onClick = onIncrement),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null, tint = Color.White)
-                }
-            }
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SECTION HEADER
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-fun SectionHeader(
-    title: String,
-    modifier: Modifier = Modifier,
-    action: @Composable (() -> Unit)? = null
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = NeonGray100
-        )
-        action?.invoke()
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TRAIT CHIP
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-fun TraitChip(
-    name: String,
-    onRemove: () -> Unit
-) {
-    Surface(
-        color = NeonPrimary.copy(alpha = 0.15f),
-        shape = RoundedCornerShape(50),
-        border = androidx.compose.foundation.BorderStroke(1.dp, NeonPrimary.copy(alpha = 0.45f))
-    ) {
-        Row(
-            modifier = Modifier
-                .clickable { onRemove() }
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(text = name, style = MaterialTheme.typography.bodyMedium, color = NeonGray100)
-            Spacer(modifier = Modifier.width(4.dp))
-            Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(14.dp), tint = NeonGray300)
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GLASS TOP APP BAR
-// ─────────────────────────────────────────────────────────────────────────────
-
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Top bar for sub-screens with accessible >=48dp navigation touch target.
+ */
 @Composable
 fun GlassTopAppBar(
     title: String,
@@ -561,66 +347,68 @@ fun GlassTopAppBar(
     onNavigationClick: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
-    CenterAlignedTopAppBar(
-        title = {
-            Text(
-                title,
-                color = NeonGray100,
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.titleLarge
-            )
-        },
-        navigationIcon = {
+    Surface(
+        color = NeonSurface,
+        border = BorderStroke(1.dp, DungeonBorder)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 56.dp)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             if (navigationIcon != null && onNavigationClick != null) {
-                IconButton(onClick = onNavigationClick) {
-                    Icon(navigationIcon, contentDescription = null, tint = NeonGray100)
+                IconButton(
+                    onClick = onNavigationClick,
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                ) {
+                    Icon(
+                        imageVector = navigationIcon,
+                        contentDescription = stringResource(R.string.back),
+                        tint = NeonGray100
+                    )
                 }
+            } else {
+                Spacer(modifier = Modifier.width(12.dp))
             }
-        },
-        actions = actions,
-        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-            containerColor = Color.Transparent,
-            titleContentColor = NeonGray100,
-            actionIconContentColor = NeonGray400,
-            navigationIconContentColor = NeonGray100
-        ),
-        modifier = Modifier.background(
-            Brush.verticalGradient(
-                colors = listOf(
-                    NeonBackground.copy(alpha = 0.98f),
-                    NeonBackground.copy(alpha = 0.6f),
-                    Color.Transparent
-                )
+
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = NeonGray100,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
-        )
-    )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                content = actions
+            )
+        }
+    }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// NEON DIVIDER — glowing horizontal divider
-// ─────────────────────────────────────────────────────────────────────────────
-
+/**
+ * Subtle dungeon divider accent line.
+ */
 @Composable
 fun NeonDivider(
     modifier: Modifier = Modifier,
     color: Color = NeonPrimary
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(1.dp)
-            .background(
-                brush = Brush.horizontalGradient(
-                    listOf(Color.Transparent, color.copy(alpha = 0.5f), Color.Transparent)
-                )
-            )
+    HorizontalDivider(
+        modifier = modifier,
+        thickness = 1.dp,
+        color = color.copy(alpha = 0.28f)
     )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AMBIENT ORB — decorative background glow orb
-// ─────────────────────────────────────────────────────────────────────────────
-
+/**
+ * Subtle radial torch/dungeon background glow. Animated scale is deferred strictly
+ * to graphicsLayer so parent layouts never recompose on frame ticks.
+ */
 @Composable
 fun AmbientOrb(
     modifier: Modifier = Modifier,
@@ -628,13 +416,120 @@ fun AmbientOrb(
     size: Dp = 300.dp,
     alpha: Float = 0.12f
 ) {
+    val infiniteTransition = rememberInfiniteTransition(label = "ambientOrb")
+    val pulseState = infiniteTransition.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.06f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 4800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "ambientOrbPulse"
+    )
+
     Box(
         modifier = modifier
             .size(size)
-            .background(
-                brush = Brush.radialGradient(
+            .graphicsLayer {
+                val scale = pulseState.value
+                scaleX = scale
+                scaleY = scale
+            }
+            .drawWithCache {
+                val brush = Brush.radialGradient(
                     colors = listOf(color.copy(alpha = alpha), Color.Transparent)
                 )
-            )
+                onDrawBehind {
+                    drawRect(brush = brush)
+                }
+            }
     )
+}
+
+/**
+ * Isolated turn countdown badge. Keeps its 1-second timer tick strictly inside this
+ * composable so parent Board/Table screens do not recompose every second.
+ */
+@Composable
+fun TurnCountdownBadge(
+    turnStartedAt: Long?,
+    timerSeconds: Int,
+    serverTimeOffsetMs: Long,
+    modifier: Modifier = Modifier,
+    turnEndsAt: Long? = null
+) {
+    if (timerSeconds <= 0) return
+    val deadlineMs = turnEndsAt ?: turnStartedAt?.plus(timerSeconds * 1000L) ?: return
+
+    var remainingSeconds by remember(deadlineMs, serverTimeOffsetMs) {
+        mutableIntStateOf(computeRemainingSeconds(deadlineMs, serverTimeOffsetMs))
+    }
+
+    LaunchedEffect(turnStartedAt, timerSeconds, serverTimeOffsetMs, turnEndsAt) {
+        while (isActive) {
+            val next = computeRemainingSeconds(deadlineMs, serverTimeOffsetMs)
+            if (next != remainingSeconds) {
+                remainingSeconds = next
+            }
+            if (next <= 0) break
+            delay(250L)
+        }
+    }
+
+    val isExpired = remainingSeconds == 0
+    val isLow = remainingSeconds in 1..15
+    val containerColor = when {
+        isExpired -> DungeonDangerFill
+        isLow -> NeonWarning.copy(alpha = 0.18f)
+        else -> NeonSurfaceVariant
+    }
+    val contentColor = when {
+        isExpired -> NeonGray100
+        isLow -> NeonWarning
+        else -> NeonGray200
+    }
+    val borderColor = when {
+        isExpired -> NeonError
+        isLow -> NeonWarning
+        else -> DungeonBorder
+    }
+
+    val mins = remainingSeconds / 60
+    val secs = remainingSeconds % 60
+    val formattedTime = String.format(Locale.getDefault(), "%d:%02d", mins, secs)
+    val badgeDescription = stringResource(R.string.cd_turn_timer, formattedTime)
+
+    Surface(
+        modifier = modifier.semantics { contentDescription = badgeDescription },
+        shape = RoundedCornerShape(10.dp),
+        color = containerColor,
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Timer,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(16.dp)
+            )
+            Text(
+                text = formattedTime,
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontFeatureSettings = "tnum"
+                ),
+                color = contentColor
+            )
+        }
+    }
+}
+
+private fun computeRemainingSeconds(deadlineMs: Long, serverTimeOffsetMs: Long): Int {
+    val now = System.currentTimeMillis() + serverTimeOffsetMs
+    val diffMs = deadlineMs - now
+    return if (diffMs <= 0L) 0 else ((diffMs + 999L) / 1000L).toInt()
 }

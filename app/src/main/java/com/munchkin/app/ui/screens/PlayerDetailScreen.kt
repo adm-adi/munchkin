@@ -1,26 +1,31 @@
 package com.munchkin.app.ui.screens
 
 import androidx.compose.animation.*
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.munchkin.app.R
 import com.munchkin.app.core.*
 import com.munchkin.app.ui.components.CounterButton
 import com.munchkin.app.ui.components.QuickModifierButtons
-import com.munchkin.app.ui.components.TraitChip
 import com.munchkin.app.ui.components.labelRes
+import com.munchkin.app.ui.theme.*
 
 /**
  * Player detail screen for editing own stats.
@@ -32,6 +37,8 @@ fun PlayerDetailScreen(
     onIncrementLevel: () -> Unit,
     onDecrementLevel: () -> Unit,
     onModifyGear: (Int) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
     onApplyDeath: (() -> Unit)? = null,
     onSetClass: (CharacterClass) -> Unit = {},
     onSetRace: (CharacterRace) -> Unit = {},
@@ -39,10 +46,8 @@ fun PlayerDetailScreen(
     onSetSecondaryRace: (CharacterRace) -> Unit = {},
     onSetSuperMunchkin: (Boolean) -> Unit = {},
     onSetHalfBreed: (Boolean) -> Unit = {},
-    onBack: () -> Unit,
     isReadOnly: Boolean = false,
-    maxLevel: Int = 10,
-    modifier: Modifier = Modifier
+    maxLevel: Int = 10
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var showDeathConfirm by remember { mutableStateOf(false) }
@@ -50,25 +55,30 @@ fun PlayerDetailScreen(
     if (showDeathConfirm && onApplyDeath != null) {
         AlertDialog(
             onDismissRequest = { showDeathConfirm = false },
-            title = { Text(stringResource(R.string.death_confirm_title)) },
-            text = { Text(stringResource(R.string.death_confirm_message)) },
+            containerColor = NeonSurface,
+            title = { Text(stringResource(R.string.death_confirm_title), color = NeonGray100) },
+            text = { Text(stringResource(R.string.death_confirm_message), color = NeonGray300) },
             confirmButton = {
                 Button(
                     onClick = {
                         showDeathConfirm = false
                         onApplyDeath()
                     },
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError
+                        containerColor = NeonError,
+                        contentColor = NeonWhite
                     )
                 ) {
                     Text(stringResource(R.string.confirm_action))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDeathConfirm = false }) {
-                    Text(stringResource(R.string.cancel))
+                TextButton(
+                    onClick = { showDeathConfirm = false },
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                ) {
+                    Text(stringResource(R.string.cancel), color = NeonGray300)
                 }
             }
         )
@@ -76,12 +86,31 @@ fun PlayerDetailScreen(
 
     Scaffold(
         modifier = modifier,
+        containerColor = NeonBackground,
         topBar = {
             TopAppBar(
-                title = { Text(if (isReadOnly) "${stringResource(R.string.player_details)}: ${player.name}" else stringResource(R.string.edit_player)) },
+                title = {
+                    Text(
+                        if (isReadOnly) "${stringResource(R.string.player_details)}: ${player.name}"
+                        else stringResource(R.string.edit_player),
+                        color = NeonGray100,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = NeonSurface,
+                    titleContentColor = NeonGray100,
+                    navigationIconContentColor = NeonGray100
+                ),
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.back)
+                        )
                     }
                 }
             )
@@ -129,23 +158,36 @@ fun PlayerDetailScreen(
                     OutlinedButton(
                         onClick = { showDeathConfirm = true },
                         enabled = player.gearBonus != 0,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .sizeIn(minHeight = 48.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            if (player.gearBonus != 0) NeonError.copy(alpha = 0.6f) else GlassBorderDim
+                        ),
                         colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error
+                            contentColor = NeonError,
+                            disabledContentColor = NeonGray400
                         )
                     ) {
-                        Text("💀 ${stringResource(R.string.death_reset_gear)}")
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(stringResource(R.string.death_reset_gear))
                     }
                 }
             }
             
             Spacer(modifier = Modifier.height(32.dp))
             
-            // Combat power display
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                ),
+            // Combat power display (flat surface, Dungeon Edition)
+            Surface(
+                color = NeonSurfaceVariant,
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, NeonPrimary.copy(alpha = 0.45f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -158,11 +200,15 @@ fun PlayerDetailScreen(
                     Text(
                         text = stringResource(R.string.power),
                         style = MaterialTheme.typography.titleMedium,
+                        color = NeonGray100,
+                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f)
                     )
                     Text(
                         text = "${player.combatPower}",
-                        style = MaterialTheme.typography.headlineMedium
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = NeonGold,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -171,7 +217,11 @@ fun PlayerDetailScreen(
             
             if (!isReadOnly) {
                 // Class Selector
-                Text(text = stringResource(R.string.label_class), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = stringResource(R.string.label_class),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = NeonGray100
+                )
                 Spacer(modifier = Modifier.height(8.dp))
                 AppDropdown(
                     options = CharacterClass.values().toList(),
@@ -183,22 +233,32 @@ fun PlayerDetailScreen(
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .sizeIn(minHeight = 48.dp)
+                        .clickable(role = Role.Switch) {
+                            onSetSuperMunchkin(!player.hasSuperMunchkin)
+                        }
                 ) {
                     Text(
                         text = stringResource(R.string.super_munchkin_two_classes),
                         style = MaterialTheme.typography.bodyMedium,
+                        color = NeonGray100,
                         modifier = Modifier.weight(1f)
                     )
                     Switch(
                         checked = player.hasSuperMunchkin,
-                        onCheckedChange = onSetSuperMunchkin
+                        onCheckedChange = null
                     )
                 }
 
                 if (player.hasSuperMunchkin) {
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = stringResource(R.string.label_secondary_class), style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        text = stringResource(R.string.label_secondary_class),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = NeonGray300
+                    )
                     Spacer(modifier = Modifier.height(4.dp))
                     AppDropdown(
                         options = CharacterClass.values().toList(),
@@ -211,7 +271,11 @@ fun PlayerDetailScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // Race Selector
-                Text(text = stringResource(R.string.label_race), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = stringResource(R.string.label_race),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = NeonGray100
+                )
                 Spacer(modifier = Modifier.height(8.dp))
                 AppDropdown(
                     options = CharacterRace.values().toList(),
@@ -223,22 +287,32 @@ fun PlayerDetailScreen(
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .sizeIn(minHeight = 48.dp)
+                        .clickable(role = Role.Switch) {
+                            onSetHalfBreed(!player.hasHalfBreed)
+                        }
                 ) {
                     Text(
                         text = stringResource(R.string.half_breed_two_races),
                         style = MaterialTheme.typography.bodyMedium,
+                        color = NeonGray100,
                         modifier = Modifier.weight(1f)
                     )
                     Switch(
                         checked = player.hasHalfBreed,
-                        onCheckedChange = onSetHalfBreed
+                        onCheckedChange = null
                     )
                 }
 
                 if (player.hasHalfBreed) {
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = stringResource(R.string.label_secondary_race), style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        text = stringResource(R.string.label_secondary_race),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = NeonGray300
+                    )
                     Spacer(modifier = Modifier.height(4.dp))
                     AppDropdown(
                         options = CharacterRace.values().toList(),
@@ -248,13 +322,12 @@ fun PlayerDetailScreen(
                     )
                 }
             } else {
-                // Read-only view of player's Classes and Races
-                Card(
+                // Read-only view of player's Classes and Races (flat surface + hairline divider)
+                Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    ),
-                    shape = RoundedCornerShape(16.dp)
+                    color = NeonSurfaceVariant,
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, GlassBorderDim)
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
@@ -281,14 +354,15 @@ fun PlayerDetailScreen(
                             Text(
                                 text = stringResource(R.string.classes),
                                 style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = NeonGray300
                             )
                             Text(
                                 text = classesText + if (player.hasSuperMunchkin) " (${stringResource(R.string.super_munchkin)})" else "",
-                                style = MaterialTheme.typography.bodyLarge
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = NeonGray100
                             )
                         }
-                        HorizontalDivider()
+                        HorizontalDivider(color = GlassBorderDim)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -296,11 +370,12 @@ fun PlayerDetailScreen(
                             Text(
                                 text = stringResource(R.string.races),
                                 style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = NeonGray300
                             )
                             Text(
                                 text = racesText + if (player.hasHalfBreed) " (${stringResource(R.string.half_breed)})" else "",
-                                style = MaterialTheme.typography.bodyLarge
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = NeonGray100
                             )
                         }
                     }
@@ -325,25 +400,38 @@ fun <T> AppDropdown(
     labelMapper: (T) -> String
 ) {
     var expanded by remember { mutableStateOf(false) }
-    
+
     Box(modifier = Modifier.fillMaxWidth()) {
         OutlinedButton(
             onClick = { expanded = true },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .sizeIn(minHeight = 48.dp),
+            border = BorderStroke(1.dp, GlassBorder),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = NeonSurface,
+                contentColor = NeonGray100
+            )
         ) {
-            Text(labelMapper(selectedOption))
+            Text(labelMapper(selectedOption), color = NeonGray100)
             Spacer(modifier = Modifier.weight(1f))
-            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+            Icon(
+                Icons.Default.ArrowDropDown,
+                contentDescription = null,
+                tint = NeonGray300
+            )
         }
-        
+
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .background(NeonSurface)
         ) {
             options.forEach { option ->
                 DropdownMenuItem(
-                    text = { Text(labelMapper(option)) },
+                    text = { Text(labelMapper(option), color = NeonGray100) },
                     onClick = {
                         onOptionSelected(option)
                         expanded = false

@@ -2,6 +2,7 @@ package com.munchkin.app.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,23 +23,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.munchkin.app.R
 import com.munchkin.app.core.Gender
 import com.munchkin.app.network.DiscoveredGame
-import com.munchkin.app.network.ServerConfig
+import com.munchkin.app.network.JoinCodeParser
 import com.munchkin.app.network.UserProfile
 import com.munchkin.app.ui.components.AmbientOrb
 import com.munchkin.app.ui.components.QrScanner
 import com.munchkin.app.ui.theme.*
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Screen for joining an existing game.
@@ -49,31 +50,41 @@ import kotlinx.serialization.json.jsonPrimitive
 fun JoinGameScreen(
     isLoading: Boolean,
     error: String?,
+    onJoinGame: (joinCode: String, name: String, avatarId: Int, gender: Gender) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
     discoveredGames: List<DiscoveredGame> = emptyList(),
     isDiscovering: Boolean = false,
     userProfile: UserProfile? = null,
-    onJoinGame: (wsUrl: String, joinCode: String, name: String, avatarId: Int, gender: Gender) -> Unit,
+    initialJoinCode: String = "",
     onJoinDiscoveredGame: (DiscoveredGame, name: String, avatarId: Int, gender: Gender) -> Unit = { _, _, _, _ -> },
-    onStartDiscovery: () -> Unit = {},
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    onStartDiscovery: () -> Unit = {}
 ) {
-    // Join code for manual entry
-    var joinCode by remember { mutableStateOf("") }
+    // Join code for manual entry (prefilled from deep links / initialJoinCode)
+    var joinCode by remember(initialJoinCode) {
+        mutableStateOf(
+            JoinCodeParser.extractJoinCode(initialJoinCode)
+                ?: initialJoinCode.uppercase().filter { it.isLetterOrDigit() }.take(8)
+        )
+    }
     var showQrScanner by remember { mutableStateOf(false) }
+    var qrError by remember { mutableStateOf<String?>(null) }
 
     // Player info
-    var name by remember { mutableStateOf(userProfile?.username ?: "") }
-    var selectedAvatarId by remember {
+    var name by remember(userProfile) { mutableStateOf(userProfile?.username ?: "") }
+    var selectedAvatarId by remember(userProfile) {
         mutableIntStateOf(AvatarResources.normalizeAvatarId(userProfile?.avatarId ?: 0))
     }
-    var selectedGender by remember { mutableStateOf(Gender.NA) }
+    var selectedGender by remember(userProfile) {
+        mutableStateOf(userProfile?.gender ?: Gender.M)
+    }
 
     val isNameLocked = userProfile != null
+    val avatarRows = remember { (0 until AvatarResources.AVATAR_COUNT).chunked(4) }
+    val invalidQrMessage = stringResource(R.string.qr_invalid_code_error)
 
     // Validation states
     var nameError by remember { mutableStateOf(false) }
-    var genderError by remember { mutableStateOf(false) }
 
     // Shake animation for validation feedback
     var shakeKey by remember { mutableIntStateOf(0) }
@@ -88,34 +99,27 @@ fun JoinGameScreen(
         label = "shake"
     )
 
-    // Validation function
     fun validateFields(): Boolean {
         val isNameValid = name.isNotBlank()
-        val isGenderValid = selectedGender != Gender.NA
-
         nameError = !isNameValid
-        genderError = !isGenderValid
-
-        if (!isNameValid || !isGenderValid) {
+        if (!isNameValid) {
             shakeKey++
             return false
         }
         return true
     }
 
-    // Clear errors when user interacts
     LaunchedEffect(name) {
         if (name.isNotBlank()) nameError = false
-    }
-
-    LaunchedEffect(selectedGender) {
-        if (selectedGender != Gender.NA) genderError = false
     }
 
     // Request available games on screen load
     LaunchedEffect(Unit) {
         onStartDiscovery()
     }
+
+    val displayedError = qrError ?: error
+    val validJoinCode = JoinCodeParser.extractJoinCode(joinCode)
 
     Box(
         modifier = modifier
@@ -138,6 +142,7 @@ fun JoinGameScreen(
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
                 TopAppBar(
                     title = {
@@ -163,7 +168,10 @@ fun JoinGameScreen(
                         )
                     ),
                     actions = {
-                        IconButton(onClick = { showQrScanner = true }) {
+                        IconButton(onClick = {
+                            qrError = null
+                            showQrScanner = true
+                        }) {
                             Icon(
                                 Icons.Default.QrCodeScanner,
                                 contentDescription = stringResource(R.string.scan_qr_button),
@@ -178,7 +186,11 @@ fun JoinGameScreen(
                                     color = NeonPrimary
                                 )
                             } else {
-                                Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.reload), tint = NeonGray300)
+                                Icon(
+                                    Icons.Default.Refresh,
+                                    contentDescription = stringResource(R.string.reload),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }
@@ -189,23 +201,38 @@ fun JoinGameScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
+                    .imePadding()
+                    .navigationBarsPadding()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Error message
-                AnimatedVisibility(visible = error != null) {
-                    error?.let {
-                        Box(
+                // Error message (QR or server/network)
+                AnimatedVisibility(visible = displayedError != null) {
+                    displayedError?.let { msg ->
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 8.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(NeonError.copy(alpha = 0.10f))
+                                .background(NeonError.copy(alpha = 0.12f))
                                 .border(1.dp, NeonError.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                                .padding(16.dp)
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(text = it, color = NeonError, style = MaterialTheme.typography.bodyMedium)
+                            Icon(
+                                Icons.Default.ErrorOutline,
+                                contentDescription = null,
+                                tint = NeonError,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = msg,
+                                color = NeonError,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f)
+                            )
                         }
                     }
                 }
@@ -222,11 +249,9 @@ fun JoinGameScreen(
                             RoundedCornerShape(20.dp)
                         )
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
-                    ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            text = "Tu personaje",
+                            text = stringResource(R.string.your_character),
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -247,10 +272,21 @@ fun JoinGameScreen(
                                 Icon(Icons.Default.Person, contentDescription = null)
                             },
                             trailingIcon = if (isNameLocked) {
-                                { Icon(Icons.Default.Lock, contentDescription = "Locked", tint = MaterialTheme.colorScheme.primary) }
+                                {
+                                    Icon(
+                                        Icons.Default.Lock,
+                                        contentDescription = stringResource(R.string.field_locked),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             } else null,
                             supportingText = if (nameError && !isNameLocked) {
-                                { Text(stringResource(R.string.name_required_error), color = MaterialTheme.colorScheme.error) }
+                                {
+                                    Text(
+                                        stringResource(R.string.name_required_error),
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
                             } else null,
                             colors = OutlinedTextFieldDefaults.colors(
                                 errorBorderColor = MaterialTheme.colorScheme.error,
@@ -258,86 +294,115 @@ fun JoinGameScreen(
                             )
                         )
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                        // Avatar + Gender row
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .offset(x = if (genderError) shakeOffset.dp else 0.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                        Text(
+                            text = stringResource(R.string.select_avatar),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = NeonGray100
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // 2x4 Avatar grid with >= 48dp touch targets
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            // Avatars
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                (0 until AvatarResources.AVATAR_COUNT).chunked(4).forEach { rowAvatarIds ->
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        rowAvatarIds.forEach { avatarId ->
-                                            val isSelected = selectedAvatarId == avatarId
-                                            val avatarRes = AvatarResources.getAvatarDrawable(
+                            avatarRows.forEach { rowAvatarIds ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    rowAvatarIds.forEach { avatarId ->
+                                        val isSelected = selectedAvatarId == avatarId
+                                        val avatarRes = remember(avatarId, selectedGender) {
+                                            AvatarResources.getAvatarDrawable(
                                                 avatarId,
                                                 selectedGender == Gender.F
                                             )
-                                            Box(
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .heightIn(min = 48.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(
+                                                    if (isSelected) NeonPrimary.copy(alpha = 0.2f)
+                                                    else Color.White.copy(alpha = 0.03f)
+                                                )
+                                                .border(
+                                                    width = if (isSelected) 2.dp else 1.dp,
+                                                    color = if (isSelected) NeonPrimary else GlassBorderDim,
+                                                    shape = RoundedCornerShape(12.dp)
+                                                )
+                                                .clickable { selectedAvatarId = avatarId }
+                                                .padding(vertical = 6.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Image(
+                                                painter = painterResource(avatarRes),
+                                                contentDescription = AvatarResources.getAvatarName(avatarId),
                                                 modifier = Modifier
                                                     .size(40.dp)
-                                                    .clip(CircleShape)
-                                                    .background(
-                                                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                                                        else Color.Transparent
-                                                    )
-                                                    .clickable { selectedAvatarId = avatarId }
-                                                    .then(
-                                                        if (isSelected) Modifier.padding(2.dp) else Modifier
-                                                    ),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                androidx.compose.foundation.Image(
-                                                    painter = androidx.compose.ui.res.painterResource(avatarRes),
-                                                    contentDescription = AvatarResources.getAvatarName(avatarId),
-                                                    modifier = Modifier
-                                                        .size(32.dp)
-                                                        .clip(CircleShape)
-                                                )
-                                            }
+                                                    .clip(CircleShape),
+                                                contentScale = ContentScale.Crop
+                                            )
                                         }
+                                    }
+                                    repeat(4 - rowAvatarIds.size) {
+                                        Spacer(modifier = Modifier.weight(1f))
                                     }
                                 }
                             }
+                        }
 
-                            // Gender chips
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                listOf(Gender.M, Gender.F).forEach { gender ->
-                                    FilterChip(
-                                        selected = selectedGender == gender,
-                                        onClick = { selectedGender = gender },
-                                        label = {
-                                            Text(
-                                                when (gender) {
-                                                    Gender.M -> "♂"
-                                                    Gender.F -> "♀"
-                                                    else -> "?"
-                                                },
-                                                fontWeight = FontWeight.Bold,
-                                                style = MaterialTheme.typography.titleMedium
-                                            )
-                                        },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                        ),
-                                        border = if (genderError && selectedGender != gender) {
-                                            FilterChipDefaults.filterChipBorder(
-                                                enabled = true,
-                                                selected = false,
-                                                borderColor = MaterialTheme.colorScheme.error,
-                                                selectedBorderColor = MaterialTheme.colorScheme.error,
-                                                borderWidth = 2.dp,
-                                                selectedBorderWidth = 2.dp
-                                            )
-                                        } else null
-                                    )
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = stringResource(R.string.gender),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = NeonGray100
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // All 3 genders supported by server (M, F, NA)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Gender.entries.forEach { gender ->
+                                val isSelected = selectedGender == gender
+                                val label = when (gender) {
+                                    Gender.M -> "♂ ${stringResource(R.string.gender_male)}"
+                                    Gender.F -> "♀ ${stringResource(R.string.gender_female)}"
+                                    Gender.NA -> stringResource(R.string.gender_na)
                                 }
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { selectedGender = gender },
+                                    label = {
+                                        Text(
+                                            text = label,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    },
+                                    leadingIcon = if (isSelected) {
+                                        {
+                                            Icon(
+                                                Icons.Default.Check,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    } else null,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp)
+                                )
                             }
                         }
                     }
@@ -356,17 +421,22 @@ fun JoinGameScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
+                            .padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalAlignment = Alignment.Top,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             OutlinedTextField(
                                 value = joinCode,
-                                onValueChange = { joinCode = it.uppercase().filter { c -> c.isLetterOrDigit() }.take(8) },
+                                onValueChange = { input ->
+                                    qrError = null
+                                    val extracted = JoinCodeParser.extractJoinCode(input)
+                                    joinCode = extracted
+                                        ?: input.uppercase().filter { c -> c.isLetterOrDigit() }.take(8)
+                                },
                                 label = { Text(stringResource(R.string.join_code)) },
                                 modifier = Modifier.weight(1f),
                                 singleLine = true,
@@ -374,13 +444,24 @@ fun JoinGameScreen(
                                     fontFamily = FontFamily.Monospace,
                                     letterSpacing = 2.sp
                                 ),
-                                placeholder = { Text("ABCD12") },
+                                placeholder = { Text("ABCD2345") },
+                                supportingText = {
+                                    Text(
+                                        text = stringResource(R.string.join_code_format_hint),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                },
                                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters)
                             )
 
                             FilledTonalIconButton(
-                                onClick = { showQrScanner = true },
-                                modifier = Modifier.size(56.dp)
+                                onClick = {
+                                    qrError = null
+                                    showQrScanner = true
+                                },
+                                modifier = Modifier
+                                    .padding(top = 4.dp)
+                                    .size(56.dp)
                             ) {
                                 Icon(
                                     Icons.Default.QrCodeScanner,
@@ -390,13 +471,15 @@ fun JoinGameScreen(
 
                             Button(
                                 onClick = {
-                                    if (validateFields()) {
-                                        val wsUrl = ServerConfig.WS_URL
-                                        onJoinGame(wsUrl, joinCode, name, selectedAvatarId, selectedGender)
+                                    val code = validJoinCode
+                                    if (code != null && validateFields()) {
+                                        onJoinGame(code, name.trim(), selectedAvatarId, selectedGender)
                                     }
                                 },
-                                enabled = joinCode.length >= 4 && !isLoading,
-                                modifier = Modifier.height(56.dp)
+                                enabled = validJoinCode != null && !isLoading,
+                                modifier = Modifier
+                                    .padding(top = 4.dp)
+                                    .height(56.dp)
                             ) {
                                 if (isLoading) {
                                     CircularProgressIndicator(
@@ -418,7 +501,7 @@ fun JoinGameScreen(
 
                 // === AVAILABLE GAMES LIST ===
                 Text(
-                    text = "Partidas disponibles",
+                    text = stringResource(R.string.available_games),
                     style = MaterialTheme.typography.titleSmall,
                     color = NeonCyan,
                     fontWeight = FontWeight.SemiBold,
@@ -438,23 +521,36 @@ fun JoinGameScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                Icons.Default.SearchOff,
-                                contentDescription = null,
-                                modifier = Modifier.size(48.dp),
-                                tint = NeonGray500
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = if (isDiscovering) "Buscando partidas..." else "No hay partidas disponibles",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = NeonGray400
-                            )
-                            if (!isDiscovering) {
+                            if (isDiscovering) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(40.dp),
+                                    color = NeonPrimary,
+                                    strokeWidth = 3.dp
+                                )
+                                Spacer(modifier = Modifier.height(14.dp))
                                 Text(
-                                    text = "Crea una partida o introduce un código",
+                                    text = stringResource(R.string.discovering_games),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = NeonGray200
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Default.SearchOff,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(44.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = stringResource(R.string.no_games_available),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = NeonGray200
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = stringResource(R.string.no_games_available_hint),
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = NeonGray500
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -468,12 +564,13 @@ fun JoinGameScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .heightIn(min = 64.dp)
                                     .clip(RoundedCornerShape(16.dp))
                                     .background(NeonSecondary.copy(alpha = 0.07f))
                                     .border(1.dp, NeonSecondary.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
                                     .clickable(enabled = !isLoading) {
                                         if (validateFields()) {
-                                            onJoinDiscoveredGame(game, name, selectedAvatarId, selectedGender)
+                                            onJoinDiscoveredGame(game, name.trim(), selectedAvatarId, selectedGender)
                                         }
                                     }
                             ) {
@@ -487,7 +584,7 @@ fun JoinGameScreen(
                                         modifier = Modifier
                                             .size(48.dp)
                                             .clip(CircleShape)
-                                            .background(Brush.linearGradient(GradientNeonPurple)),
+                                            .background(Brush.linearGradient(listOf(NeonPrimary, NeonSecondary))),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
@@ -507,9 +604,14 @@ fun JoinGameScreen(
                                             color = NeonGray100
                                         )
                                         Text(
-                                            text = "${game.playerCount}/${game.maxPlayers} jugadores • ${game.joinCode}",
+                                            text = stringResource(
+                                                R.string.discovered_game_summary,
+                                                game.playerCount,
+                                                game.maxPlayers,
+                                                game.joinCode
+                                            ),
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = NeonGray400
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
 
@@ -533,27 +635,22 @@ fun JoinGameScreen(
             QrScanner(
                 onQrCodeScanned = { scannedValue ->
                     showQrScanner = false
-                    var parsedCode = scannedValue.trim()
-                    var parsedUrl = ServerConfig.WS_URL
-                    if (parsedCode.startsWith("{")) {
-                        try {
-                            val obj = Json.parseToJsonElement(parsedCode).jsonObject
-                            obj["joinCode"]?.jsonPrimitive?.content?.let { parsedCode = it }
-                            obj["wsUrl"]?.jsonPrimitive?.content?.let { parsedUrl = it }
-                        } catch (_: Exception) {
-                        }
-                    }
-                    val cleanCode = parsedCode.uppercase().filter { it.isLetterOrDigit() }.take(8)
-                    if (cleanCode.length >= 4) {
-                        joinCode = cleanCode
+                    val extracted = JoinCodeParser.extractJoinCode(scannedValue)
+                    if (extracted != null) {
+                        qrError = null
+                        joinCode = extracted
                         if (validateFields()) {
-                            onJoinGame(parsedUrl, cleanCode, name, selectedAvatarId, selectedGender)
+                            onJoinGame(extracted, name.trim(), selectedAvatarId, selectedGender)
                         }
+                    } else {
+                        qrError = invalidQrMessage
                     }
                 },
                 onClose = { showQrScanner = false },
-                modifier = Modifier.fillMaxSize().background(NeonBackground)
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(NeonBackground)
             )
         }
-    } // close outer Box
+    }
 }

@@ -42,13 +42,6 @@ class GameRepository(context: Context) {
     }
     
     /**
-     * Delete a saved game.
-     */
-    suspend fun deleteSavedGame(gameId: String) {
-        dao.delete(gameId)
-    }
-    
-    /**
      * Delete all saved games.
      */
     suspend fun deleteAllSavedGames() {

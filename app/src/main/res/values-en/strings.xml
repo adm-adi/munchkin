@@ -1,13 +1,24 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="PluralsCandidate">
     <string name="app_name">Munchkin Tracker</string>
-    
+
     <!-- Home Screen -->
     <string name="create_game">Create Game</string>
     <string name="join_game">Join Game</string>
     <string name="settings">Settings</string>
-    
+    <string name="active_hosted_games">Your Active Games</string>
+    <string name="saved_game_title">Saved Game</string>
+    <string name="saved_game_summary">%1$d players • %2$s</string>
+    <string name="continue_game">Continue</string>
+    <string name="delete_party">Delete party</string>
+    <string name="logout">Log out</string>
+    <string name="global_ranking">Global Ranking</string>
+    <string name="my_games">My Games</string>
+    <string name="view_profile">View Profile</string>
+    <string name="resume_hosted_game">Resume</string>
+
     <!-- Create Game -->
     <string name="your_name">Your name</string>
+    <string name="your_character">Your Character</string>
     <string name="select_avatar">Select avatar</string>
     <string name="gender">Gender</string>
     <string name="game_mode">Game Mode</string>
@@ -15,27 +26,40 @@
     <string name="game_mode_super">Epic (Lvl. 20)</string>
     <string name="game_mode_super_desc">Players must reach level 20 to win. Unrelated to the Super Munchkin card.</string>
     <string name="mode_badge_normal">🏆 Level 10</string>
-    <string name="mode_badge_super">⚡ Super Munchkin — Level 20</string>
+    <string name="mode_badge_super">⚡ Epic — Level 20</string>
     <string name="gender_male">Male</string>
     <string name="gender_female">Female</string>
     <string name="gender_na">N/A</string>
     <string name="create">Create</string>
-    <string name="game_code">Game code</string>
+    <string name="creating_game">Creating…</string>
     <string name="scan_to_join">Scan to join</string>
-    <string name="or_enter_manually">Or enter manually:</string>
     <string name="copy_code">Copy code</string>
+    <string name="copied_to_clipboard">Copied</string>
     <string name="waiting_players">Waiting for players…</string>
-    
+    <string name="turn_timer_label">⏱️ Turn Timer</string>
+    <string name="timer_off">Off</string>
+    <string name="timer_seconds_format">%1$ds</string>
+    <string name="timer_minutes_format">%1$dm</string>
+
     <!-- Join Game -->
-    <string name="scan_qr">Scan QR</string>
-    <string name="manual_entry">Manual entry</string>
-    <string name="ip_address">IP address</string>
-    <string name="port">Port</string>
+    <string name="available_games">Available Games</string>
+    <string name="discovering_games">Searching for games…</string>
+    <string name="discovered_game_summary">%1$d/%2$d players • %3$s</string>
+    <string name="no_games_available">No games available</string>
+    <string name="no_games_available_hint">Create a game or enter a code</string>
     <string name="join_code">Code</string>
-    <string name="connect">Connect</string>
+    <string name="join_code_format_hint">6–8 character code (e.g. ABCD2345)</string>
     <string name="connecting">Connecting…</string>
-    <string name="connection_failed">Connection failed</string>
-    
+    <string name="name_required_error">Name is required</string>
+    <string name="join">Join</string>
+    <string name="scan_qr_button">Scan QR</string>
+    <string name="qr_point_camera">Point camera at QR code</string>
+    <string name="qr_camera_permission_rationale">Camera permission is required to scan QR codes.</string>
+    <string name="qr_camera_error_title">Camera Error</string>
+    <string name="qr_camera_error_message">Could not initialize the camera.</string>
+    <string name="qr_invalid_code_error">Scanned QR code does not contain a valid room code.</string>
+    <string name="grant_permission">Grant permission</string>
+
     <!-- Lobby -->
     <string name="lobby">Lobby</string>
     <string name="players">Players</string>
@@ -44,153 +68,89 @@
     <string name="confirm_leave">Are you sure you want to leave?</string>
     <string name="host">Host</string>
     <string name="you">You</string>
-    
-    <!-- Board -->
+    <string name="roll_dice">Roll 🎲</string>
+    <string name="reroll_dice">Re-roll (%1$d)</string>
+    <string name="lobby_tie_message">⚔️ Tie! Tied players must roll again.</string>
+    <string name="lobby_waiting_rolls">🎲 Waiting for everyone to roll the dice…</string>
+    <string name="share_room">Share room</string>
+    <string name="share_room_message">Join my Munchkin game with code %1$s: %2$s</string>
+
+    <!-- Board & Table -->
+    <string name="board_nav_label">Board</string>
     <string name="level">Level</string>
     <string name="gear">Gear</string>
     <string name="power">Power</string>
     <string name="races">Races</string>
     <string name="classes">Classes</string>
-    <string name="no_race">No race</string>
-    <string name="no_class">No class</string>
     <string name="half_breed">Half-Breed</string>
     <string name="super_munchkin">Super Munchkin</string>
     <string name="combat">Combat</string>
     <string name="catalog">Catalog</string>
-    
+    <string name="game_label">Game</string>
+    <string name="delete_game">Delete Game</string>
+    <string name="end_turn">End Turn</string>
+    <string name="turn_badge">TURN</string>
+    <string name="player_level_format">Level %1$d</string>
+    <string name="player_power_format">Power %1$d</string>
+    <string name="table_player_stats">Lv %1$d • ⚔ %2$d</string>
+    <string name="standings_stats_format">Lv %1$d • ⚔️ %2$d • 💎 %3$d</string>
+    <string name="switch_to_list_view">List View</string>
+    <string name="switch_to_table_view">Table View</string>
+    <string name="host_actions">Manage players</string>
+    <string name="player_actions">Options for %1$s</string>
+    <string name="move_player_up">Move player up</string>
+    <string name="move_player_down">Move player down</string>
+    <string name="transfer_host">Transfer host</string>
+    <string name="confirm_transfer_host">Transfer host role to %1$s?</string>
+    <string name="return_to_combat">Combat in progress — Return to combat</string>
+    <string name="choose_winner_title">Choose Winner</string>
+    <string name="choose_winner_message">Multiple players have reached the maximum level. Select the winner:</string>
+    <string name="game_log_button">Action log</string>
+    <string name="game_log_title">Game Log</string>
+    <string name="game_log_empty">No events yet.</string>
+    <string name="menu">Menu</string>
+    <string name="cd_decrement">Decrease %1$s</string>
+    <string name="cd_increment">Increase %1$s</string>
+    <string name="cd_toggle_gender">Toggle gender (%1$s)</string>
+    <string name="cd_turn_timer">Turn time remaining: %1$s</string>
+    <string name="cd_dice_roll">Roll die</string>
+    <string name="dice_roll_title">Roll Die</string>
+    <string name="dice_tap_to_roll">Tap the die to roll!</string>
+    <string name="dice_run_away_modifier">Run Away (Modifier)</string>
+
     <!-- Player Detail -->
     <string name="edit_player">Edit player</string>
-    <string name="add_race">Add race</string>
-    <string name="add_class">Add class</string>
     <string name="remove">Remove</string>
-    <string name="level_min_warning">Minimum level reached!</string>
-    <string name="level_max_warning">Maximum level reached!</string>
-    <string name="need_half_breed">You need Half-Breed to have 2 races</string>
-    <string name="need_super_munchkin">You need Super Munchkin to have 2 classes</string>
     <string name="player_details">Player Details</string>
-    
+    <string name="field_locked">Locked</string>
+
     <!-- Combat -->
     <string name="combat_title">Combat</string>
     <string name="heroes">Munchkins</string>
     <string name="monsters">Monsters</string>
-    <string name="main_player">Main fighter</string>
     <string name="helper">Helper</string>
     <string name="add_helper">Add helper</string>
     <string name="add_monster">Add monster</string>
     <string name="monster_name">Monster name</string>
     <string name="monster_level">Level</string>
     <string name="modifier">Modifier</string>
-    <string name="add_condition">Add condition</string>
-    <string name="condition_race">Against race…</string>
-    <string name="condition_class">Against class…</string>
-    <string name="condition_gender">Against gender…</string>
     <string name="applies_to">Applies to</string>
-    <string name="scope">Scope</string>
-    <string name="scope_main_only">Main only</string>
-    <string name="scope_helper_only">Helper only</string>
-    <string name="scope_any">Any</string>
     <string name="temp_bonus">Temporary bonus</string>
+    <string name="temp_bonuses_empty">No temporary bonuses</string>
     <string name="add_bonus">Add bonus</string>
+    <string name="bonus_amount_label">Amount (-100 to +100)</string>
+    <string name="bonus_default_label">Bonus</string>
+    <string name="bonus_label_hint">Label (e.g. Potion)</string>
+    <string name="remove_temp_bonus">Remove bonus %1$s</string>
     <string name="result_win">VICTORY!</string>
     <string name="result_lose">DEFEAT</string>
     <string name="win_by">You win by %1$d</string>
-    <string name="lose_by">You lose by %1$d</string>
-    <string name="tie_monsters_win">Tie: monsters win</string>
-    <string name="end_combat">End combat</string>
-    
-    <!-- Catalog -->
-    <string name="catalog_title">Catalog</string>
-    <string name="search">Search</string>
-    <string name="create_new">Create new</string>
-    <string name="create_entry">Create \"%1$s\"</string>
-    <string name="archive">Archive</string>
-    <string name="show_archived">Show archived</string>
-    <string name="name_required">Name required (2-24 characters)</string>
-    <string name="name_exists">An entry with that name already exists</string>
-    <string name="created_by">Created by %1$s</string>
-    
-    <!-- Settings -->
-    <string name="settings_title">Settings</string>
-    <string name="audio">Audio</string>
-    <string name="sound_effects">Sound effects</string>
-    <string name="volume">Volume</string>
-    <string name="vibration">Vibration</string>
-    <string name="display">Display</string>
-    <string name="theme">Theme</string>
-    <string name="theme_auto">Auto</string>
-    <string name="theme_light">Light</string>
-    <string name="theme_dark">Dark</string>
-    <string name="large_numbers">Large numbers</string>
-    <string name="animations">Animations</string>
-    <string name="animations_full">Full</string>
-    <string name="animations_reduced">Reduced</string>
-    <string name="animations_off">Off</string>
-    <string name="tabletop_mode">Tabletop mode</string>
-    <string name="keep_screen_on">Keep screen on</string>
-    <string name="lock_orientation">Lock orientation</string>
-    <string name="orientation_auto">Auto</string>
-    <string name="orientation_portrait">Portrait</string>
-    <string name="orientation_landscape">Landscape</string>
-    <string name="confirm_exit">Confirm on exit</string>
-    <string name="about">About</string>
-    <string name="version">Version</string>
-    <string name="check_updates">Check for updates</string>
-    <string name="licenses">Licenses</string>
-    <string name="language">Language</string>
-    <string name="language_system">System</string>
-    
-    <!-- Updates -->
-    <string name="updates_title">Updates</string>
-    <string name="current_version">Current version</string>
-    <string name="latest_version">Latest version</string>
-    <string name="update_available">Update available!</string>
-    <string name="up_to_date">You\'re up to date</string>
-    <string name="download">Download</string>
-    <string name="downloading">Downloading…</string>
-    <string name="install">Install</string>
-    <string name="changelog">Changelog</string>
-    <string name="check_failed">Failed to check for updates</string>
-    
-    <!-- Connection -->
-    <string name="reconnecting">Reconnecting…</string>
-    <string name="reconnecting_attempt">Reconnecting… (%1$d/%2$d)</string>
-    <string name="reconnect_failed">Could not reconnect</string>
-    <string name="reconnect_retry">Retry</string>
-    <string name="reconnected">Reconnected!</string>
-    <string name="connection_lost">Connection lost</string>
-    <string name="host_left">The host has left</string>
-    <string name="new_host">New host: %1$s</string>
-    <string name="handover_in_progress">Host transfer in progress…</string>
-    
-    <!-- Errors -->
-    <string name="error">Error</string>
-    <string name="error_unknown">Unknown error</string>
-    <string name="error_network">Network error</string>
-    <string name="error_invalid_code">Invalid code</string>
-    <string name="error_game_full">Game full (maximum 6 players)</string>
-    <string name="error_game_started">Game has already started</string>
-    <string name="error_permission_denied">Permission denied</string>
-    
-    <!-- Common -->
-    <string name="ok">OK</string>
-    <string name="cancel">Cancel</string>
-    <string name="save">Save</string>
-    <string name="close">Close</string>
-    <string name="back">Back</string>
-    <string name="yes">Yes</string>
-    <string name="no">No</string>
-    
-    <!-- Auth -->
-    <string name="username">Username</string>
-    <string name="email_or_username">Email (or username)</string>
-    <string name="password">Password</string>
-    
-    <!-- Board -->
-    <string name="game_label">Game</string>
-    <string name="delete_game">Delete Game</string>
-    <string name="end_turn">End Turn</string>
-    
-    <!-- Combat -->
+    <string name="combat_margin_to_win">Need %1$d more to win</string>
+    <string name="combat_breakdown_title">Power Breakdown</string>
+    <string name="combat_overlay_victory_sub">Combat won</string>
+    <string name="combat_overlay_defeat_sub">Time to face the Bad Stuff!</string>
+    <string name="combat_overlay_escape_success_sub">You live to fight another day</string>
+    <string name="combat_overlay_escape_fail_sub">Bad Stuff is coming…</string>
     <string name="select_helper">Select Helper</string>
     <string name="start_combat">Start Combat</string>
     <string name="search_monster_hint">Search Monster (e.g. Dragon…)</string>
@@ -199,94 +159,9 @@
     <string name="create_new_button">Create New</string>
     <string name="no_players_available">No other players available.</string>
     <string name="level_power_format">Level %1$d | Power %2$d</string>
-    
-    <!-- History -->
-    <string name="winner_label">Winner:</string>
-    
-    <!-- Home -->
-    <string name="delete_party">Delete party</string>
-    <string name="logout">Log out</string>
-    <string name="global_ranking">Global Ranking</string>
-    <string name="my_games">My Games</string>
-    <string name="view_profile">View Profile</string>
-    
-    <!-- Join -->
-    <string name="name_required_error">Name is required</string>
-    <string name="join">Join</string>
-    
-    <!-- Lobby -->
-    <string name="roll_dice">Roll 🎲</string>
-    
-    <!-- Monster Catalog -->
-    <string name="monster_catalog">Monster Catalog</string>
-    <string name="search_monster_placeholder">Search monster…</string>
-    <string name="treasures_format">Treasures: %1$d</string>
-    <string name="levels_format">Levels: %1$d</string>
-    
-    <!-- Profile -->
-    <string name="username_label">Username</string>
-    <string name="new_password_optional">New Password (Optional)</string>
-    <string name="profile_title">Player Profile</string>
-    <string name="game_history">Game History</string>
-    <string name="stat_games">Games</string>
-    <string name="stat_wins">Wins</string>
-    <string name="stat_win_rate">Win Rate</string>
-    <string name="no_games_yet">You haven\'t played any games yet.</string>
-    <string name="victory">🏆 Victory!</string>
-    <string name="defeat">Defeat</string>
-    <string name="reload">Reload</string>
-    <string name="edit_profile">Edit profile</string>
-    <string name="profile_updated">Profile updated!</string>
-    <string name="error_session_expired">Session expired. Please log in again.</string>
-
-    <!-- Auth -->
-    <string name="create_account">Create account</string>
-    <string name="login_title">Log in</string>
-    <string name="register_button">Register</string>
-    <string name="login_button">Log in</string>
-    <string name="already_have_account">Already have an account? Log in</string>
-    <string name="no_account">No account? Register</string>
-    <string name="password_min_length">At least %1$d characters</string>
-    
-    <!-- Tutorial -->
-    <string name="skip">Skip</string>
-    
-    <!-- Update Dialog -->
-    <string name="later">Later</string>
-    <string name="update">Update</string>
-    
-    <!-- QR Scanner -->
-    <string name="grant_permission">Grant permission</string>
-
-    <!-- Disconnection / Kick -->
-    <string name="kick_player">Kick player</string>
-    <string name="confirm_kick">Kick %1$s from the game?</string>
-    <string name="waiting_for_player">Waiting for %1$s…</string>
-    <string name="player_disconnected">Disconnected</string>
-    <string name="abilities_title">Abilities in play</string>
-    <string name="abilities_collapsed_hint">%1$d abilities — tap to view</string>
-    <string name="ability_automatic">Applied automatically</string>
-    <string name="ability_manual">Apply it yourself with the modifier</string>
-
-    <!-- Class and race ability reminders -->
-    <string name="ability_warrior_ties">You win ties in combat.</string>
-    <string name="ability_warrior_berserk">Berserking: discard up to 3 cards for +1 to combat each.</string>
-    <string name="ability_wizard_charm">Charm Spell: discard your whole hand to charm a monster. It leaves the combat and you take its treasure, without gaining a level.</string>
-    <string name="ability_wizard_flight">Flight Spell: discard up to 3 cards for +1 to your run-away roll each.</string>
-    <string name="ability_thief_backstab">Backstab: discard a card to give another player -2 in combat.</string>
-    <string name="ability_thief_steal">Steal: discard a card and roll the die to steal an item from another player.</string>
-    <string name="ability_cleric_undead">+3 in combat against Undead.</string>
-    <string name="ability_cleric_resurrect">Resurrection: when discarding, you may discard 2 more cards and draw 2 others.</string>
-    <string name="ability_elf_help_level">You gain a level each time you help kill a monster.</string>
-    <string name="ability_elf_run_away">+1 to your run-away roll.</string>
-    <string name="ability_dwarf_big_items">You may carry any number of Big items.</string>
-    <string name="ability_dwarf_hand_size">You may hold 6 cards in your hand.</string>
-    <string name="ability_halfling_sell">Once per turn you may sell one item for double price; every other item keeps its normal price.</string>
-    <string name="ability_halfling_run_away">-1 to the Run Away roll.</string>
-
-    <!-- Combat, class and race names -->
     <string name="combat_is_undead">Undead</string>
     <string name="combat_cancel">Cancel Combat</string>
+    <string name="combat_cancel_confirm">Cancel the current combat?</string>
     <string name="combat_run_away">Run Away</string>
     <string name="combat_no_monsters">No monsters</string>
     <string name="combat_bad_stuff_label">Bad Stuff</string>
@@ -297,24 +172,76 @@
     <string name="combat_failed_escape">Failed!</string>
     <string name="combat_remove_helper">Remove helper</string>
     <string name="combat_start_prompt">Start a combat</string>
-    <string name="combat_helper_suffix">helper</string>
-    <string name="combat_cleric_vs_undead">Cleric vs Undead</string>
-    <string name="combat_card_modifiers">Card modifiers</string>
-    <string name="class_none">No class</string>
-    <string name="class_warrior">Warrior</string>
-    <string name="class_wizard">Wizard</string>
-    <string name="class_thief">Thief</string>
-    <string name="class_cleric">Cleric</string>
-    <string name="class_ranger">Ranger</string>
-    <string name="class_bard">Bard</string>
-    <string name="race_human">Human</string>
-    <string name="race_elf">Elf</string>
-    <string name="race_dwarf">Dwarf</string>
-    <string name="race_halfling">Halfling</string>
-    <string name="race_gnome">Gnome</string>
-    <string name="race_orc">Orc</string>
+    <string name="monster_modifier_decrease">Decrease modifier for %1$s</string>
+    <string name="monster_modifier_increase">Increase modifier for %1$s</string>
+    <string name="cd_decrement_modifier">Decrease modifier</string>
+    <string name="cd_increment_modifier">Increase modifier</string>
+    <string name="cd_modify_modifier">Adjust combat by %1$d</string>
 
-    <!-- Server-rejection feedback (surfaced as a snackbar in MainActivity) -->
+    <!-- Catalog -->
+    <string name="create_new">Create new</string>
+    <string name="monster_catalog">Monster Catalog</string>
+    <string name="search_monster_placeholder">Search monster…</string>
+    <string name="catalog_search_min_chars_hint">Type at least 2 characters to search.</string>
+    <string name="catalog_expansion_label">Expansion</string>
+    <string name="catalog_all_expansions">All Expansions</string>
+    <string name="catalog_empty_title">No monsters found</string>
+    <string name="catalog_empty_subtitle">Try another search term or expansion filter.</string>
+    <string name="catalog_load_more">Load more monsters</string>
+    <string name="created_by">Created by %1$s</string>
+    <string name="treasures_format">Treasures: %1$d</string>
+    <string name="levels_format">Levels: %1$d</string>
+    <string name="decrease_value">Decrease %1$s</string>
+    <string name="increase_value">Increase %1$s</string>
+    <string name="expansion_base">Base Set</string>
+    <string name="expansion_hacha_descomunal">Unnatural Axe</string>
+    <string name="expansion_pifias_clericales">Clerical Errors</string>
+    <string name="expansion_anda_que_ojo">Need for Steed</string>
+    <string name="expansion_exploradores">De-Ranged</string>
+    <string name="expansion_mazmorras">Demented Dungeons</string>
+    <string name="expansion_trampas">Cheat With Both Hands</string>
+    <string name="expansion_centauros">Half Horse, Will Travel</string>
+    <string name="expansion_jurasico">Jurassic Snark</string>
+    <string name="expansion_extra">Community / Extra</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="display">Display</string>
+    <string name="large_numbers">Large numbers</string>
+    <string name="large_numbers_subtitle">Increase level and combat number sizes</string>
+    <string name="about">About</string>
+    <string name="version">Version</string>
+    <string name="check_updates">Check for updates</string>
+    <string name="check_updates_subtitle">Tap to check for a new version</string>
+    <string name="language">Language</string>
+    <string name="language_system">System</string>
+    <string name="language_spanish">Español</string>
+    <string name="language_english">English</string>
+    <string name="language_french">Français</string>
+    <string name="developer_section">Development</string>
+    <string name="developer_credit">Munchkin Mesa Tracker · Dungeon Edition</string>
+
+    <!-- Updates -->
+    <string name="update_available">Update available!</string>
+    <string name="update_size_format">Size: %1$s</string>
+    <string name="downloading">Downloading…</string>
+    <string name="later">Later</string>
+    <string name="update">Update</string>
+
+    <!-- Connection -->
+    <string name="reconnecting">Reconnecting…</string>
+    <string name="reconnecting_attempt">Reconnecting… (%1$d/%2$d)</string>
+    <string name="reconnect_failed">Could not reconnect</string>
+    <string name="reconnect_retry">Retry</string>
+    <string name="reconnected">Reconnected!</string>
+
+    <!-- Errors & Feedback -->
+    <string name="error">Error</string>
+    <string name="error_unknown">Unknown error</string>
+    <string name="error_invalid_code">Invalid code</string>
+    <string name="error_game_full">Game full (maximum 6 players)</string>
+    <string name="error_game_started">Game has already started</string>
+    <string name="error_permission_denied">Permission denied</string>
     <string name="error_server_generic">Server error: %1$s</string>
     <string name="error_not_found">This game no longer exists.</string>
     <string name="error_player_not_found">Player not found.</string>
@@ -344,6 +271,120 @@
     <string name="update_already_latest">You already have the latest version</string>
     <string name="game_deleted_by_host">The host deleted this game</string>
     <string name="game_deleted_ok">Game deleted</string>
+    <string name="account_deleted_success">Account deleted</string>
+    <string name="default_host_name">Host</string>
+    <string name="default_player_name">Player</string>
+
+    <!-- Common -->
+    <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="close">Close</string>
+    <string name="back">Back</string>
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+
+    <!-- Auth -->
+    <string name="username">Username</string>
+    <string name="email_or_username">Email (or username)</string>
+    <string name="auth_email">Email</string>
+    <string name="password">Password</string>
+    <string name="show_password">Show password</string>
+    <string name="hide_password">Hide password</string>
+    <string name="create_account">Create account</string>
+    <string name="login_title">Log in</string>
+    <string name="register_button">Register</string>
+    <string name="login_button">Log in</string>
+    <string name="already_have_account">Already have an account? Log in</string>
+    <string name="no_account">No account? Register</string>
+    <string name="password_min_length">At least %1$d characters</string>
+
+    <!-- Class & Race Display Names -->
+    <string name="class_none">No class</string>
+    <string name="class_warrior">Warrior</string>
+    <string name="class_wizard">Wizard</string>
+    <string name="class_thief">Thief</string>
+    <string name="class_cleric">Cleric</string>
+    <string name="race_human">Human</string>
+    <string name="race_elf">Elf</string>
+    <string name="race_dwarf">Dwarf</string>
+    <string name="race_halfling">Halfling</string>
+
+    <!-- History & Leaderboard -->
+    <string name="winner_label">Winner:</string>
+    <string name="history_players_count">%1$d players</string>
+    <string name="history_game_finished">Game finished</string>
+    <string name="history_guest_winner">Guest</string>
+    <string name="history_no_winner">No winner</string>
+    <string name="leaderboard_standings">Standings</string>
+    <string name="leaderboard_your_stats">Your Stats</string>
+    <string name="leaderboard_rank">Rank</string>
+    <string name="leaderboard_win_singular">Win</string>
+    <string name="leaderboard_entry_stats">%1$d games · %2$d%% win rate</string>
+    <string name="leaderboard_empty_title">No recorded games yet.</string>
+    <string name="leaderboard_empty_subtitle">Only finished games with a confirmed winner and registered players count.</string>
+    <string name="leaderboard_unranked_hint">You are not in the top ranks yet. Keep playing!</string>
+
+    <!-- Profile -->
+    <string name="username_label">Username</string>
+    <string name="current_password_label">Current password</string>
+    <string name="current_password_required">Enter your current password to change it</string>
+    <string name="new_password_optional">New Password (Optional)</string>
+    <string name="profile_title">Player Profile</string>
+    <string name="game_history">Game History</string>
+    <string name="stat_games">Games</string>
+    <string name="stat_wins">Wins</string>
+    <string name="stat_win_rate">Win Rate</string>
+    <string name="no_games_yet">You haven\'t played any games yet.</string>
+    <string name="victory">🏆 Victory!</string>
+    <string name="defeat">Defeat</string>
+    <string name="reload">Reload</string>
+    <string name="edit_profile">Edit profile</string>
+    <string name="profile_updated">Profile updated!</string>
+    <string name="error_session_expired">Session expired. Please log in again.</string>
+    <string name="danger_zone">Danger Zone</string>
+    <string name="delete_account">Delete account</string>
+    <string name="delete_account_desc">Permanently delete your account and all associated history.</string>
+    <string name="delete_account_confirm_title">Delete your account?</string>
+    <string name="delete_account_confirm_desc">This action is permanent and will delete your account and associated data. Enter your current password to confirm.</string>
+
+    <!-- Tutorial -->
+    <string name="skip">Skip</string>
+    <string name="tutorial_welcome_title">Welcome to Munchkin Tracker!</string>
+    <string name="tutorial_welcome_desc">The best companion app to track your Munchkin sessions with friends.</string>
+    <string name="tutorial_join_title">Create or Join</string>
+    <string name="tutorial_join_desc">One player creates the game and shares the QR code. Everyone else scans to join.</string>
+    <string name="tutorial_sync_title">Always in Sync</string>
+    <string name="tutorial_sync_desc">Levels, combat, and dice stay synced in real time across every phone.</string>
+    <string name="tutorial_dice_title">Built-in Dice</string>
+    <string name="tutorial_dice_desc">Use the virtual die for rolls. Everyone sees the result!</string>
+    <string name="tutorial_next">Next</string>
+    <string name="tutorial_start">Get Started!</string>
+
+    <!-- Disconnection / Kick -->
+    <string name="kick_player">Kick player</string>
+    <string name="confirm_kick">Kick %1$s from the game?</string>
+    <string name="waiting_for_player">Waiting for %1$s…</string>
+    <string name="player_disconnected">Disconnected</string>
+    <string name="abilities_title">Abilities in play</string>
+    <string name="abilities_collapsed_hint">%1$d abilities — tap to view</string>
+    <string name="ability_automatic">Applied automatically</string>
+    <string name="ability_manual">Apply it yourself with the modifier</string>
+
+    <!-- Class and race ability reminders -->
+    <string name="ability_warrior_ties">You win ties in combat.</string>
+    <string name="ability_warrior_berserk">Berserking: discard up to 3 cards for +1 to combat each.</string>
+    <string name="ability_wizard_charm">Charm Spell: discard your whole hand to charm a monster. It leaves the combat and you take its treasure, without gaining a level.</string>
+    <string name="ability_wizard_flight">Flight Spell: discard up to 3 cards for +1 to your run-away roll each.</string>
+    <string name="ability_thief_backstab">Backstab: discard a card to give another player -2 in combat.</string>
+    <string name="ability_thief_steal">Steal: discard a card and roll the die to steal an item from another player.</string>
+    <string name="ability_cleric_undead">+3 in combat against Undead.</string>
+    <string name="ability_cleric_resurrect">Resurrection: when discarding, you may discard 2 more cards and draw 2 others.</string>
+    <string name="ability_elf_help_level">You gain a level each time you help kill a monster.</string>
+    <string name="ability_elf_run_away">+1 to your run-away roll.</string>
+    <string name="ability_dwarf_big_items">You may carry any number of Big items.</string>
+    <string name="ability_dwarf_hand_size">You may hold 6 cards in your hand.</string>
+    <string name="ability_halfling_sell">Once per turn you may sell one item for double price; every other item keeps its normal price.</string>
+    <string name="ability_halfling_run_away">-1 to the Run Away roll.</string>
 
     <!-- Game log drawer -->
     <string name="log_level_up">%1$s reached Level %2$d</string>
@@ -359,20 +400,29 @@
     <string name="half_breed_two_races">Half-Breed (two races)</string>
 
     <!-- Run away dialog -->
+    <string name="run_away_title">RUN AWAY!</string>
+    <string name="run_away_confirm_title">Confirm Result</string>
+    <string name="run_away_tap_die">Tap the die to try to run away!</string>
+    <string name="run_away_physical_die">Physical die (1–6)</string>
+    <string name="cd_physical_die_value">Log physical die %1$d</string>
+    <string name="run_away_check_modifiers_title">⚠️ Check your modifiers</string>
+    <string name="run_away_check_modifiers_desc">Account for any items or abilities modifying your Run Away roll.</string>
+    <string name="run_away_did_escape">Did you escape?</string>
+    <string name="run_away_caught">Caught 💀</string>
+    <string name="run_away_escaped">Escaped! 🏃</string>
     <string name="run_away_result">Result: %1$d</string>
     <string name="run_away_breakdown">%1$d on the die, %2$s</string>
+    <string name="run_away_threshold_hint">You escape on %1$d or higher.</string>
+    <string name="run_away_suggestion_escaped">%1$d means you escape.</string>
+    <string name="run_away_suggestion_caught">%1$d means you are caught.</string>
 
     <!-- Bad Stuff prompt (losing a fight / failing to escape) -->
     <string name="bad_stuff_title">Bad Stuff happens</string>
     <string name="bad_stuff_intro">Apply what these cards say at the table. The app cannot know what they do.</string>
     <string name="bad_stuff_unknown">Check the Bad Stuff on the card.</string>
     <string name="bad_stuff_done">Got it</string>
-    <!-- Run away threshold -->
-    <string name="run_away_threshold_hint">You escape on %1$d or higher.</string>
-    <string name="run_away_suggestion_escaped">%1$d means you escape.</string>
-    <string name="run_away_suggestion_caught">%1$d means you are caught.</string>
 
-    <!-- Enhancements: Combat, Death, Victory, QR, Turn, Catalog -->
+    <!-- Enhancements: Combat, Death, Victory, Turn -->
     <string name="death_reset_gear">Death (Gear to 0)</string>
     <string name="death_confirm_title">Apply Death?</string>
     <string name="death_confirm_message">You will lose all your equipped gear (+0), but keep your current Level, Race, and Class.</string>
@@ -391,9 +441,5 @@
     <string name="victory_dialog_title">🏆 Game Over!</string>
     <string name="victory_dialog_winner">%1$s won the game!</string>
     <string name="return_to_home">Return Home</string>
-    <string name="scan_qr_button">Scan QR</string>
-    <string name="resume_hosted_game">Resume</string>
-    <string name="lobby_tie_message">⚔️ Tie! Tied players must roll again.</string>
-    <string name="lobby_waiting_rolls">🎲 Waiting for everyone to roll the dice…</string>
     <string name="modifiers_label">Modifiers (Bonus/Malus): %1$s</string>
 </resources>

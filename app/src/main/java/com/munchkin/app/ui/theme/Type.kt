@@ -7,30 +7,32 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 /**
- * Typography for Munchkin Mesa Tracker.
- * Supports normal and "large numbers" mode for tabletop visibility.
+ * Typography for Munchkin Mesa Tracker (Dungeon Edition).
+ * Supports normal and "large numbers" tabletop mode (1.3x scale on numeric display stats)
+ * with tabular numerals (`tnum`) to prevent layout jitter.
  */
-
-// Normal typography
 val Typography = Typography(
     displayLarge = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Bold,
         fontSize = 57.sp,
         lineHeight = 64.sp,
-        letterSpacing = (-0.25).sp
+        letterSpacing = (-0.25).sp,
+        fontFeatureSettings = "tnum"
     ),
     displayMedium = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Bold,
         fontSize = 45.sp,
-        lineHeight = 52.sp
+        lineHeight = 52.sp,
+        fontFeatureSettings = "tnum"
     ),
     displaySmall = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Bold,
         fontSize = 36.sp,
-        lineHeight = 44.sp
+        lineHeight = 44.sp,
+        fontFeatureSettings = "tnum"
     ),
     headlineLarge = TextStyle(
         fontFamily = FontFamily.Default,
@@ -52,14 +54,14 @@ val Typography = Typography(
     ),
     titleLarge = TextStyle(
         fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Medium,
-        fontSize = 22.sp,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 20.sp,
         lineHeight = 28.sp
     ),
     titleMedium = TextStyle(
         fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Medium,
-        fontSize = 16.sp,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 18.sp,
         lineHeight = 24.sp,
         letterSpacing = 0.15.sp
     ),
@@ -75,27 +77,27 @@ val Typography = Typography(
         fontWeight = FontWeight.Normal,
         fontSize = 16.sp,
         lineHeight = 24.sp,
-        letterSpacing = 0.5.sp
+        letterSpacing = 0.25.sp
     ),
     bodyMedium = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Normal,
         fontSize = 14.sp,
         lineHeight = 20.sp,
-        letterSpacing = 0.25.sp
+        letterSpacing = 0.2.sp
     ),
     bodySmall = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Normal,
         fontSize = 12.sp,
         lineHeight = 16.sp,
-        letterSpacing = 0.4.sp
+        letterSpacing = 0.3.sp
     ),
     labelLarge = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Medium,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
         letterSpacing = 0.1.sp
     ),
     labelMedium = TextStyle(
@@ -103,48 +105,27 @@ val Typography = Typography(
         fontWeight = FontWeight.Medium,
         fontSize = 12.sp,
         lineHeight = 16.sp,
-        letterSpacing = 0.5.sp
+        letterSpacing = 0.4.sp
     ),
     labelSmall = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Medium,
         fontSize = 11.sp,
         lineHeight = 16.sp,
-        letterSpacing = 0.5.sp
+        letterSpacing = 0.4.sp
     )
 )
 
-// Large numbers typography for tabletop mode
-val LargeNumbersTypography = Typography(
-    displayLarge = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Bold,
-        fontSize = 72.sp,  // Increased from 57
-        lineHeight = 80.sp,
-        letterSpacing = (-0.25).sp
-    ),
-    displayMedium = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Bold,
-        fontSize = 60.sp,  // Increased from 45
-        lineHeight = 68.sp
-    ),
-    displaySmall = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Bold,
-        fontSize = 48.sp,  // Increased from 36
-        lineHeight = 56.sp
-    ),
-    headlineLarge = Typography.headlineLarge,
-    headlineMedium = Typography.headlineMedium,
-    headlineSmall = Typography.headlineSmall,
-    titleLarge = Typography.titleLarge,
-    titleMedium = Typography.titleMedium,
-    titleSmall = Typography.titleSmall,
-    bodyLarge = Typography.bodyLarge,
-    bodyMedium = Typography.bodyMedium,
-    bodySmall = Typography.bodySmall,
-    labelLarge = Typography.labelLarge,
-    labelMedium = Typography.labelMedium,
-    labelSmall = Typography.labelSmall
+private val LargeNumbersTypography = Typography.copy(
+    displayLarge = Typography.displayLarge.copy(fontSize = 74.sp, lineHeight = 82.sp),
+    displayMedium = Typography.displayMedium.copy(fontSize = 59.sp, lineHeight = 68.sp),
+    displaySmall = Typography.displaySmall.copy(fontSize = 47.sp, lineHeight = 56.sp),
+    headlineMedium = Typography.headlineMedium.copy(
+        fontSize = 36.sp,
+        lineHeight = 44.sp,
+        fontFeatureSettings = "tnum"
+    )
 )
+
+fun munchkinTypography(largeNumbersMode: Boolean = false): Typography =
+    if (largeNumbersMode) LargeNumbersTypography else Typography

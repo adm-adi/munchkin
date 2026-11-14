@@ -2,13 +2,13 @@ package com.munchkin.app.ui.screens
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -16,11 +16,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.munchkin.app.R
 import com.munchkin.app.core.Gender
 import com.munchkin.app.network.LeaderboardEntry
 import com.munchkin.app.network.LeaderboardSelf
@@ -32,6 +35,7 @@ import com.munchkin.app.ui.theme.*
 fun LeaderboardScreen(
     leaderboard: List<LeaderboardEntry>,
     isLoading: Boolean,
+    error: String? = null,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     /** Totals for the signed-in player; null when browsing without an account. */
@@ -52,9 +56,10 @@ fun LeaderboardScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .navigationBarsPadding()
         ) {
             GlassTopAppBar(
-                title = "Ranking Global",
+                title = stringResource(R.string.global_ranking),
                 navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
                 onNavigationClick = onBack,
                 actions = {
@@ -68,8 +73,8 @@ fun LeaderboardScreen(
                         } else {
                             Icon(
                                 Icons.Default.Refresh,
-                                contentDescription = "Recargar",
-                                tint = NeonGray400
+                                contentDescription = stringResource(R.string.reload),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -80,46 +85,79 @@ fun LeaderboardScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(bottom = 32.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (self != null) {
-                    item {
-                        Spacer(modifier = Modifier.height(8.dp))
+                    item(key = "self_stats") {
                         SelfStatsCard(self)
                     }
                 }
 
-                item {
+                item(key = "standings_title") {
                     Text(
-                        text = "Clasificación",
+                        text = stringResource(R.string.leaderboard_standings),
                         style = MaterialTheme.typography.titleMedium,
-                        color = NeonGray300,
-                        modifier = Modifier.padding(vertical = 8.dp)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
 
-                if (leaderboard.isEmpty() && !isLoading) {
-                    item {
-                        GlassCard {
-                            Column(modifier = Modifier.padding(16.dp)) {
+                if (error != null) {
+                    item(key = "leaderboard_error") {
+                        GlassCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            borderColor = NeonError.copy(alpha = 0.45f)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = NeonError
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
                                 Text(
-                                    text = "Aún no hay partidas registradas.",
-                                    color = NeonGray300
+                                    text = error,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = NeonGray100,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedButton(
+                                onClick = onRefresh,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                            ) {
+                                Text(stringResource(R.string.reconnect_retry))
+                            }
+                        }
+                    }
+                } else if (leaderboard.isEmpty() && !isLoading) {
+                    item(key = "leaderboard_empty") {
+                        GlassCard(modifier = Modifier.fillMaxWidth()) {
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.leaderboard_empty_title),
+                                    color = NeonGray200,
+                                    style = MaterialTheme.typography.bodyMedium
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "Solo cuentan las partidas terminadas con un ganador " +
-                                        "confirmado, y solo puntúan los jugadores con cuenta.",
+                                    text = stringResource(R.string.leaderboard_empty_subtitle),
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = NeonGray500
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
                     }
                 }
 
-                itemsIndexed(leaderboard) { index, entry ->
+                itemsIndexed(leaderboard, key = { _, entry -> entry.id }) { index, entry ->
                     LeaderboardItem(
                         rank = index + 1,
                         entry = entry,
@@ -138,9 +176,9 @@ fun LeaderboardScreen(
 @Composable
 private fun SelfStatsCard(self: LeaderboardSelf) {
     GlassCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column {
             Text(
-                text = "Tus estadísticas",
+                text = stringResource(R.string.leaderboard_your_stats),
                 style = MaterialTheme.typography.labelMedium,
                 color = LumaAccent,
                 fontWeight = FontWeight.Bold
@@ -150,21 +188,33 @@ private fun SelfStatsCard(self: LeaderboardSelf) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                StatBlock(value = "${self.wins}", label = "Victorias", color = NeonWarning)
-                StatBlock(value = "${self.gamesPlayed}", label = "Partidas", color = NeonGray100)
-                StatBlock(value = "${self.winRate}%", label = "Acierto", color = NeonSecondary)
+                StatBlock(
+                    value = "${self.wins}",
+                    label = stringResource(R.string.stat_wins),
+                    color = NeonWarning
+                )
+                StatBlock(
+                    value = "${self.gamesPlayed}",
+                    label = stringResource(R.string.stat_games),
+                    color = NeonGray100
+                )
+                StatBlock(
+                    value = "${self.winRate}%",
+                    label = stringResource(R.string.stat_win_rate),
+                    color = NeonSecondary
+                )
                 StatBlock(
                     value = if (self.rank > 0) "#${self.rank}" else "—",
-                    label = "Puesto",
-                    color = if (self.rank > 0) LumaAccent else NeonGray500
+                    label = stringResource(R.string.leaderboard_rank),
+                    color = if (self.rank > 0) LumaAccent else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             if (self.rank == 0) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "Todavía no estás entre los primeros. ¡Sigue jugando!",
+                    text = stringResource(R.string.leaderboard_unranked_hint),
                     style = MaterialTheme.typography.bodySmall,
-                    color = NeonGray500
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -172,7 +222,7 @@ private fun SelfStatsCard(self: LeaderboardSelf) {
 }
 
 @Composable
-private fun StatBlock(value: String, label: String, color: androidx.compose.ui.graphics.Color) {
+private fun StatBlock(value: String, label: String, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = value,
@@ -183,7 +233,7 @@ private fun StatBlock(value: String, label: String, color: androidx.compose.ui.g
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = NeonGray500
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -196,9 +246,9 @@ fun LeaderboardItem(
 ) {
     val rankColor = when (rank) {
         1 -> NeonWarning
-        2 -> NeonGray300 // Silver-ish
-        3 -> NeonSecondary // Bronze-ish substitute
-        else -> NeonGray500
+        2 -> NeonGray200
+        3 -> NeonSecondary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 
     val rankSize = when (rank) {
@@ -207,20 +257,11 @@ fun LeaderboardItem(
     }
 
     GlassCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                if (isCurrentUser) {
-                    Modifier.border(1.dp, LumaAccent, MaterialTheme.shapes.medium)
-                } else {
-                    Modifier
-                }
-            )
+        modifier = Modifier.fillMaxWidth(),
+        borderColor = if (isCurrentUser) LumaAccent else GlassBorder
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Rank
@@ -250,8 +291,7 @@ fun LeaderboardItem(
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            // Name plus the record behind the win count, so a player who won once in
-            // one game is not shown as equal to one who won once in fifty.
+            // Name plus the record behind the win count
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = entry.username,
@@ -260,16 +300,18 @@ fun LeaderboardItem(
                     fontWeight = if (isCurrentUser) FontWeight.Bold else FontWeight.Normal
                 )
                 Text(
-                    text = "${entry.gamesPlayed} partidas · ${entry.winRate}% acierto",
+                    text = stringResource(
+                        R.string.leaderboard_entry_stats,
+                        entry.gamesPlayed,
+                        entry.winRate
+                    ),
                     style = MaterialTheme.typography.labelSmall,
-                    color = NeonGray500
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
             // Wins
-            Column(
-                horizontalAlignment = Alignment.End
-            ) {
+            Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = "${entry.wins}",
                     style = MaterialTheme.typography.titleLarge,
@@ -277,9 +319,13 @@ fun LeaderboardItem(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = if (entry.wins == 1) "Victoria" else "Victorias",
+                    text = if (entry.wins == 1) {
+                        stringResource(R.string.leaderboard_win_singular)
+                    } else {
+                        stringResource(R.string.stat_wins)
+                    },
                     style = MaterialTheme.typography.labelSmall,
-                    color = NeonGray500
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

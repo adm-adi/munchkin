@@ -1,23 +1,48 @@
 package com.munchkin.app.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.munchkin.app.R
 import com.munchkin.app.core.GameLogEntry
 import com.munchkin.app.core.LogType
+import com.munchkin.app.ui.theme.DungeonBorder
+import com.munchkin.app.ui.theme.NeonError
+import com.munchkin.app.ui.theme.NeonGray100
+import com.munchkin.app.ui.theme.NeonGray300
+import com.munchkin.app.ui.theme.NeonSecondary
+import com.munchkin.app.ui.theme.NeonSuccess
+import com.munchkin.app.ui.theme.NeonSurface
+import com.munchkin.app.ui.theme.NeonSurfaceVariant
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
+/**
+ * Bottom sheet displaying chronological session events in reverse chronological order.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GameLogDrawer(
@@ -26,7 +51,8 @@ fun GameLogDrawer(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF1E1E1E) // Dark background
+        containerColor = NeonSurface,
+        contentColor = NeonGray100
     ) {
         Column(
             modifier = Modifier
@@ -35,25 +61,29 @@ fun GameLogDrawer(
                 .padding(bottom = 32.dp)
         ) {
             Text(
-                text = "Historial de Partida",
-                style = MaterialTheme.typography.titleLarge,
-                color = Color.White,
+                text = stringResource(R.string.game_log_title),
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = NeonGray100,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
 
             if (logEntries.isEmpty()) {
                 Text(
-                    text = "Aún no hay eventos.",
-                    color = Color.Gray,
-                    modifier = Modifier.padding(top = 16.dp)
+                    text = stringResource(R.string.game_log_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NeonGray300,
+                    modifier = Modifier.padding(top = 12.dp)
                 )
             } else {
                 val reversedEntries = remember(logEntries) { logEntries.reversed() }
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(reversedEntries) { entry ->
-                        LogEntryItem(entry)
+                    items(
+                        items = reversedEntries,
+                        key = { it.id }
+                    ) { entry ->
+                        LogEntryItem(entry = entry)
                     }
                 }
             }
@@ -65,33 +95,42 @@ fun GameLogDrawer(
 fun LogEntryItem(entry: GameLogEntry) {
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val timeString = remember(entry.timestamp) { timeFormat.format(Date(entry.timestamp)) }
+    val shape = RoundedCornerShape(10.dp)
+
+    val messageColor = when (entry.type) {
+        LogType.LEVEL_UP -> NeonSuccess
+        LogType.COMBAT -> NeonError
+        LogType.GAME_EVENT -> NeonSecondary
+        else -> NeonGray100
+    }
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF2A2A2A), MaterialTheme.shapes.small)
-            .padding(8.dp)
+            .clip(shape)
+            .background(NeonSurfaceVariant)
+            .border(1.dp, DungeonBorder, shape)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         Text(
             text = timeString,
-            color = Color.Gray,
-            fontSize = 12.sp,
-            modifier = Modifier.width(40.dp)
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontFeatureSettings = "tnum"
+            ),
+            color = NeonGray300,
+            modifier = Modifier.widthIn(min = 42.dp)
         )
-        
-        val color = when(entry.type) {
-            LogType.LEVEL_UP -> Color(0xFF4CAF50) // Green
-            LogType.COMBAT -> Color(0xFFF44336)   // Red
-            LogType.GAME_EVENT -> Color(0xFF2196F3) // Blue
-            else -> Color.White
-        }
+
+        Spacer(modifier = Modifier.width(8.dp))
 
         Text(
             text = entry.message,
-            color = color,
-            fontSize = 14.sp,
-            fontWeight = if (entry.type == LogType.LEVEL_UP) FontWeight.Bold else FontWeight.Normal
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontWeight = if (entry.type == LogType.LEVEL_UP) FontWeight.Bold else FontWeight.Normal
+            ),
+            color = messageColor,
+            modifier = Modifier.weight(1f)
         )
     }
 }

@@ -5,7 +5,6 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import com.munchkin.app.MunchkinApp
 
 /**
  * Haptic feedback manager for game actions and combat events.
@@ -14,9 +13,13 @@ object SoundManager {
 
     private var vibrationEnabled = true
 
-    private val vibrator: Vibrator? by lazy {
-        try {
-            val context = MunchkinApp.context
+    @Volatile
+    private var vibrator: Vibrator? = null
+
+    fun init(appContext: Context) {
+        if (vibrator != null) return
+        val context = appContext.applicationContext
+        vibrator = try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
                 vibratorManager?.defaultVibrator

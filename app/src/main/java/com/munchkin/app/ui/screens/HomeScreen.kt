@@ -3,21 +3,23 @@ package com.munchkin.app.ui.screens
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.munchkin.app.R
@@ -27,20 +29,17 @@ import com.munchkin.app.ui.theme.*
 import com.munchkin.app.update.UpdateInfo
 
 /**
- * Modern Luma-inspired home screen.
+ * Dungeon Edition home screen.
  */
 @Composable
 fun HomeScreen(
     savedGame: SavedGame?,
     updateInfo: UpdateInfo?,
     isDownloading: Boolean,
-    isLoading: Boolean = false,
-    error: String? = null,
     onCreateGame: () -> Unit,
     onJoinGame: () -> Unit,
     onResumeGame: () -> Unit,
     onDeleteSavedGame: () -> Unit,
-    onClearError: () -> Unit = {},
     onDownloadUpdate: () -> Unit,
     onDismissUpdate: () -> Unit,
     onSettings: () -> Unit,
@@ -50,20 +49,24 @@ fun HomeScreen(
     onHistoryClick: () -> Unit,
     onProfileClick: () -> Unit,
     userProfile: com.munchkin.app.network.UserProfile?,
+    modifier: Modifier = Modifier,
+    isLoading: Boolean = false,
+    error: String? = null,
+    onClearError: () -> Unit = {},
     hostedGames: List<com.munchkin.app.network.HostedGame> = emptyList(),
     onResumeHostedGame: (String) -> Unit = {},
     onDeleteHostedGame: (String) -> Unit = {},
-    modifier: Modifier = Modifier
+    onCatalogClick: () -> Unit = {}
 ) {
     // Show update dialog if update available
     var showUpdateDialog by remember { mutableStateOf(false) }
-    
+
     LaunchedEffect(updateInfo) {
         if (updateInfo != null) {
             showUpdateDialog = true
         }
     }
-    
+
     if (showUpdateDialog && updateInfo != null) {
         UpdateDialog(
             updateInfo = updateInfo,
@@ -75,19 +78,7 @@ fun HomeScreen(
             }
         )
     }
-    
-    // Snackbar for errors
-    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
-    LaunchedEffect(error) {
-        if (error != null) {
-            snackbarHostState.showSnackbar(
-                message = error,
-                duration = androidx.compose.material3.SnackbarDuration.Short
-            )
-            onClearError()
-        }
-    }
-    
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -116,291 +107,336 @@ fun HomeScreen(
                     )
                 )
         )
-        
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
         ) {
-            Spacer(modifier = Modifier.weight(0.3f))
-            
-            // Logo with glow
-            Box(
-                contentAlignment = Alignment.Center
+            // Non-overlapping top bar (Auth + Settings)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Glow behind emoji
-                Box(
-                    modifier = Modifier
-                        .size(120.dp)
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(
-                                    NeonPrimary.copy(alpha = 0.3f),
-                                    Color.Transparent
+                Box {
+                    var showMenu by remember { mutableStateOf(false) }
+
+                    TextButton(
+                        onClick = {
+                            if (userProfile != null) {
+                                showMenu = true
+                            } else {
+                                onAuth()
+                            }
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        if (userProfile != null) {
+                            Text(
+                                text = userProfile.username,
+                                color = NeonSecondary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else {
+                            Text(
+                                text = stringResource(R.string.login_title),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    if (userProfile != null) {
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false },
+                            modifier = Modifier.background(NeonSurface)
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.view_profile), color = NeonGray100) },
+                                onClick = {
+                                    showMenu = false
+                                    onProfileClick()
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Person, null, tint = NeonPrimary)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.global_ranking), color = NeonGray100) },
+                                onClick = {
+                                    showMenu = false
+                                    onLeaderboardClick()
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Leaderboard, null, tint = NeonSecondary)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.my_games), color = NeonGray100) },
+                                onClick = {
+                                    showMenu = false
+                                    onHistoryClick()
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.History, null, tint = NeonWarning)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.settings), color = NeonGray100) },
+                                onClick = {
+                                    showMenu = false
+                                    onSettings()
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Settings, null, tint = NeonWarning)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.logout), color = NeonGray100) },
+                                onClick = {
+                                    showMenu = false
+                                    onLogout()
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.AutoMirrored.Filled.Logout, null, tint = NeonError)
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.width(4.dp))
+
+                IconButton(onClick = onSettings) {
+                    Icon(
+                        Icons.Default.Settings,
+                        contentDescription = stringResource(R.string.settings),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Scrollable main content
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 28.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                // Logo with glow
+                Box(contentAlignment = Alignment.Center) {
+                    Box(
+                        modifier = Modifier
+                            .size(120.dp)
+                            .background(
+                                Brush.radialGradient(
+                                    colors = listOf(
+                                        NeonPrimary.copy(alpha = 0.3f),
+                                        Color.Transparent
+                                    )
                                 )
                             )
-                        )
-                )
+                    )
+                    Text(
+                        text = "⚔️",
+                        fontSize = 72.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
                 Text(
-                    text = "⚔️",
-                    fontSize = 72.sp
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.displayMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-1).sp
+                    ),
+                    color = NeonGray100
                 )
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // Title with gradient
-            Text(
-                text = "Munchkin",
-                style = MaterialTheme.typography.displayMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = (-1).sp
-                ),
-                color = NeonGray100
-            )
-            
-            Spacer(modifier = Modifier.height(48.dp))
-            
-            // Main actions
-            GradientButton(
-                text = stringResource(R.string.create_game),
-                onClick = onCreateGame,
-                modifier = Modifier.fillMaxWidth(),
-                icon = Icons.Default.Add,
-                gradientColors = GradientNeonPurple
-            )
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            GlassOutlinedButton(
-                text = stringResource(R.string.join_game),
-                onClick = onJoinGame,
-                modifier = Modifier.fillMaxWidth(),
-                icon = Icons.Default.QrCodeScanner
-            )
-            
-            // Saved game section
-            AnimatedVisibility(
-                visible = savedGame != null,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically()
-            ) {
-                savedGame?.let { saved ->
-                    Column {
-                        Spacer(modifier = Modifier.height(32.dp))
-                        
-                        GlassCard(
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Partida guardada",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = NeonGray100
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "${saved.gameState.players.size} jugadores • ${saved.gameState.joinCode}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = NeonGray500
-                                    )
-                                }
-                            }
-                            
-                            Spacer(modifier = Modifier.height(12.dp))
-                            
-                            GradientButton(
-                                text = if (isLoading) stringResource(R.string.connecting) else "Continuar",
-                                onClick = onResumeGame,
-                                modifier = Modifier.fillMaxWidth(),
-                                icon = if (isLoading) null else Icons.Default.PlayArrow,
-                                gradientColors = GradientNeonFire,
-                                enabled = !isLoading
+
+                // Dismissible inline error banner (Snackbar lives in MainActivity)
+                if (error != null) {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(NeonError.copy(alpha = 0.14f))
+                            .border(1.dp, NeonError.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+                            .padding(start = 14.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.ErrorOutline,
+                            contentDescription = null,
+                            tint = NeonError,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = error,
+                            color = NeonGray100,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = onClearError) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = stringResource(R.string.close),
+                                tint = NeonGray200
                             )
-                            
-                            if (saved.isHost) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                
-                                OutlinedButton(
-                                    onClick = onDeleteSavedGame,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = ButtonDefaults.outlinedButtonColors(
-                                        contentColor = MaterialTheme.colorScheme.error
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(36.dp))
+
+                // Main actions
+                GradientButton(
+                    text = stringResource(R.string.create_game),
+                    onClick = onCreateGame,
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Default.Add,
+                    gradientColors = listOf(NeonPrimary, NeonSecondary)
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                GlassOutlinedButton(
+                    text = stringResource(R.string.join_game),
+                    onClick = onJoinGame,
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Default.QrCodeScanner
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                GlassOutlinedButton(
+                    text = stringResource(R.string.monster_catalog),
+                    onClick = onCatalogClick,
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Default.CollectionsBookmark
+                )
+
+                // Saved game section
+                AnimatedVisibility(
+                    visible = savedGame != null,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    savedGame?.let { saved ->
+                        Column {
+                            Spacer(modifier = Modifier.height(28.dp))
+
+                            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = stringResource(R.string.saved_game_title),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = NeonGray100
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = stringResource(
+                                        R.string.saved_game_summary,
+                                        saved.gameState.players.size,
+                                        saved.gameState.joinCode
                                     ),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
-                                ) {
-                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(stringResource(R.string.delete_party))
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                GradientButton(
+                                    text = if (isLoading) {
+                                        stringResource(R.string.connecting)
+                                    } else {
+                                        stringResource(R.string.continue_game)
+                                    },
+                                    onClick = onResumeGame,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    icon = if (isLoading) null else Icons.Default.PlayArrow,
+                                    gradientColors = GradientNeonFire,
+                                    enabled = !isLoading
+                                )
+
+                                if (saved.isHost) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    OutlinedButton(
+                                        onClick = onDeleteSavedGame,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 48.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.error
+                                        ),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                                        )
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(stringResource(R.string.delete_party))
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            // Hosted Games Section
-            AnimatedVisibility(
-                visible = hostedGames.isNotEmpty(),
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically()
-            ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Spacer(modifier = Modifier.height(32.dp))
-                    
-                    Text(
-                        text = "Tus Partidas Activas",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = NeonGray200,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                    
-                    hostedGames.forEach { game ->
-                        HostedGameCard(
-                            game = game,
-                            onResume = { onResumeHostedGame(game.joinCode) },
-                            onDelete = { onDeleteHostedGame(game.gameId) }
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-                }
-            }
-            
-            Spacer(modifier = Modifier.weight(1f))
-            
-            // Version
-            Text(
-                text = "v${com.munchkin.app.BuildConfig.VERSION_NAME}",
-                style = MaterialTheme.typography.bodySmall,
-                color = NeonGray500
-            )
-            
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-        
-        // Top Bar (Auth + Settings) - Positioned AFTER Column to be on top for touch events
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp)
-                .statusBarsPadding(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Auth Profile Button
-            Box {
-                var showMenu by remember { mutableStateOf(false) }
-                
-                TextButton(onClick = { 
-                    if (userProfile != null) {
-                        showMenu = true
-                    } else {
-                        onAuth()
-                    }
-                }) {
-                    if (userProfile != null) {
+                // Hosted Games Section
+                AnimatedVisibility(
+                    visible = hostedGames.isNotEmpty(),
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Spacer(modifier = Modifier.height(28.dp))
+
                         Text(
-                            text = userProfile.username,
-                            color = NeonSecondary,
-                            fontWeight = FontWeight.Bold
+                            text = stringResource(R.string.active_hosted_games),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = NeonGray200,
+                            modifier = Modifier.padding(bottom = 8.dp)
                         )
-                    } else {
-                        Text(
-                            text = stringResource(R.string.login_title),
-                            color = NeonGray400
-                        )
+
+                        hostedGames.forEach { game ->
+                            HostedGameCard(
+                                game = game,
+                                onResume = { onResumeHostedGame(game.joinCode) },
+                                onDelete = { onDeleteHostedGame(game.gameId) }
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
                     }
                 }
-                
-                if (userProfile != null) {
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false },
-                        modifier = Modifier.background(NeonSurface)
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.logout), color = Color.White) },
-                            onClick = {
-                                showMenu = false
-                                onLogout()
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Default.Logout, null, tint = NeonError)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.global_ranking), color = Color.White) },
-                            onClick = {
-                                showMenu = false
-                                onLeaderboardClick()
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Default.Leaderboard, null, tint = NeonSecondary)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.my_games), color = Color.White) },
-                            onClick = {
-                                showMenu = false
-                                onHistoryClick()
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Default.History, null, tint = NeonWarning)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.settings), color = Color.White) },
-                            onClick = {
-                                showMenu = false
-                                onSettings()
-                            },
-                             leadingIcon = {
-                                Icon(Icons.Default.Settings, null, tint = NeonWarning)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.view_profile), color = Color.White) },
-                            onClick = {
-                                showMenu = false
-                                onProfileClick()
-                            },
-                             leadingIcon = {
-                                Icon(Icons.Default.Person, null, tint = NeonPrimary)
-                            }
-                        )
-                    }
-                }
-            }
-            
-            Spacer(Modifier.width(8.dp))
-            
-            // Settings Button
-            IconButton(onClick = onSettings) {
-                Icon(
-                    Icons.Default.Settings,
-                    contentDescription = stringResource(R.string.settings),
-                    tint = NeonGray400
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // Version
+                Text(
+                    text = "v${com.munchkin.app.BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
-        
-        // Snackbar Host at bottom
-        androidx.compose.material3.SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-        )
     }
 }
 
@@ -455,7 +491,7 @@ private fun HostedGameCard(
                 Text(
                     text = "${game.playerCount} ${stringResource(R.string.players).lowercase()} • ${game.phase}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = NeonGray400
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -471,7 +507,7 @@ private fun HostedGameCard(
                 Icon(
                     Icons.Default.Delete,
                     contentDescription = stringResource(R.string.delete_game_title),
-                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f)
                 )
             }
         }

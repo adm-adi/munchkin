@@ -1,124 +1,74 @@
 package com.munchkin.app.ui.screens
 
+import androidx.annotation.StringRes
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.munchkin.app.MunchkinApp
 import com.munchkin.app.R
-import com.munchkin.app.network.GameClient
-import com.munchkin.app.network.ServerConfig
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
+import com.munchkin.app.network.CatalogMonster
+import com.munchkin.app.ui.components.GlassCard
+import com.munchkin.app.ui.components.GlassTopAppBar
+import com.munchkin.app.ui.theme.*
+import com.munchkin.app.viewmodel.CatalogViewModel
 
-@Serializable
-data class MonsterResult(
-    val id: String,
-    val name: String,
-    val level: Int,
-    val modifier: Int,
-    val treasures: Int,
-    val levels: Int,
-    val bad_stuff: String = "",
-    val expansion: String = "base"
+private data class ExpansionOption(
+    val code: String,
+    @StringRes val labelRes: Int
 )
 
-class CatalogViewModel : ViewModel() {
-    var searchResults by mutableStateOf<List<MonsterResult>>(emptyList())
-    var isLoading by mutableStateOf(false)
-    var error by mutableStateOf<String?>(null)
+private val CATALOG_EXPANSIONS = listOf(
+    ExpansionOption("base", R.string.expansion_base),
+    ExpansionOption("hacha_descomunal", R.string.expansion_hacha_descomunal),
+    ExpansionOption("pifias_clericales", R.string.expansion_pifias_clericales),
+    ExpansionOption("anda_que_ojo", R.string.expansion_anda_que_ojo),
+    ExpansionOption("exploradores", R.string.expansion_exploradores),
+    ExpansionOption("mazmorras", R.string.expansion_mazmorras),
+    ExpansionOption("trampas", R.string.expansion_trampas),
+    ExpansionOption("centauros", R.string.expansion_centauros),
+    ExpansionOption("jurasico", R.string.expansion_jurasico),
+    ExpansionOption("extra", R.string.expansion_extra)
+)
 
-    private val client = GameClient()
-    private var searchJob: Job? = null
-
-    fun search(query: String, debounceMs: Long = 350L) {
-        searchJob?.cancel()
-
-        val trimmed = query.trim()
-        if (trimmed.length == 1) {
-            // Wait until at least 2 characters or blank
-            return
-        }
-
-        searchJob = viewModelScope.launch(Dispatchers.IO) {
-            if (debounceMs > 0) {
-                kotlinx.coroutines.delay(debounceMs)
-            }
-            withContext(Dispatchers.Main) {
-                isLoading = true
-                error = null
-            }
-            try {
-                val effectiveQuery = if (trimmed.isBlank()) "__ALL__" else trimmed
-                var rawMonsters = client
-                    .searchMonsters(ServerConfig.WS_URL, effectiveQuery)
-                    .getOrElse { emptyList() }
-                // Fallback for older servers that don't support __ALL__ yet
-                if (rawMonsters.isEmpty() && trimmed.isBlank()) {
-                    rawMonsters = client
-                        .searchMonsters(ServerConfig.WS_URL, "an")
-                        .getOrElse { emptyList() }
-                }
-                val results = rawMonsters.map { monster ->
-                    MonsterResult(
-                        id = monster.id,
-                        name = monster.name,
-                        level = monster.level,
-                        modifier = monster.modifier,
-                        treasures = monster.treasures,
-                        levels = monster.levels,
-                        bad_stuff = monster.badStuff,
-                        expansion = monster.expansion
-                    )
-                }
-
-                withContext(Dispatchers.Main) {
-                    searchResults = results
-                    isLoading = false
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    error = e.localizedMessage ?: MunchkinApp.context.getString(R.string.error_unknown)
-                    isLoading = false
-                }
-            }
-        }
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        searchJob?.cancel()
+@Composable
+private fun expansionDisplayLabel(code: String): String {
+    val match = CATALOG_EXPANSIONS.find { it.code == code }
+    return if (match != null) {
+        stringResource(match.labelRes)
+    } else if (code.equals("custom", ignoreCase = true)) {
+        stringResource(R.string.expansion_extra)
+    } else {
+        code
     }
 }
 
@@ -126,97 +76,421 @@ class CatalogViewModel : ViewModel() {
 @Composable
 fun MonsterCatalogScreen(
     onBack: () -> Unit,
-    onCreateMonster: ((name: String, level: Int, modifier: Int, isUndead: Boolean, treasures: Int, levels: Int, badStuff: String) -> Unit)? = null,
-    viewModel: CatalogViewModel = viewModel()
+    canCreateMonster: Boolean = false,
+    viewModel: CatalogViewModel = viewModel(factory = MunchkinApp.container.viewModelFactory)
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    var selectedExpansion by remember { mutableStateOf<String?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        viewModel.search("", debounceMs = 0L)
+    val searchResults by viewModel.searchResults.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    val isLoadingMore by viewModel.isLoadingMore.collectAsState()
+    val hasMore by viewModel.hasMore.collectAsState()
+    val error by viewModel.error.collectAsState()
+    val statusMessage by viewModel.statusMessage.collectAsState()
+    val canCreate = canCreateMonster || viewModel.canCreateMonster
+
+    val listState = rememberLazyListState()
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val totalItems = listState.layoutInfo.totalItemsCount
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            totalItems > 0 && lastVisible >= totalItems - 4
+        }
     }
 
-    if (showCreateDialog && onCreateMonster != null) {
-        MonsterSearchDialog(
-            searchResults = emptyList(),
-            onSearch = {},
-            onDismiss = { showCreateDialog = false },
-            onSelectMonster = {},
-            onCreateNew = { name, level, mod, undead, treasures, levels, badStuff ->
-                onCreateMonster(name, level, mod, undead, treasures, levels, badStuff)
+    LaunchedEffect(Unit) {
+        viewModel.search("", expansion = null, resetPage = true, debounceMs = 0L)
+    }
+
+    LaunchedEffect(shouldLoadMore, hasMore, isLoading, isLoadingMore) {
+        if (shouldLoadMore && hasMore && !isLoading && !isLoadingMore) {
+            viewModel.loadMore()
+        }
+    }
+
+    if (showCreateDialog && canCreate) {
+        CreateCatalogMonsterDialog(
+            error = error,
+            onDismiss = {
+                viewModel.clearError()
                 showCreateDialog = false
-                viewModel.search(searchQuery, debounceMs = 500L)
+            },
+            onSubmit = { name, level, modifier, isUndead, treasures, levelsReward, badStuff, expansion, onDone ->
+                viewModel.createMonster(
+                    name = name,
+                    level = level,
+                    modifier = modifier,
+                    isUndead = isUndead,
+                    treasures = treasures,
+                    levels = levelsReward,
+                    badStuff = badStuff,
+                    expansion = expansion,
+                    onCompleted = { result ->
+                        onDone()
+                        if (result.isSuccess) {
+                            showCreateDialog = false
+                        }
+                    }
+                )
             }
         )
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.monster_catalog)) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(NeonBackground, NeonSurface.copy(alpha = 0.5f), NeonBackground)
+                )
+            )
+    ) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            floatingActionButton = {
+                if (canCreate) {
+                    FloatingActionButton(
+                        onClick = {
+                            viewModel.clearError()
+                            showCreateDialog = true
+                        },
+                        modifier = Modifier.navigationBarsPadding(),
+                        containerColor = NeonPrimary,
+                        contentColor = NeonWhite
+                    ) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.back)
+                            imageVector = Icons.Default.Add,
+                            contentDescription = stringResource(R.string.create_new)
                         )
                     }
                 }
-            )
-        },
-        floatingActionButton = {
-            if (onCreateMonster != null) {
-                androidx.compose.material3.FloatingActionButton(
-                    onClick = { showCreateDialog = true }
-                ) {
-                    Icon(
-                        androidx.compose.material.icons.Icons.Default.Add,
-                        contentDescription = stringResource(R.string.create_new)
-                    )
-                }
             }
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .padding(16.dp)
-        ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = {
-                    searchQuery = it
-                    viewModel.search(it, debounceMs = 350L)
-                },
-                label = { Text(stringResource(R.string.search_monster_placeholder)) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+            ) {
+                GlassTopAppBar(
+                    title = stringResource(R.string.monster_catalog),
+                    navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
+                    onNavigationClick = onBack
+                )
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            when {
-                viewModel.isLoading -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
-
-                viewModel.error != null -> {
-                    Text(
-                        text = "${stringResource(R.string.error)}: ${viewModel.error}",
-                        color = MaterialTheme.colorScheme.error
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { next ->
+                            searchQuery = next
+                            viewModel.search(
+                                query = next,
+                                expansion = selectedExpansion,
+                                resetPage = true,
+                                debounceMs = 350L
+                            )
+                        },
+                        label = { Text(stringResource(R.string.search_monster_placeholder)) },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        trailingIcon = if (searchQuery.isNotEmpty()) {
+                            {
+                                IconButton(
+                                    onClick = {
+                                        searchQuery = ""
+                                        viewModel.search(
+                                            query = "",
+                                            expansion = selectedExpansion,
+                                            resetPage = true,
+                                            debounceMs = 0L
+                                        )
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = stringResource(R.string.close)
+                                    )
+                                }
+                            }
+                        } else null,
+                        supportingText = if (searchQuery.trim().length == 1) {
+                            {
+                                Text(
+                                    text = stringResource(R.string.catalog_search_min_chars_hint),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else null,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = NeonGray100,
+                            unfocusedTextColor = NeonGray100,
+                            focusedBorderColor = NeonPrimary,
+                            unfocusedBorderColor = GlassBorder,
+                            focusedLabelColor = NeonPrimary,
+                            unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     )
-                }
 
-                else -> {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Expansion filter chips
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(viewModel.searchResults) { monster ->
-                            MonsterCard(monster)
+                        item(key = "exp_all") {
+                            val selected = selectedExpansion == null
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    selectedExpansion = null
+                                    viewModel.search(
+                                        query = searchQuery,
+                                        expansion = null,
+                                        resetPage = true,
+                                        debounceMs = 0L
+                                    )
+                                },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                                label = { Text(stringResource(R.string.catalog_all_expansions)) },
+                                leadingIcon = if (selected) {
+                                    {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                } else null
+                            )
+                        }
+                        items(CATALOG_EXPANSIONS, key = { it.code }) { exp ->
+                            val selected = selectedExpansion == exp.code
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    val next = if (selected) null else exp.code
+                                    selectedExpansion = next
+                                    viewModel.search(
+                                        query = searchQuery,
+                                        expansion = next,
+                                        resetPage = true,
+                                        debounceMs = 0L
+                                    )
+                                },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                                label = { Text(stringResource(exp.labelRes)) },
+                                leadingIcon = if (selected) {
+                                    {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                } else null
+                            )
+                        }
+                    }
+
+                    // Status confirmation banner
+                    if (statusMessage != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(NeonSuccess.copy(alpha = 0.14f))
+                                .border(1.dp, NeonSuccess.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                                .padding(start = 14.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = statusMessage ?: "",
+                                color = NeonSuccess,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(onClick = { viewModel.clearStatusMessage() }) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = stringResource(R.string.close),
+                                    tint = NeonGray200
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    when {
+                        isLoading && searchResults.isEmpty() -> {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(color = NeonPrimary)
+                            }
+                        }
+
+                        error != null && searchResults.isEmpty() -> {
+                            GlassCard(
+                                modifier = Modifier.fillMaxWidth(),
+                                borderColor = NeonError.copy(alpha = 0.45f)
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(
+                                        Icons.Default.ErrorOutline,
+                                        contentDescription = null,
+                                        tint = NeonError,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Text(
+                                        text = error ?: stringResource(R.string.error),
+                                        color = NeonGray100,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    OutlinedButton(
+                                        onClick = {
+                                            viewModel.clearError()
+                                            viewModel.search(
+                                                query = searchQuery,
+                                                expansion = selectedExpansion,
+                                                resetPage = true,
+                                                debounceMs = 0L
+                                            )
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 48.dp)
+                                    ) {
+                                        Text(stringResource(R.string.reconnect_retry))
+                                    }
+                                }
+                            }
+                        }
+
+                        searchResults.isEmpty() && !isLoading -> {
+                            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(
+                                        Icons.Default.SearchOff,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(40.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Text(
+                                        text = stringResource(R.string.catalog_empty_title),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = NeonGray100,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = stringResource(R.string.catalog_empty_subtitle),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+
+                        else -> {
+                            if (error != null) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 8.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(NeonError.copy(alpha = 0.12f))
+                                        .border(1.dp, NeonError.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                                        .padding(start = 12.dp, top = 6.dp, bottom = 6.dp, end = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = error ?: "",
+                                        color = NeonError,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    TextButton(
+                                        onClick = {
+                                            viewModel.clearError()
+                                            viewModel.search(
+                                                query = searchQuery,
+                                                expansion = selectedExpansion,
+                                                resetPage = true,
+                                                debounceMs = 0L
+                                            )
+                                        }
+                                    ) {
+                                        Text(stringResource(R.string.reconnect_retry))
+                                    }
+                                }
+                            }
+
+                            LazyColumn(
+                                state = listState,
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                contentPadding = PaddingValues(bottom = 92.dp)
+                            ) {
+                                itemsIndexed(
+                                    items = searchResults,
+                                    key = { index, monster ->
+                                        monster.id.ifEmpty { "${monster.name}_${monster.expansion}_$index" }
+                                    }
+                                ) { _, monster ->
+                                    MonsterCard(monster)
+                                }
+
+                                if (isLoadingMore) {
+                                    item(key = "catalog_loading_more") {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(16.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(28.dp),
+                                                color = NeonPrimary
+                                            )
+                                        }
+                                    }
+                                } else if (hasMore) {
+                                    item(key = "catalog_load_more") {
+                                        OutlinedButton(
+                                            onClick = { viewModel.loadMore() },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(min = 48.dp)
+                                        ) {
+                                            Text(stringResource(R.string.catalog_load_more))
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -226,44 +500,352 @@ fun MonsterCatalogScreen(
 }
 
 @Composable
-fun MonsterCard(monster: MonsterResult) {
+fun MonsterCard(monster: CatalogMonster) {
     val levelLabel = stringResource(R.string.level)
     val treasuresLabel = stringResource(R.string.treasures_format, monster.treasures)
     val levelsLabel = stringResource(R.string.levels_format, monster.levels)
     val badStuffLabel = stringResource(R.string.combat_bad_stuff_label)
+    val expansionText = expansionDisplayLabel(monster.expansion)
 
-    Card(
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    GlassCard(modifier = Modifier.fillMaxWidth()) {
+        Column {
             Row(
                 horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
                     text = monster.name,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = NeonGray100,
+                    modifier = Modifier.weight(1f)
                 )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "$levelLabel ${monster.level}" +
-                        if (monster.modifier != 0) " (${if (monster.modifier > 0) "+" else ""}${monster.modifier})" else "",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
+                        if (monster.modifier != 0) {
+                            " (${if (monster.modifier > 0) "+" else ""}${monster.modifier})"
+                        } else "",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = NeonSecondary
                 )
             }
-            Spacer(modifier = Modifier.height(4.dp))
-            Row {
-                Text(treasuresLabel, modifier = Modifier.weight(1f))
-                Text(levelsLabel, modifier = Modifier.weight(1f))
-            }
-            if (monster.bad_stuff.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(4.dp))
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    text = "$badStuffLabel: ${monster.bad_stuff}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error
+                    text = expansionText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (monster.isUndead) {
+                    Text(
+                        text = "• ${stringResource(R.string.combat_is_undead)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeonPrimaryLight,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = treasuresLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NeonGray200,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = levelsLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NeonGray200,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            if (monster.badStuff.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "$badStuffLabel: ${monster.badStuff}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NeonError
+                )
+            }
+
+            if (!monster.createdBy.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = stringResource(R.string.created_by, monster.createdBy),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreateCatalogMonsterDialog(
+    error: String?,
+    onDismiss: () -> Unit,
+    onSubmit: (
+        name: String,
+        level: Int,
+        modifier: Int,
+        isUndead: Boolean,
+        treasures: Int,
+        levelsReward: Int,
+        badStuff: String,
+        expansion: String,
+        onDone: () -> Unit
+    ) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var level by remember { mutableIntStateOf(1) }
+    var modifierValue by remember { mutableIntStateOf(0) }
+    var isUndead by remember { mutableStateOf(false) }
+    var treasures by remember { mutableIntStateOf(1) }
+    var levelsReward by remember { mutableIntStateOf(1) }
+    var badStuff by remember { mutableStateOf("") }
+    var selectedExpansion by remember { mutableStateOf("base") }
+    var isSubmitting by remember { mutableStateOf(false) }
+
+    val trimmedName = name.trim()
+    val nameTooLong = trimmedName.length > 80
+    val badStuffTooLong = badStuff.length > 200
+    val canSubmit = !isSubmitting &&
+        trimmedName.isNotEmpty() &&
+        !nameTooLong &&
+        !badStuffTooLong
+
+    AlertDialog(
+        onDismissRequest = { if (!isSubmitting) onDismiss() },
+        containerColor = NeonSurface,
+        title = {
+            Text(
+                text = stringResource(R.string.create_new),
+                color = NeonGray100,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (error != null) {
+                    Text(
+                        text = error,
+                        color = NeonError,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { if (it.length <= 80) name = it },
+                    label = { Text(stringResource(R.string.monster_name)) },
+                    singleLine = true,
+                    isError = name.isNotEmpty() && trimmedName.isEmpty(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                NumberStepperRow(
+                    label = stringResource(R.string.monster_level),
+                    value = level,
+                    range = 1..20,
+                    onValueChange = { level = it }
+                )
+
+                NumberStepperRow(
+                    label = stringResource(R.string.modifier),
+                    value = modifierValue,
+                    range = -10..10,
+                    onValueChange = { modifierValue = it },
+                    signed = true
+                )
+
+                NumberStepperRow(
+                    label = stringResource(R.string.treasures_label),
+                    value = treasures,
+                    range = 0..10,
+                    onValueChange = { treasures = it }
+                )
+
+                NumberStepperRow(
+                    label = stringResource(R.string.levels_reward_label),
+                    value = levelsReward,
+                    range = 1..5,
+                    onValueChange = { levelsReward = it }
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = stringResource(R.string.combat_is_undead),
+                        color = NeonGray100,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Switch(
+                        checked = isUndead,
+                        onCheckedChange = { isUndead = it },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = NeonBackground,
+                            checkedTrackColor = NeonSecondary
+                        )
+                    )
+                }
+
+                Text(
+                    text = stringResource(R.string.catalog_expansion_label),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(CATALOG_EXPANSIONS, key = { it.code }) { exp ->
+                        val selected = selectedExpansion == exp.code
+                        FilterChip(
+                            selected = selected,
+                            onClick = { selectedExpansion = exp.code },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            label = { Text(stringResource(exp.labelRes)) }
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = badStuff,
+                    onValueChange = { if (it.length <= 200) badStuff = it },
+                    label = { Text(stringResource(R.string.combat_bad_stuff_label)) },
+                    supportingText = {
+                        Text(
+                            text = "${badStuff.length}/200",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (canSubmit) {
+                        isSubmitting = true
+                        onSubmit(
+                            trimmedName,
+                            level,
+                            modifierValue,
+                            isUndead,
+                            treasures,
+                            levelsReward,
+                            badStuff.trim(),
+                            selectedExpansion
+                        ) {
+                            isSubmitting = false
+                        }
+                    }
+                },
+                enabled = canSubmit,
+                modifier = Modifier.heightIn(min = 48.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = NeonPrimary,
+                    contentColor = NeonWhite
+                )
+            ) {
+                if (isSubmitting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = NeonWhite
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Text(stringResource(R.string.create_new_button))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isSubmitting,
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
+                Text(stringResource(R.string.cancel), color = NeonGray200)
+            }
+        }
+    )
+}
+
+@Composable
+private fun NumberStepperRow(
+    label: String,
+    value: Int,
+    range: IntRange,
+    onValueChange: (Int) -> Unit,
+    signed: Boolean = false
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = NeonGray100,
+            modifier = Modifier.weight(1f)
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = { if (value > range.first) onValueChange(value - 1) },
+                enabled = value > range.first
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Remove,
+                    contentDescription = stringResource(R.string.decrease_value, label),
+                    tint = if (value > range.first) NeonGray100 else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = if (signed && value > 0) "+$value" else value.toString(),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = NeonSecondary,
+                modifier = Modifier.widthIn(min = 36.dp),
+                textAlign = TextAlign.Center
+            )
+            IconButton(
+                onClick = { if (value < range.last) onValueChange(value + 1) },
+                enabled = value < range.last
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = stringResource(R.string.increase_value, label),
+                    tint = if (value < range.last) NeonGray100 else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

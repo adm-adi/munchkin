@@ -1,72 +1,62 @@
 package com.munchkin.app.ui.theme
 
 import android.app.Activity
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.*
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 /**
- * Neon Fantasy dark color scheme.
- * Deep slate backgrounds with electric violet, fuchsia and cyan accents.
+ * Munchkin Dungeon Edition dark color scheme.
+ * Warm dark obsidian-stone surfaces paired with Crimson Torch, Dungeon Gold, and Torch Ember.
  */
-private val NeonDarkColorScheme = darkColorScheme(
-    // Primary - Electric Violet
+private val DungeonDarkColorScheme = darkColorScheme(
     primary = NeonPrimary,
-    onPrimary = Color.White,
+    onPrimary = NeonGray100,
     primaryContainer = NeonPrimaryDark,
     onPrimaryContainer = NeonGray100,
-    
-    // Secondary - Hot Pink / Fuchsia
+
     secondary = NeonSecondary,
-    onSecondary = Color.White,
+    onSecondary = NeonSurface,
     secondaryContainer = NeonSecondaryDark,
     onSecondaryContainer = NeonGray100,
-    
-    // Tertiary - Cyan (Tech/Info)
+
     tertiary = NeonCyan,
-    onTertiary = Color.White,
+    onTertiary = NeonSurface,
     tertiaryContainer = NeonCyanDark,
     onTertiaryContainer = NeonGray100,
-    
-    // Error
+
     error = NeonError,
-    onError = Color.White,
-    errorContainer = Color(0xFF991B1B), // Dark Red
+    onError = NeonSurface,
+    errorContainer = Color(0xFF5C1414),
     onErrorContainer = NeonGray100,
-    
-    // Backgrounds - Deep Slate
+
     background = NeonBackground,
     onBackground = NeonGray100,
-    
-    // Surfaces
+
     surface = NeonSurface,
     onSurface = NeonGray100,
     surfaceVariant = NeonSurfaceVariant,
     onSurfaceVariant = NeonGray300,
-    
-    // Outline
-    outline = NeonGray500,
-    outlineVariant = NeonGray500,
-    
-    // Inverse
+
+    outline = NeonGray400,
+    outlineVariant = DungeonBorder,
+
     inverseSurface = NeonGray100,
     inverseOnSurface = NeonBackground,
     inversePrimary = NeonPrimaryDark,
-    
-    // Scrim
-    scrim = Color.Black.copy(alpha = 0.5f)
+
+    scrim = Color.Black.copy(alpha = 0.6f)
 )
 
-// Combat colors provider
 data class CombatColors(
     val heroColor: Color,
     val monsterColor: Color
@@ -79,40 +69,40 @@ val LocalCombatColors = staticCompositionLocalOf {
     )
 }
 
-// Large numbers mode provider
 val LocalLargeNumbersMode = staticCompositionLocalOf { false }
 
 /**
- * Munchkin theme with Neon Fantasy design.
- * Always dark mode for consistency with the theme.
+ * Munchkin theme (Dungeon Edition).
+ * Enforces dark theme and custom brand tokens across all API levels.
  */
+@Suppress("UNUSED_PARAMETER")
 @Composable
 fun MunchkinTheme(
-    darkTheme: Boolean = true, // Force dark theme for Neon Fantasy
-    dynamicColor: Boolean = false, // Disable dynamic color to enforce theme
+    darkTheme: Boolean = true,
+    dynamicColor: Boolean = false,
     largeNumbersMode: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    // We enforce our Neon Dark scheme
-    val colorScheme = NeonDarkColorScheme
-    
+    val colorScheme = DungeonDarkColorScheme
     val combatColors = CombatColors(HeroGreen, MonsterRed)
-    val typography = if (largeNumbersMode) LargeNumbersTypography else Typography
-    
+    val typography = munchkinTypography(largeNumbersMode)
+
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as Activity).window
-            // Edge-to-edge transparent
-            window.statusBarColor = Color.Transparent.toArgb()
-            window.navigationBarColor = Color.Transparent.toArgb()
+            val window = view.context.findActivity()?.window ?: return@SideEffect
+            @Suppress("DEPRECATION")
+            run {
+                window.statusBarColor = Color.Transparent.toArgb()
+                window.navigationBarColor = Color.Transparent.toArgb()
+            }
             WindowCompat.getInsetsController(window, view).apply {
-                isAppearanceLightStatusBars = false // Always dark status bar (light icons)
+                isAppearanceLightStatusBars = false
                 isAppearanceLightNavigationBars = false
             }
         }
     }
-    
+
     CompositionLocalProvider(
         LocalCombatColors provides combatColors,
         LocalLargeNumbersMode provides largeNumbersMode
@@ -125,12 +115,17 @@ fun MunchkinTheme(
     }
 }
 
-// Extension property to access custom theme values
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 object MunchkinTheme {
     val combatColors: CombatColors
         @Composable
         get() = LocalCombatColors.current
-    
+
     val isLargeNumbersMode: Boolean
         @Composable
         get() = LocalLargeNumbersMode.current

@@ -7,11 +7,14 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -76,6 +79,7 @@ fun AuthScreen(
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
                 TopAppBar(
                     title = {},
@@ -96,6 +100,9 @@ fun AuthScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
+                    .imePadding()
+                    .navigationBarsPadding()
+                    .verticalScroll(rememberScrollState())
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
@@ -105,7 +112,7 @@ fun AuthScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(24.dp)
                     ) {
-                        // Icon with neon glow ring
+                        // Icon with warm dungeon glow ring
                         Box(contentAlignment = Alignment.Center) {
                             // Outer glow ring
                             Box(
@@ -124,7 +131,7 @@ fun AuthScreen(
                                     .size(72.dp)
                                     .clip(CircleShape)
                                     .background(
-                                        Brush.linearGradient(GradientNeonPurple)
+                                        Brush.linearGradient(listOf(NeonPrimary, NeonSecondary))
                                     )
                                     .border(1.dp, GlassBorder, CircleShape),
                                 contentAlignment = Alignment.Center
@@ -154,9 +161,9 @@ fun AuthScreen(
                                 )
                                 Text(
                                     text = if (register) stringResource(R.string.no_account)
-                                           else "Munchkin Tracker",
+                                           else stringResource(R.string.app_name),
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = NeonGray400
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -223,7 +230,7 @@ fun AuthScreen(
                                     GlassTextField(
                                         value = email,
                                         onValueChange = { email = it },
-                                        label = "Email",
+                                        label = stringResource(R.string.auth_email),
                                         leadingIcon = Icons.Default.Email,
                                         modifier = Modifier.fillMaxWidth()
                                     )
@@ -235,20 +242,32 @@ fun AuthScreen(
                                     onValueChange = { password = it },
                                     label = { Text(stringResource(R.string.password)) },
                                     singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                                     visualTransformation = if (passwordVisible)
                                         VisualTransformation.None
                                     else PasswordVisualTransformation(),
                                     modifier = Modifier.fillMaxWidth(),
                                     leadingIcon = {
-                                        Icon(Icons.Default.Lock, null, tint = NeonGray400)
+                                        Icon(
+                                            Icons.Default.Lock,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     },
                                     trailingIcon = {
-                                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                        IconButton(
+                                            onClick = { passwordVisible = !passwordVisible },
+                                            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                        ) {
                                             Icon(
                                                 if (passwordVisible) Icons.Default.Visibility
                                                 else Icons.Default.VisibilityOff,
-                                                null,
-                                                tint = NeonGray400
+                                                contentDescription = if (passwordVisible) {
+                                                    stringResource(R.string.hide_password)
+                                                } else {
+                                                    stringResource(R.string.show_password)
+                                                },
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                     },
@@ -261,7 +280,7 @@ fun AuthScreen(
                                                 ),
                                                 color = if (password.isNotEmpty() &&
                                                     password.length < MIN_PASSWORD_LENGTH
-                                                ) NeonError else NeonGray500
+                                                ) NeonError else MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                     } else null,
@@ -272,7 +291,7 @@ fun AuthScreen(
                                         focusedBorderColor = NeonPrimary,
                                         unfocusedBorderColor = GlassBorder,
                                         focusedLabelColor = NeonPrimary,
-                                        unfocusedLabelColor = NeonGray400,
+                                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                         cursorColor = NeonPrimary,
                                         focusedContainerColor = NeonPrimary.copy(alpha = 0.08f),
                                         unfocusedContainerColor = Color.White.copy(alpha = 0.04f),
@@ -315,14 +334,16 @@ fun AuthScreen(
                                         ((isRegister && username.isNotBlank() && email.isNotBlank()) ||
                                         (!isRegister && email.isNotBlank())),
                                     modifier = Modifier.fillMaxWidth(),
-                                    icon = if (isLoading) null else Icons.Default.Login,
-                                    gradientColors = if (isRegister) GradientNeonFire else GradientNeonPurple
+                                    icon = if (isLoading) null else Icons.AutoMirrored.Filled.Login,
+                                    gradientColors = if (isRegister) GradientNeonFire else listOf(NeonPrimary, NeonSecondary)
                                 )
 
                                 // Toggle register/login
                                 TextButton(
                                     onClick = { isRegister = !isRegister },
-                                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                                    modifier = Modifier
+                                        .align(Alignment.CenterHorizontally)
+                                        .heightIn(min = 48.dp)
                                 ) {
                                     Text(
                                         text = if (isRegister) stringResource(R.string.already_have_account)

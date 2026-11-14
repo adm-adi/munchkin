@@ -1,18 +1,23 @@
 package com.munchkin.app.ui.screens
 
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.HourglassEmpty
+import androidx.compose.material.icons.filled.ManageAccounts
+import androidx.compose.material.icons.filled.PersonRemove
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,39 +27,55 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.munchkin.app.R
 import com.munchkin.app.core.Gender
 import com.munchkin.app.core.PlayerId
 import com.munchkin.app.core.PlayerState
-import com.munchkin.app.ui.theme.AvatarResources
+import com.munchkin.app.ui.components.TurnCountdownBadge
 import com.munchkin.app.ui.theme.*
 import kotlin.math.cos
 import kotlin.math.sin
 
 /**
  * Visual Dungeon/Table View.
- * Displays players sitting around a table with neon glass aesthetics.
+ * Displays players seated around a responsive elliptical table using Dungeon Edition tokens.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TableScreen(
     players: List<PlayerState>,
     currentUser: PlayerId?,
-    turnPlayerId: PlayerId? = null,
-    remainingSeconds: Int = 0,
-    showTimer: Boolean = false,
     onPlayerClick: (PlayerId) -> Unit,
+    modifier: Modifier = Modifier,
+    turnPlayerId: PlayerId? = null,
+    timerSeconds: Int = 0,
+    turnEndsAt: Long? = null,
+    serverTimeOffsetMs: Long = 0L,
+    isHost: Boolean = false,
     onEndTurn: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    onKickPlayer: ((PlayerId) -> Unit)? = null,
+    onTransferHost: ((PlayerId) -> Unit)? = null
 ) {
+    var showHostRosterDialog by remember { mutableStateOf(false) }
+    var hostActionTarget by remember { mutableStateOf<PlayerState?>(null) }
+    var confirmTransferTarget by remember { mutableStateOf<PlayerState?>(null) }
+    var confirmKickTarget by remember { mutableStateOf<PlayerState?>(null) }
+
+    val turnStartedAt = remember(turnEndsAt, timerSeconds) {
+        if (turnEndsAt != null && timerSeconds > 0) turnEndsAt - timerSeconds * 1000L else null
+    }
+    val canHostManage = isHost &&
+        (onTransferHost != null || onKickPlayer != null) &&
+        players.any { it.playerId != currentUser }
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -68,30 +89,36 @@ fun TableScreen(
                 )
             )
     ) {
-        val width = constraints.maxWidth
-        val height = constraints.maxHeight
+        val turnPlayer = players.find { it.playerId == turnPlayerId }
+        val isCompact = maxHeight < 460.dp || maxWidth < 340.dp
+        val avatarSize = if (isCompact) 56.dp else 72.dp
+        val nodeHalfWidth = if (isCompact) 44.dp else 52.dp
+        val nodeHalfHeight = avatarSize / 2 + 22.dp
 
-        val cx = width / 2
-        val cy = height / 2
-        val radius = minOf(width, height) / 2 * 0.68f
+        val topReserve = when {
+            turnPlayer != null && !turnPlayer.isConnected -> 96.dp
+            turnPlayer != null -> 76.dp
+            else -> 20.dp
+        }
+        val bottomReserve = if (onEndTurn != null) 88.dp else 72.dp
+        val centerOffsetY = (topReserve - bottomReserve) / 2
+
+        val availHalfW = ((maxWidth / 2) - nodeHalfWidth - 12.dp).coerceAtLeast(48.dp)
+        val availHalfH = (((maxHeight - topReserve - bottomReserve) / 2) - nodeHalfHeight).coerceAtLeast(36.dp)
+        val radiusX = availHalfW * 0.92f
+        val radiusY = availHalfH * 0.90f
 
         val anglePerPlayer = 360f / players.size.coerceAtLeast(1)
 
         // Turn indicator banner at top
-        val turnPlayer = players.find { it.playerId == turnPlayerId }
         if (turnPlayer != null) {
             val isMyTurn = turnPlayer.playerId == currentUser
             val bannerColor = if (isMyTurn) NeonPrimary else NeonGray500
-            val timerColor = when {
-                remainingSeconds <= 10 -> NeonError
-                remainingSeconds <= 30 -> NeonWarning
-                else -> NeonPrimary
-            }
 
             Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 16.dp),
+                    .padding(top = 12.dp, start = 16.dp, end = if (canHostManage) 64.dp else 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -99,38 +126,44 @@ fun TableScreen(
                     modifier = Modifier
                         .clip(RoundedCornerShape(14.dp))
                         .background(
-                            if (isMyTurn) NeonPrimary.copy(alpha = 0.12f)
+                            if (isMyTurn) NeonPrimary.copy(alpha = 0.14f)
                             else GlassBase
                         )
                         .border(
                             1.dp,
                             Brush.linearGradient(
-                                listOf(bannerColor.copy(alpha = 0.6f), bannerColor.copy(alpha = 0.1f))
+                                listOf(bannerColor.copy(alpha = 0.6f), bannerColor.copy(alpha = 0.15f))
                             ),
                             RoundedCornerShape(14.dp)
                         )
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         if (!isMyTurn) {
-                            Text(text = "⏳", fontSize = 16.sp)
+                            Icon(
+                                Icons.Default.HourglassEmpty,
+                                contentDescription = null,
+                                tint = NeonGray300,
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
                         Text(
-                            text = if (isMyTurn) stringResource(R.string.your_turn) else stringResource(R.string.player_turn, turnPlayer.name),
+                            text = if (isMyTurn) stringResource(R.string.your_turn)
+                            else stringResource(R.string.player_turn, turnPlayer.name),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = if (isMyTurn) NeonGray100 else NeonGray300
+                            color = if (isMyTurn) NeonGray100 else NeonGray300,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        if (showTimer) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "⏱ %d:%02d".format(remainingSeconds / 60, remainingSeconds % 60),
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = timerColor
+                        if (turnStartedAt != null && timerSeconds > 0) {
+                            TurnCountdownBadge(
+                                turnStartedAt = turnStartedAt,
+                                timerSeconds = timerSeconds,
+                                serverTimeOffsetMs = serverTimeOffsetMs
                             )
                         }
                     }
@@ -153,17 +186,38 @@ fun TableScreen(
             }
         }
 
-        // Table ring (neon border circle)
+        // Visible host management button (avoids tiny buttons on each node)
+        if (canHostManage) {
+            IconButton(
+                onClick = { showHostRosterDialog = true },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 12.dp, end = 12.dp)
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            ) {
+                Icon(
+                    Icons.Default.ManageAccounts,
+                    contentDescription = stringResource(R.string.host_actions),
+                    tint = NeonSecondary
+                )
+            }
+        }
+
+        // Responsive elliptical table surface
+        val tableWidth = (radiusX * 1.38f).coerceAtLeast(100.dp)
+        val tableHeight = (radiusY * 1.28f).coerceAtLeast(72.dp)
         Box(
             modifier = Modifier
-                .size(with(LocalDensity.current) { (radius * 2 * 0.78f).toDp() })
+                .width(tableWidth)
+                .height(tableHeight)
                 .align(Alignment.Center)
+                .offset(y = centerOffsetY)
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
                         listOf(
-                            NeonPrimary.copy(alpha = 0.04f),
-                            NeonBackground.copy(alpha = 0.6f)
+                            NeonPrimary.copy(alpha = 0.05f),
+                            NeonBackground.copy(alpha = 0.65f)
                         )
                     )
                 )
@@ -172,7 +226,7 @@ fun TableScreen(
                     brush = Brush.sweepGradient(
                         listOf(
                             NeonPrimary.copy(alpha = 0.5f),
-                            NeonSecondary.copy(alpha = 0.3f),
+                            NeonSecondary.copy(alpha = 0.35f),
                             NeonCyan.copy(alpha = 0.4f),
                             NeonPrimary.copy(alpha = 0.5f)
                         )
@@ -181,20 +235,22 @@ fun TableScreen(
                 )
         ) {
             Text(
-                text = "Munchkin",
+                text = stringResource(R.string.app_name),
                 modifier = Modifier.align(Alignment.Center),
-                color = NeonPrimary.copy(alpha = 0.18f),
+                color = NeonPrimary.copy(alpha = 0.20f),
                 fontWeight = FontWeight.Bold,
-                fontSize = 22.sp
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
 
-        // Player nodes around the table
+        // Player nodes positioned dynamically around the ellipse
         players.forEachIndexed { index, player ->
             val angleDeg = index * anglePerPlayer - 90
             val angleRad = Math.toRadians(angleDeg.toDouble())
-            val offsetX = (radius * cos(angleRad)).toInt()
-            val offsetY = (radius * sin(angleRad)).toInt()
+            val xOffset = radiusX * cos(angleRad).toFloat()
+            val yOffset = centerOffsetY + radiusY * sin(angleRad).toFloat()
 
             val isMe = player.playerId == currentUser
             val isTurn = player.playerId == turnPlayerId
@@ -203,36 +259,220 @@ fun TableScreen(
                 player = player,
                 isMe = isMe,
                 isTurn = isTurn,
+                avatarSize = avatarSize,
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .offset(
-                        x = with(LocalDensity.current) { offsetX.toDp() },
-                        y = with(LocalDensity.current) { offsetY.toDp() }
+                    .offset(x = xOffset, y = yOffset)
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .combinedClickable(
+                        onClick = { onPlayerClick(player.playerId) },
+                        onLongClick = {
+                            if (canHostManage && !isMe) {
+                                hostActionTarget = player
+                            }
+                        }
                     )
-                    .clickable { onPlayerClick(player.playerId) }
+                    .padding(4.dp)
             )
         }
 
-        // End Turn Button
+        // End Turn Button (>= 48dp touch target, safe padding clear of FAB)
         if (onEndTurn != null) {
             Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(bottom = 32.dp, start = 32.dp)
+                    .padding(bottom = 24.dp, start = 20.dp)
+                    .navigationBarsPadding()
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Brush.linearGradient(GradientViridian))
                     .border(1.dp, GlassBorder, RoundedCornerShape(16.dp))
-                    .clickable { onEndTurn() }
+                    .clickable(onClick = onEndTurn)
                     .padding(horizontal = 24.dp, vertical = 12.dp)
             ) {
                 Text(
                     stringResource(R.string.end_turn),
-                    color = Color.White,
+                    color = NeonWhite,
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.titleSmall
                 )
             }
         }
+    }
+
+    // Host roster chooser dialog
+    if (showHostRosterDialog) {
+        val otherPlayers = players.filter { it.playerId != currentUser }
+        AlertDialog(
+            onDismissRequest = { showHostRosterDialog = false },
+            containerColor = NeonSurface,
+            title = { Text(stringResource(R.string.host_actions), color = NeonGray100) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    otherPlayers.forEach { target ->
+                        Surface(
+                            onClick = {
+                                showHostRosterDialog = false
+                                hostActionTarget = target
+                            },
+                            color = NeonSurfaceVariant,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, GlassBorderDim),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .sizeIn(minHeight = 48.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = target.name,
+                                    color = NeonGray100,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = stringResource(
+                                        R.string.table_player_stats,
+                                        target.level,
+                                        target.combatPower
+                                    ),
+                                    color = NeonGray300,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(
+                    onClick = { showHostRosterDialog = false },
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                ) {
+                    Text(stringResource(R.string.close), color = NeonGray300)
+                }
+            }
+        )
+    }
+
+    // Single player host action chooser
+    hostActionTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { hostActionTarget = null },
+            containerColor = NeonSurface,
+            title = { Text(target.name, color = NeonGray100) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (onTransferHost != null) {
+                        OutlinedButton(
+                            onClick = {
+                                hostActionTarget = null
+                                confirmTransferTarget = target
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .sizeIn(minHeight = 48.dp),
+                            border = BorderStroke(1.dp, NeonSecondary.copy(alpha = 0.6f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonSecondary)
+                        ) {
+                            Icon(Icons.Default.SwapHoriz, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(R.string.transfer_host))
+                        }
+                    }
+                    if (onKickPlayer != null) {
+                        OutlinedButton(
+                            onClick = {
+                                hostActionTarget = null
+                                confirmKickTarget = target
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .sizeIn(minHeight = 48.dp),
+                            border = BorderStroke(1.dp, NeonError.copy(alpha = 0.6f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonError)
+                        ) {
+                            Icon(Icons.Default.PersonRemove, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(R.string.kick_player))
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(
+                    onClick = { hostActionTarget = null },
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                ) {
+                    Text(stringResource(R.string.cancel), color = NeonGray300)
+                }
+            }
+        )
+    }
+
+    confirmTransferTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { confirmTransferTarget = null },
+            containerColor = NeonSurface,
+            title = { Text(stringResource(R.string.transfer_host), color = NeonGray100) },
+            text = { Text(stringResource(R.string.confirm_transfer_host, target.name), color = NeonGray300) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmTransferTarget = null
+                        onTransferHost?.invoke(target.playerId)
+                    },
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                ) {
+                    Text(stringResource(R.string.confirm_action), color = NeonSecondary)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { confirmTransferTarget = null },
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                ) {
+                    Text(stringResource(R.string.cancel), color = NeonGray400)
+                }
+            }
+        )
+    }
+
+    confirmKickTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { confirmKickTarget = null },
+            containerColor = NeonSurface,
+            title = { Text(stringResource(R.string.kick_player), color = NeonGray100) },
+            text = { Text(stringResource(R.string.confirm_kick, target.name), color = NeonGray300) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmKickTarget = null
+                        onKickPlayer?.invoke(target.playerId)
+                    },
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                ) {
+                    Text(stringResource(R.string.confirm_action), color = NeonError)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { confirmKickTarget = null },
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                ) {
+                    Text(stringResource(R.string.cancel), color = NeonGray400)
+                }
+            }
+        )
     }
 }
 
@@ -240,20 +480,21 @@ fun TableScreen(
 fun PlayerAvatarNode(
     player: PlayerState,
     isMe: Boolean,
+    modifier: Modifier = Modifier,
     isTurn: Boolean = false,
-    modifier: Modifier = Modifier
+    avatarSize: Dp = 72.dp
 ) {
-    val avatarSize = 80.dp
     val color = getAvatarColor(player.avatarId)
     val drawableId = AvatarResources.getAvatarDrawable(player.avatarId, player.gender == Gender.F)
 
-    // Pulsing glow for current turn
     val glowAlpha = if (isTurn) {
         val transition = rememberInfiniteTransition(label = "turnGlow")
         transition.animateFloat(
-            initialValue = 0.3f, targetValue = 0.85f,
+            initialValue = 0.3f,
+            targetValue = 0.85f,
             animationSpec = infiniteRepeatable(
-                tween(1000, easing = FastOutSlowInEasing), RepeatMode.Reverse
+                tween(1000, easing = FastOutSlowInEasing),
+                RepeatMode.Reverse
             ),
             label = "glowAlpha"
         ).value
@@ -271,7 +512,7 @@ fun PlayerAvatarNode(
     }
 
     Column(
-        modifier = modifier,
+        modifier = modifier.widthIn(max = 104.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
@@ -285,7 +526,9 @@ fun PlayerAvatarNode(
                                     isAntiAlias = true
                                     this.color = android.graphics.Color.TRANSPARENT
                                     setShadowLayer(
-                                        14.dp.toPx(), 0f, 0f,
+                                        14.dp.toPx(),
+                                        0f,
+                                        0f,
                                         NeonWarning.copy(alpha = glowAlpha).toArgb()
                                     )
                                 }
@@ -300,9 +543,11 @@ fun PlayerAvatarNode(
                 )
                 .clip(CircleShape)
                 .background(
-                    if (isTurn) NeonWarning.copy(alpha = 0.12f)
-                    else if (isMe) NeonPrimary.copy(alpha = 0.10f)
-                    else Color.White.copy(alpha = 0.05f)
+                    when {
+                        isTurn -> NeonWarning.copy(alpha = 0.12f)
+                        isMe -> NeonPrimary.copy(alpha = 0.10f)
+                        else -> Color.White.copy(alpha = 0.05f)
+                    }
                 )
                 .border(borderWidth, borderColor, CircleShape)
         ) {
@@ -315,9 +560,6 @@ fun PlayerAvatarNode(
                 contentScale = ContentScale.Fit
             )
 
-
-
-            // Disconnected overlay
             if (!player.isConnected) {
                 Box(
                     modifier = Modifier
@@ -329,16 +571,15 @@ fun PlayerAvatarNode(
                     Icon(
                         Icons.Default.WifiOff,
                         contentDescription = stringResource(R.string.player_disconnected),
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp)
+                        tint = NeonWhite,
+                        modifier = Modifier.size(26.dp)
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
-        // Name with turn highlight
         Text(
             text = player.name,
             style = MaterialTheme.typography.labelSmall,
@@ -348,16 +589,16 @@ fun PlayerAvatarNode(
                 isMe -> NeonPrimary
                 else -> NeonGray200
             },
-            maxLines = 1
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
 
-        // combatPower, not level + gear: it also folds in tempCombatBonus, which
-        // every other view uses, so the same player showed two different strengths
-        // depending on which one you were looking at.
+        // Uses combatPower (which folds in tempCombatBonus) consistently across views.
         Text(
-            text = "Nv ${player.level} • ⚔ ${player.combatPower}",
+            text = stringResource(R.string.table_player_stats, player.level, player.combatPower),
             style = MaterialTheme.typography.bodySmall,
-            color = NeonGray400
+            color = NeonGray400,
+            maxLines = 1
         )
     }
 }

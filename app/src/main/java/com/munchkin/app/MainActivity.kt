@@ -1,98 +1,200 @@
 package com.munchkin.app
 
-import android.os.Bundle
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
-import com.munchkin.app.BuildConfig
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.*
-import kotlinx.coroutines.launch
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.munchkin.app.R
-import com.munchkin.app.network.ConnectionState
-import com.munchkin.app.core.DiceRollPurpose
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.munchkin.app.core.GamePhase
+import com.munchkin.app.network.JoinCodeParser
+import com.munchkin.app.ui.components.BadStuffDialog
 import com.munchkin.app.ui.components.DebugLogViewer
-import com.munchkin.app.ui.screens.*
+import com.munchkin.app.ui.components.EventEffects
+import com.munchkin.app.ui.screens.AuthScreen
+import com.munchkin.app.ui.screens.BoardScreen
+import com.munchkin.app.ui.screens.CombatScreen
+import com.munchkin.app.ui.screens.CreateGameScreen
+import com.munchkin.app.ui.screens.HistoryScreen
+import com.munchkin.app.ui.screens.HomeScreen
+import com.munchkin.app.ui.screens.JoinGameScreen
+import com.munchkin.app.ui.screens.LeaderboardScreen
+import com.munchkin.app.ui.screens.LobbyScreen
+import com.munchkin.app.ui.screens.MonsterCatalogScreen
+import com.munchkin.app.ui.screens.PlayerDetailScreen
+import com.munchkin.app.ui.screens.ProfileScreen
+import com.munchkin.app.ui.screens.SettingsScreen
+import com.munchkin.app.ui.screens.TableScreen
+import com.munchkin.app.ui.screens.TutorialScreen
 import com.munchkin.app.ui.theme.MunchkinTheme
-import com.munchkin.app.viewmodel.GameViewModel
-import com.munchkin.app.viewmodel.Screen
-// GameViewModel behaviour lives in top-level extension functions across
-// GameViewModelAuth/Combat/Lobby/Player/System.kt — extensions need explicit
-// imports to resolve from this package.
-import com.munchkin.app.viewmodel.*
+import com.munchkin.app.ui.theme.NeonBackground
+import com.munchkin.app.util.LocaleManager
+import com.munchkin.app.viewmodel.AuthViewModel
+import com.munchkin.app.viewmodel.GameSessionViewModel
+import com.munchkin.app.viewmodel.GameUiEvent
+import com.munchkin.app.viewmodel.LobbyViewModel
+
+private object Routes {
+    const val HOME = "home"
+    const val CREATE_GAME = "create_game"
+    const val JOIN_GAME_PATTERN = "join_game?code={code}"
+    const val LOBBY = "lobby"
+    const val TABLE = "table"
+    const val BOARD = "board"
+    const val COMBAT = "combat"
+    const val PLAYER_DETAIL = "player_detail"
+    const val CATALOG = "catalog"
+    const val SETTINGS = "settings"
+    const val AUTH = "auth"
+    const val PROFILE = "profile"
+    const val HISTORY = "history"
+    const val LEADERBOARD = "leaderboard"
+
+    fun joinGame(code: String? = null): String =
+        if (!code.isNullOrBlank()) "join_game?code=${Uri.encode(code)}" else "join_game"
+}
+
+private val GAMEPLAY_KEEP_SCREEN_ON_ROUTES = setOf(
+    Routes.LOBBY,
+    Routes.TABLE,
+    Routes.BOARD,
+    Routes.COMBAT
+)
 
 class MainActivity : ComponentActivity() {
-    
+
+    private var pendingDeepLinkCode by mutableStateOf<String?>(null)
+
     override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(com.munchkin.app.util.LocaleManager.wrapContext(newBase))
+        super.attachBaseContext(LocaleManager.wrapContext(newBase))
     }
-    
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        
-        // Keep screen on during gameplay
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        
-        setContent {
-            val viewModel: GameViewModel = viewModel()
-            val uiState by viewModel.uiState.collectAsState()
-            
-            MunchkinTheme {
-                val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
-                val scope = rememberCoroutineScope()
+        pendingDeepLinkCode = extractDeepLinkCode(intent)
 
-                // Collect one-shot UI events. Every branch must be handled: an
-                // unhandled ShowError meant the server's rejection (not your turn,
-                // rate limited, combat limit reached) vanished, and the player saw
-                // their tap simply do nothing.
-                val context = androidx.compose.ui.platform.LocalContext.current
+        setContent {
+            val container = remember { MunchkinApp.container }
+            val coordinator = container.sessionCoordinator
+            val authViewModel: AuthViewModel = viewModel(factory = container.viewModelFactory)
+            val lobbyViewModel: LobbyViewModel = viewModel(factory = container.viewModelFactory)
+            val gameSessionViewModel: GameSessionViewModel = viewModel(factory = container.viewModelFactory)
+
+            val gameState by gameSessionViewModel.gameState.collectAsState()
+            val myPlayerId by gameSessionViewModel.myPlayerId.collectAsState()
+            val isHost by gameSessionViewModel.isHost.collectAsState()
+            val connectionState by gameSessionViewModel.connectionState.collectAsState()
+            val reconnectAttempt by gameSessionViewModel.reconnectAttempt.collectAsState()
+            val serverTimeOffsetMs by gameSessionViewModel.serverTimeOffsetMs.collectAsState()
+            val pendingWinners by gameSessionViewModel.pendingWinners.collectAsState()
+            val isCombatResolving by gameSessionViewModel.isCombatResolving.collectAsState()
+            val pendingBadStuff by gameSessionViewModel.pendingBadStuff.collectAsState()
+
+            val userProfile by authViewModel.userProfile.collectAsState()
+            val hostedGames by authViewModel.hostedGames.collectAsState()
+            val authIsLoading by authViewModel.isLoading.collectAsState()
+            val authError by authViewModel.error.collectAsState()
+
+            val savedGame by lobbyViewModel.savedGame.collectAsState()
+            val updateInfo by lobbyViewModel.updateInfo.collectAsState()
+            val isDownloading by lobbyViewModel.isDownloading.collectAsState()
+            val isCheckingUpdate by lobbyViewModel.isCheckingUpdate.collectAsState()
+            val discoveredGames by lobbyViewModel.discoveredGames.collectAsState()
+            val isDiscovering by lobbyViewModel.isDiscovering.collectAsState()
+            val largeNumbersMode by lobbyViewModel.largeNumbersMode.collectAsState()
+            val lobbyIsLoading by lobbyViewModel.isLoading.collectAsState()
+            val lobbyError by lobbyViewModel.error.collectAsState()
+
+            val combinedLoading = authIsLoading || lobbyIsLoading
+            val combinedError = lobbyError ?: authError
+
+            LaunchedEffect(Unit) {
+                authViewModel.refreshSessionOnStartup()
+                lobbyViewModel.checkForUpdates()
+            }
+
+            MunchkinTheme(largeNumbersMode = largeNumbersMode) {
+                val lifecycleOwner = LocalLifecycleOwner.current
+                val context = LocalContext.current
                 val snackbarHostState = remember { SnackbarHostState() }
-                LaunchedEffect(viewModel) {
-                    viewModel.events.collect { event ->
+                val navController = rememberNavController()
+                val currentBackStackEntry by navController.currentBackStackEntryAsState()
+                val currentRoute = currentBackStackEntry?.destination?.route
+
+                val tutorialPrefs = container.tutorialPrefs
+                var showTutorial by remember { mutableStateOf(!tutorialPrefs.isShown()) }
+
+                // Scope keep-screen-on strictly to active multiplayer gameplay routes
+                val keepScreenOn = !showTutorial && currentRoute in GAMEPLAY_KEEP_SCREEN_ON_ROUTES
+                DisposableEffect(keepScreenOn) {
+                    if (keepScreenOn) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    } else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                    onDispose {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                }
+
+                // Single root event collector -> SnackbarHost & Reconnected toast
+                LaunchedEffect(coordinator) {
+                    coordinator.events.collect { event ->
                         when (event) {
-                            is com.munchkin.app.viewmodel.GameUiEvent.Reconnected ->
-                                android.widget.Toast.makeText(
+                            is GameUiEvent.Reconnected ->
+                                Toast.makeText(
                                     context,
                                     context.getString(R.string.reconnected),
-                                    android.widget.Toast.LENGTH_SHORT
+                                    Toast.LENGTH_SHORT
                                 ).show()
-                            is com.munchkin.app.viewmodel.GameUiEvent.ShowError ->
-                                snackbarHostState.showSnackbar(event.message)
-                            is com.munchkin.app.viewmodel.GameUiEvent.ShowSuccess ->
-                                snackbarHostState.showSnackbar(event.message)
-                            is com.munchkin.app.viewmodel.GameUiEvent.ShowMessage ->
-                                snackbarHostState.showSnackbar(event.message)
-                            is com.munchkin.app.viewmodel.GameUiEvent.PlaySound -> {
-                                // Sound is driven by EventEffects off the game state.
-                            }
+                            is GameUiEvent.ShowError -> snackbarHostState.showSnackbar(event.message)
+                            is GameUiEvent.ShowSuccess -> snackbarHostState.showSnackbar(event.message)
+                            is GameUiEvent.ShowMessage -> snackbarHostState.showSnackbar(event.message)
                         }
                     }
                 }
 
+                // Nudge socket / check reconnection cleanly across foreground lifecycle
                 DisposableEffect(lifecycleOwner) {
-                    val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-                        if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                            viewModel.checkReconnection()
+                    val observer = LifecycleEventObserver { _, event ->
+                        when (event) {
+                            Lifecycle.Event.ON_START -> gameSessionViewModel.nudgeConnection()
+                            Lifecycle.Event.ON_RESUME -> gameSessionViewModel.checkReconnection()
+                            else -> Unit
                         }
                     }
                     lifecycleOwner.lifecycle.addObserver(observer)
@@ -101,371 +203,528 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Tutorial check
-                var showTutorial by remember { 
-                    mutableStateOf(!TutorialPrefs.isShown(this@MainActivity)) 
-                }
-                
-                // SoundManager auto-initializes via object access
-                 
-                
-                if (showTutorial) {
-                    TutorialScreen(
-                        onFinish = {
-                            TutorialPrefs.markShown(this@MainActivity)
-                            showTutorial = false
-                        }
-                    )
-                } else {
-                    // Intercept system back button
-                    BackHandler(enabled = uiState.screen != Screen.HOME) {
-                        viewModel.goBack()
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                    containerColor = NeonBackground,
+                    snackbarHost = {
+                        SnackbarHost(
+                            hostState = snackbarHostState,
+                            modifier = Modifier.navigationBarsPadding()
+                        )
                     }
-                    
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        Surface(
-                            modifier = Modifier.fillMaxSize(),
-                            color = MaterialTheme.colorScheme.background
-                        ) {
-                            // Global Sound Effects
-                            val currentState = uiState.gameState
-                            val currentPlayer = uiState.myPlayerId
-                            if (currentState != null && currentPlayer != null) {
-                                com.munchkin.app.ui.components.EventEffects(currentState, currentPlayer)
-                            }
-
-                            AnimatedContent(
-                                targetState = uiState.screen,
-                                transitionSpec = {
-                                    if (targetState.ordinal > initialState.ordinal) {
-                                        slideInHorizontally { it } + fadeIn() togetherWith 
-                                        slideOutHorizontally { -it } + fadeOut()
-                                    } else {
-                                        slideInHorizontally { -it } + fadeIn() togetherWith 
-                                        slideOutHorizontally { it } + fadeOut()
-                                    }
-                                },
-                                label = "screen"
-                            ) { screen ->
-                                when (screen) {
-                                    Screen.HOME -> {
-                                val savedGame by viewModel.savedGame.collectAsState()
-                                val updateInfo by viewModel.updateInfo.collectAsState()
-                                val isDownloading by viewModel.isDownloading.collectAsState()
-                                val hostedGames by viewModel.hostedGames.collectAsState()
-                                
-                                HomeScreen(
-                                    savedGame = savedGame,
-                                    updateInfo = updateInfo,
-                                    isDownloading = isDownloading,
-                                    isLoading = uiState.isLoading,
-                                    error = uiState.error,
-                                    hostedGames = hostedGames,
-                                    onCreateGame = { viewModel.navigateTo(Screen.CREATE_GAME) },
-                                    onJoinGame = { viewModel.navigateTo(Screen.JOIN_GAME) },
-                                    onResumeGame = { viewModel.resumeSavedGame() },
-                                    onResumeHostedGame = { viewModel.resumeHostedGame(it) },
-                                    onDeleteSavedGame = { viewModel.deleteSavedGame() },
-                                    onDeleteHostedGame = { viewModel.deleteHostedGame(it) },
-                                    onClearError = { viewModel.clearError() },
-                                    onDownloadUpdate = { viewModel.downloadUpdate() },
-                                    onDismissUpdate = { viewModel.dismissUpdate() },
-                                    onSettings = { viewModel.navigateTo(Screen.SETTINGS) },
-                                    onAuth = { viewModel.navigateTo(Screen.AUTH) },
-                                    onLogout = { viewModel.logout() },
-                                    onLeaderboardClick = { 
-                                        viewModel.loadLeaderboard() // Load data
-                                        viewModel.navigateTo(Screen.LEADERBOARD) 
-                                    },
-                                    onHistoryClick = {
-                                        viewModel.loadHistory()
-                                        viewModel.navigateTo(Screen.HISTORY)
-                                    },
-                                    onProfileClick = { viewModel.navigateTo(Screen.PROFILE) },
-                                    userProfile = uiState.userProfile
-                                )
-                            }
-                            
-                            Screen.CREATE_GAME -> {
-                                CreateGameScreen(
-                                    isLoading = uiState.isLoading,
-                                    error = uiState.error,
-                                    userProfile = uiState.userProfile,
-                                    onCreateGame = { name, avatarId, gender, timerSeconds, superMunchkin ->
-                                        viewModel.createGame(name, avatarId, gender, timerSeconds, superMunchkin)
-                                    },
-                                    onBack = { viewModel.goBack() }
-                                )
-                            }
-                            
-                            Screen.JOIN_GAME -> {
-                                JoinGameScreen(
-                                    isLoading = uiState.isLoading,
-                                    error = uiState.error,
-                                    discoveredGames = uiState.discoveredGames,
-                                    isDiscovering = uiState.isDiscovering,
-                                    userProfile = uiState.userProfile,
-                                    onJoinGame = { wsUrl, joinCode, name, avatarId, gender ->
-                                        viewModel.joinGame(wsUrl, joinCode, name, avatarId, gender)
-                                    },
-                                    onJoinDiscoveredGame = { game, name, avatarId, gender ->
-                                        viewModel.joinDiscoveredGame(game, name, avatarId, gender)
-                                    },
-                                    onStartDiscovery = { viewModel.startDiscovery() },
-                                    onBack = { viewModel.goBack() }
-                                )
-                            }
-                            
-                            Screen.LOBBY -> {
-                                val gameState = uiState.gameState
-                                val myPlayerId = uiState.myPlayerId
-                                
-                                if (gameState != null && myPlayerId != null) {
-                                    LobbyScreen(
-                                        gameState = gameState,
-                                        myPlayerId = myPlayerId,
-                                        isHost = uiState.isHost,
-                                        onStartGame = { viewModel.startGame() },
-                                        onLeaveGame = { viewModel.leaveGame() },
-                                        onDeleteGame = { viewModel.deleteGame() },
-                                        onRollDice = { viewModel.rollDiceForStart() },
-                                        onSwapPlayers = { p1, p2 -> viewModel.swapPlayers(p1, p2) },
-                                        onKickPlayer = { viewModel.kickPlayer(it) },
-                                        connectionState = uiState.connectionState,
-                                        reconnectAttempt = uiState.reconnectAttempt,
-                                        onRetryReconnect = { viewModel.retryReconnect() }
-                                    )
-                                }
-                            }
-                            
-                            Screen.BOARD -> {
-                                val gameState = uiState.gameState
-                                val myPlayerId = uiState.myPlayerId
-                                
-                                if (gameState != null && myPlayerId != null) {
-                                    // Auto-show combat to all players when active
-                                    if (gameState.combat != null) {
-                                        CombatScreen(
-                                            gameState = gameState,
-                                            myPlayerId = myPlayerId,
-                                            monsterSearchResults = uiState.monsterSearchResults,
-                                            onStartCombat = { viewModel.startCombat() },
-                                            onAddMonster = { name, level, mod, undead, badStuff, treasures, levels ->
-                                                viewModel.addMonster(name, level, mod, undead, badStuff, treasures, levels)
-                                            },
-                                            onRemoveMonster = { viewModel.removeMonster(it) },
-                                            onSearchMonsters = { viewModel.searchMonsters(it) },
-                                            onRequestCreateGlobalMonster = { name, level, mod, undead, treasures, levels, badStuff ->
-                                                viewModel.requestCreateGlobalMonster(name, level, mod, undead, treasures, levels, badStuff)
-                                            },
-                                            onAddHelper = { viewModel.addHelper(it) },
-                                            onRemoveHelper = { viewModel.removeHelper() },
-                                            onModifyModifier = { target, delta -> viewModel.modifyCombatModifier(target, delta) },
-                                            onRollCombatDice = { purpose, result, success ->
-                                                viewModel.rollForCombat(purpose, result, success)
-                                            },
-                                            onEndCombat = { viewModel.endCombat() },
-                                            onCancelCombat = { viewModel.cancelCombat() },
-                                            onResolveRunAway = { success -> viewModel.resolveRunAway(success) },
-                                            onBack = {
-                                                val combat = gameState.combat
-                                                val canCancel = combat != null && (
-                                                    myPlayerId == combat.mainPlayerId ||
-                                                    myPlayerId == combat.helperPlayerId ||
-                                                    myPlayerId == gameState.turnPlayerId ||
-                                                    myPlayerId == gameState.hostId
-                                                )
-                                                if (canCancel && combat?.monsters?.isEmpty() == true) {
-                                                    viewModel.cancelCombat()
-                                                }
-                                            }
-                                        )
-                                    } else {
-                                        BoardScreen(
-                                            gameState = gameState,
-                                            myPlayerId = myPlayerId,
-                                            isHost = uiState.isHost,
-                                            connectionState = uiState.connectionState,
-                                            pendingWinnerId = uiState.pendingWinnerId,
-                                            onPlayerClick = { playerId -> viewModel.selectPlayer(playerId) },
-                                            onCombatClick = { viewModel.navigateTo(Screen.COMBAT) },
-                                            onCatalogClick = { viewModel.navigateTo(Screen.CATALOG) },
-                                            onSettingsClick = { viewModel.navigateTo(Screen.SETTINGS) },
-                                            onLeaveGame = { viewModel.leaveGame() },
-                                            onDeleteGame = { viewModel.deleteGame() },
-                                            onConfirmWin = { viewModel.confirmWin(it) },
-                                            onDismissWin = { viewModel.dismissWinConfirmation() },
-                                            onEndTurn = { viewModel.endTurn() },
-                                            serverTimeOffsetMs = uiState.serverTimeOffsetMs,
-                                            onToggleGender = { viewModel.toggleGender() },
-                                            onSwapPlayers = viewModel::swapPlayers,
-                                            onKickPlayer = { viewModel.kickPlayer(it) },
-                                            logEntries = viewModel.gameLog.collectAsState().value,
-                                            reconnectAttempt = uiState.reconnectAttempt,
-                                            onRetryReconnect = { viewModel.retryReconnect() }
-                                        )
-                                    }
-                                }
-                            }
-                            
-                            Screen.PLAYER_DETAIL -> {
-                                val selectedPlayer = uiState.selectedPlayer
-                                val myPlayerId = uiState.myPlayerId
-
-                                if (selectedPlayer != null) {
-                                    PlayerDetailScreen(
-                                        player = selectedPlayer,
-                                        onIncrementLevel = { viewModel.incrementLevel() },
-                                        onDecrementLevel = { viewModel.decrementLevel() },
-                                        onModifyGear = { amount ->
-                                            if (amount > 0) viewModel.incrementGear(amount)
-                                            else viewModel.decrementGear(-amount) // Pass positive magnitude
-                                        },
-                                        onApplyDeath = { viewModel.applyDeath() },
-                                        onSetClass = { viewModel.setCharacterClass(it) },
-                                        onSetRace = { viewModel.setCharacterRace(it) },
-                                        onSetSecondaryClass = {
-                                            viewModel.setCharacterClass(it, isSecondary = true)
-                                        },
-                                        onSetSecondaryRace = {
-                                            viewModel.setCharacterRace(it, isSecondary = true)
-                                        },
-                                        onSetSuperMunchkin = { viewModel.setSuperMunchkin(it) },
-                                        onSetHalfBreed = { viewModel.setHalfBreed(it) },
-                                        onBack = { viewModel.goBack() },
-                                        isReadOnly = selectedPlayer.playerId != myPlayerId,
-                                        maxLevel = uiState.gameState?.settings?.maxLevel ?: 10
-                                    )
-                                }
-                            }
-                            
-                            Screen.COMBAT -> {
-                                val gameState = uiState.gameState
-                                val myPlayerId = uiState.myPlayerId
-                                
-                                if (gameState != null && myPlayerId != null) {
-                                    CombatScreen(
-                                        gameState = gameState,
-                                        myPlayerId = myPlayerId,
-                                        monsterSearchResults = uiState.monsterSearchResults,
-                                        onStartCombat = { viewModel.startCombat() },
-                                        onAddMonster = { name, level, mod, undead, badStuff, treasures, levels ->
-                                            viewModel.addMonster(name, level, mod, undead, badStuff, treasures, levels)
-                                        },
-                                        onRemoveMonster = { viewModel.removeMonster(it) },
-                                        onSearchMonsters = { viewModel.searchMonsters(it) },
-                                        onRequestCreateGlobalMonster = { name, level, mod, undead, treasures, levels, badStuff ->
-                                            viewModel.requestCreateGlobalMonster(name, level, mod, undead, treasures, levels, badStuff)
-                                        },
-                                        onAddHelper = { viewModel.addHelper(it) },
-                                        onRemoveHelper = { viewModel.removeHelper() },
-                                        onModifyModifier = { target, delta -> viewModel.modifyCombatModifier(target, delta) },
-                                        onRollCombatDice = { purpose, result, success ->
-                                            viewModel.rollForCombat(purpose, result, success)
-                                        },
-                                        onEndCombat = { viewModel.endCombat() },
-                                        onCancelCombat = { viewModel.cancelCombat() },
-                                        onResolveRunAway = { success -> viewModel.resolveRunAway(success) },
-                                        onBack = { viewModel.goBack() }
-                                    )
-                                }
-                            }
-                            
-                            Screen.CATALOG -> {
-                                MonsterCatalogScreen(
-                                    onBack = { viewModel.goBack() },
-                                    onCreateMonster = if (uiState.userProfile != null && uiState.gameState != null) {
-                                        { name, level, mod, undead, treasures, levels, badStuff ->
-                                            viewModel.requestCreateGlobalMonster(name, level, mod, undead, treasures, levels, badStuff)
-                                        }
-                                    } else null
-                                )
-                            }
-                            
-                            Screen.SETTINGS -> {
-                                SettingsScreen(
-                                    isCheckingUpdate = uiState.isCheckingUpdate,
-                                    onBack = { viewModel.navigateTo(Screen.HOME) },
-                                    onCheckUpdate = { viewModel.forceCheckUpdate() }
-                                )
-                            }
-                            
-                            Screen.AUTH -> {
-                                AuthScreen(
-                                    onLogin = { email, pass -> viewModel.login(email, pass) },
-                                    onRegister = { user, email, pass -> viewModel.register(user, email, pass) },
-                                    onBack = { viewModel.navigateTo(Screen.HOME) },
-                                    isLoading = uiState.isLoading,
-                                    error = uiState.error
-                                )
-                            }
-
-                            Screen.HISTORY -> {
-                                HistoryScreen(
-                                    history = uiState.gameHistory,
-                                    isLoading = uiState.isLoading,
-                                    onBack = { viewModel.goBack() },
-                                    onRefresh = { viewModel.loadHistory() }
-                                )
-                            }
-                            
-                            Screen.PROFILE -> {
-                                uiState.userProfile?.let { user ->
-                                    ProfileScreen(
-                                        userProfile = user,
-                                        gameHistory = uiState.gameHistory,
-                                        playerTotals = uiState.playerTotals,
-                                        isLoading = uiState.isLoading,
-                                        error = uiState.error,
-                                        onBack = { viewModel.navigateTo(Screen.HOME) },
-                                        onRefresh = { viewModel.loadHistory() },
-                                        onClearError = { viewModel.clearError() },
-                                        onUpdateProfile = { name, pass, avatar, gender ->
-                                            viewModel.updateProfile(name, pass, avatar, gender)
-                                        }
-                                    )
-                                }
-                            }
-
-                            Screen.LEADERBOARD -> {
-                                LeaderboardScreen(
-                                    leaderboard = uiState.leaderboard,
-                                    isLoading = uiState.isLoading,
-                                    onBack = { viewModel.navigateTo(Screen.HOME) },
-                                    onRefresh = { viewModel.loadLeaderboard() },
-                                    self = uiState.leaderboardSelf,
-                                    currentUserId = uiState.userProfile?.id
-                                )
-                            }
-                        } // when
-                    } // AnimatedContent
-                    } // Surface
-                    
-                    // Losing a fight or failing to escape hands the player their
-                    // Bad Stuff to resolve. Hosted here so it survives the combat
-                    // screen being replaced by the board when the combat clears.
-                    val pendingBadStuff by viewModel.pendingBadStuff.collectAsState()
-                    com.munchkin.app.ui.components.BadStuffDialog(
-                        monsters = pendingBadStuff,
-                        onDismiss = { viewModel.dismissBadStuff() },
-                        onDecrementLevel = { viewModel.decrementLevel() },
-                        onApplyDeath = { viewModel.applyDeath() }
-                    )
-
-                    // Above the screen content so a rejection is readable from any
-                    // screen, including the modal-heavy combat flow.
-                    SnackbarHost(
-                        hostState = snackbarHostState,
+                ) { innerPadding ->
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .navigationBarsPadding()
-                    )
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                    ) {
+                        if (showTutorial) {
+                            TutorialScreen(
+                                onFinish = {
+                                    tutorialPrefs.markShown()
+                                    showTutorial = false
+                                },
+                                tutorialPrefs = tutorialPrefs
+                            )
+                        } else {
+                            // Deep-link handling (cold start and onNewIntent)
+                            LaunchedEffect(pendingDeepLinkCode) {
+                                val code = pendingDeepLinkCode
+                                if (!code.isNullOrBlank()) {
+                                    pendingDeepLinkCode = null
+                                    navController.navigate(Routes.joinGame(code)) {
+                                        launchSingleTop = true
+                                    }
+                                }
+                            }
 
-                    // Debug log viewer with floating button
-                    DebugLogViewer(showTrigger = BuildConfig.DEBUG)
-                } // Box
-            } // else (not showTutorial)
-            } // MunchkinTheme
-        } // setContent
-    } // onCreate
-} // MainActivity
+                            // Keep auth/profile backstack synchronized with userProfile transitions
+                            LaunchedEffect(userProfile, currentRoute) {
+                                if (currentRoute == Routes.AUTH && userProfile != null) {
+                                    navController.popBackStack()
+                                } else if (currentRoute == Routes.PROFILE && userProfile == null) {
+                                    navController.popBackStack(Routes.HOME, inclusive = false)
+                                }
+                            }
+
+                            // Authoritative gameState navigation transitions (never traps user in Combat)
+                            var prevGameId by remember { mutableStateOf<String?>(null) }
+                            var prevPhase by remember { mutableStateOf<GamePhase?>(null) }
+                            var prevHadCombat by remember { mutableStateOf(false) }
+
+                            val currentGameId = gameState?.gameId?.value
+                            val currentPhase = gameState?.phase
+                            val hasCombat = gameState?.combat != null
+
+                            LaunchedEffect(currentGameId, currentPhase, hasCombat) {
+                                if (currentGameId == null || currentPhase == null) {
+                                    if (prevGameId != null) {
+                                        val activeRoute = navController.currentDestination?.route
+                                        if (activeRoute in GAMEPLAY_KEEP_SCREEN_ON_ROUTES ||
+                                            activeRoute == Routes.PLAYER_DETAIL
+                                        ) {
+                                            navController.popBackStack(Routes.HOME, inclusive = false)
+                                        }
+                                    }
+                                    prevGameId = null
+                                    prevPhase = null
+                                    prevHadCombat = false
+                                } else {
+                                    val isNewGame = prevGameId != currentGameId
+                                    if (isNewGame) {
+                                        val dest = if (currentPhase == GamePhase.LOBBY) Routes.LOBBY else Routes.BOARD
+                                        navController.navigate(dest) {
+                                            popUpTo(Routes.HOME) { inclusive = false }
+                                            launchSingleTop = true
+                                        }
+                                    } else if (prevPhase == GamePhase.LOBBY && currentPhase != GamePhase.LOBBY) {
+                                        navController.navigate(Routes.BOARD) {
+                                            popUpTo(Routes.HOME) { inclusive = false }
+                                            launchSingleTop = true
+                                        }
+                                    } else if (!prevHadCombat && hasCombat) {
+                                        // Only auto-open Combat on combat == null -> combat != null transition
+                                        navController.navigate(Routes.COMBAT) {
+                                            launchSingleTop = true
+                                        }
+                                    } else if (prevHadCombat && !hasCombat &&
+                                        navController.currentDestination?.route == Routes.COMBAT
+                                    ) {
+                                        val popped = navController.popBackStack(Routes.BOARD, inclusive = false)
+                                        if (!popped) {
+                                            navController.navigate(Routes.BOARD) { launchSingleTop = true }
+                                        }
+                                    }
+                                    prevGameId = currentGameId
+                                    prevPhase = currentPhase
+                                    prevHadCombat = hasCombat
+                                }
+                            }
+
+                            val activeState = gameState
+                            val activePlayerId = myPlayerId
+                            if (activeState != null && activePlayerId != null) {
+                                EventEffects(activeState, activePlayerId)
+                            }
+
+                            NavHost(
+                                navController = navController,
+                                startDestination = Routes.HOME,
+                                enterTransition = { fadeIn(tween(200)) },
+                                exitTransition = { fadeOut(tween(180)) },
+                                popEnterTransition = { fadeIn(tween(200)) },
+                                popExitTransition = { fadeOut(tween(180)) }
+                            ) {
+                                composable(Routes.HOME) {
+                                    HomeScreen(
+                                        savedGame = savedGame,
+                                        updateInfo = updateInfo,
+                                        isDownloading = isDownloading,
+                                        isLoading = combinedLoading,
+                                        error = combinedError,
+                                        hostedGames = hostedGames,
+                                        onCreateGame = {
+                                            navController.navigate(Routes.CREATE_GAME) { launchSingleTop = true }
+                                        },
+                                        onJoinGame = {
+                                            navController.navigate(Routes.joinGame()) { launchSingleTop = true }
+                                        },
+                                        onResumeGame = { lobbyViewModel.resumeSavedGame() },
+                                        onResumeHostedGame = { lobbyViewModel.resumeHostedGame(it) },
+                                        onDeleteSavedGame = { lobbyViewModel.deleteSavedGame() },
+                                        onDeleteHostedGame = { authViewModel.deleteHostedGame(it) },
+                                        onClearError = {
+                                            lobbyViewModel.clearError()
+                                            authViewModel.clearError()
+                                        },
+                                        onDownloadUpdate = { lobbyViewModel.downloadUpdate() },
+                                        onDismissUpdate = { lobbyViewModel.dismissUpdate() },
+                                        onSettings = {
+                                            navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
+                                        },
+                                        onAuth = {
+                                            navController.navigate(Routes.AUTH) { launchSingleTop = true }
+                                        },
+                                        onLogout = { authViewModel.logout() },
+                                        onLeaderboardClick = {
+                                            authViewModel.loadLeaderboard()
+                                            navController.navigate(Routes.LEADERBOARD) { launchSingleTop = true }
+                                        },
+                                        onHistoryClick = {
+                                            authViewModel.loadHistory()
+                                            navController.navigate(Routes.HISTORY) { launchSingleTop = true }
+                                        },
+                                        onProfileClick = {
+                                            navController.navigate(Routes.PROFILE) { launchSingleTop = true }
+                                        },
+                                        userProfile = userProfile,
+                                        onCatalogClick = {
+                                            navController.navigate(Routes.CATALOG) { launchSingleTop = true }
+                                        }
+                                    )
+                                }
+
+                                composable(Routes.CREATE_GAME) {
+                                    CreateGameScreen(
+                                        isLoading = lobbyIsLoading,
+                                        error = lobbyError,
+                                        userProfile = userProfile,
+                                        onCreateGame = { name, avatarId, gender, timerSeconds, superMunchkin ->
+                                            lobbyViewModel.createGame(
+                                                name = name,
+                                                avatarId = avatarId,
+                                                gender = gender,
+                                                timerSeconds = timerSeconds,
+                                                superMunchkin = superMunchkin
+                                            )
+                                        },
+                                        onBack = { navController.popBackStack() }
+                                    )
+                                }
+
+                                composable(
+                                    route = Routes.JOIN_GAME_PATTERN,
+                                    arguments = listOf(
+                                        navArgument("code") {
+                                            type = NavType.StringType
+                                            nullable = true
+                                            defaultValue = ""
+                                        }
+                                    )
+                                ) { backStackEntry ->
+                                    val initialJoinCode = backStackEntry.arguments?.getString("code").orEmpty()
+                                    JoinGameScreen(
+                                        isLoading = lobbyIsLoading,
+                                        error = lobbyError,
+                                        discoveredGames = discoveredGames,
+                                        isDiscovering = isDiscovering,
+                                        userProfile = userProfile,
+                                        initialJoinCode = initialJoinCode,
+                                        onJoinGame = { joinCode, name, avatarId, gender ->
+                                            lobbyViewModel.joinGame(joinCode, name, avatarId, gender)
+                                        },
+                                        onJoinDiscoveredGame = { game, name, avatarId, gender ->
+                                            lobbyViewModel.joinDiscoveredGame(game, name, avatarId, gender)
+                                        },
+                                        onStartDiscovery = { lobbyViewModel.startDiscovery() },
+                                        onBack = { navController.popBackStack() }
+                                    )
+                                }
+
+                                composable(Routes.LOBBY) {
+                                    val state = gameState
+                                    val pid = myPlayerId
+                                    if (state != null && pid != null) {
+                                        LobbyScreen(
+                                            gameState = state,
+                                            myPlayerId = pid,
+                                            isHost = isHost,
+                                            onStartGame = { gameSessionViewModel.startGame() },
+                                            onLeaveGame = { gameSessionViewModel.leaveGame() },
+                                            onDeleteGame = { gameSessionViewModel.deleteGame() },
+                                            onRollDice = { gameSessionViewModel.rollDiceForStart() },
+                                            onSwapPlayers = { p1, p2 -> gameSessionViewModel.swapPlayers(p1, p2) },
+                                            onKickPlayer = { gameSessionViewModel.kickPlayer(it) },
+                                            onTransferHost = { gameSessionViewModel.transferHost(it) },
+                                            connectionState = connectionState,
+                                            reconnectAttempt = reconnectAttempt,
+                                            onRetryReconnect = { gameSessionViewModel.retryReconnect() }
+                                        )
+                                    } else {
+                                        LaunchedEffect(Unit) {
+                                            navController.popBackStack(Routes.HOME, inclusive = false)
+                                        }
+                                    }
+                                }
+
+                                composable(Routes.TABLE) {
+                                    val state = gameState
+                                    val pid = myPlayerId
+                                    if (state != null && pid != null) {
+                                        val canEndTurn = state.turnPlayerId == pid &&
+                                            state.phase == GamePhase.IN_GAME
+                                        TableScreen(
+                                            players = state.playerList,
+                                            currentUser = pid,
+                                            turnPlayerId = state.turnPlayerId,
+                                            timerSeconds = state.settings.turnTimerSeconds,
+                                            turnEndsAt = state.turnEndsAt,
+                                            serverTimeOffsetMs = serverTimeOffsetMs,
+                                            isHost = isHost,
+                                            onPlayerClick = { playerId ->
+                                                gameSessionViewModel.selectPlayer(playerId)
+                                                navController.navigate(Routes.PLAYER_DETAIL) {
+                                                    launchSingleTop = true
+                                                }
+                                            },
+                                            onEndTurn = if (canEndTurn) {
+                                                { gameSessionViewModel.endTurn() }
+                                            } else null,
+                                            onKickPlayer = { gameSessionViewModel.kickPlayer(it) },
+                                            onTransferHost = { gameSessionViewModel.transferHost(it) }
+                                        )
+                                    } else {
+                                        LaunchedEffect(Unit) {
+                                            navController.popBackStack(Routes.HOME, inclusive = false)
+                                        }
+                                    }
+                                }
+
+                                composable(Routes.BOARD) {
+                                    val state = gameState
+                                    val pid = myPlayerId
+                                    val gameLog by gameSessionViewModel.gameLog.collectAsState()
+                                    if (state != null && pid != null) {
+                                        BoardScreen(
+                                            gameState = state,
+                                            myPlayerId = pid,
+                                            isHost = isHost,
+                                            connectionState = connectionState,
+                                            pendingWinners = pendingWinners,
+                                            onPlayerClick = { playerId ->
+                                                gameSessionViewModel.selectPlayer(playerId)
+                                                navController.navigate(Routes.PLAYER_DETAIL) {
+                                                    launchSingleTop = true
+                                                }
+                                            },
+                                            onCombatClick = {
+                                                navController.navigate(Routes.COMBAT) { launchSingleTop = true }
+                                            },
+                                            onCatalogClick = {
+                                                navController.navigate(Routes.CATALOG) { launchSingleTop = true }
+                                            },
+                                            onSettingsClick = {
+                                                navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
+                                            },
+                                            onLeaveGame = { gameSessionViewModel.leaveGame() },
+                                            onDeleteGame = { gameSessionViewModel.deleteGame() },
+                                            onConfirmWin = { gameSessionViewModel.confirmWin(it) },
+                                            onDismissWin = { gameSessionViewModel.dismissWinConfirmation(it) },
+                                            onEndTurn = { gameSessionViewModel.endTurn() },
+                                            serverTimeOffsetMs = serverTimeOffsetMs,
+                                            onToggleGender = { gameSessionViewModel.toggleGender() },
+                                            onSwapPlayers = gameSessionViewModel::swapPlayers,
+                                            onKickPlayer = { gameSessionViewModel.kickPlayer(it) },
+                                            onTransferHost = { gameSessionViewModel.transferHost(it) },
+                                            onRollDice = { gameSessionViewModel.rollDice(it) },
+                                            logEntries = gameLog,
+                                            reconnectAttempt = reconnectAttempt,
+                                            onRetryReconnect = { gameSessionViewModel.retryReconnect() }
+                                        )
+                                    } else {
+                                        LaunchedEffect(Unit) {
+                                            navController.popBackStack(Routes.HOME, inclusive = false)
+                                        }
+                                    }
+                                }
+
+                                composable(Routes.COMBAT) {
+                                    val state = gameState
+                                    val pid = myPlayerId
+                                    val monsterSearchResults by gameSessionViewModel.monsterSearchResults.collectAsState()
+                                    if (state != null && pid != null) {
+                                        val goToBoard: () -> Unit = {
+                                            val popped = navController.popBackStack(Routes.BOARD, inclusive = false)
+                                            if (!popped) {
+                                                navController.navigate(Routes.BOARD) { launchSingleTop = true }
+                                            }
+                                        }
+                                        CombatScreen(
+                                            gameState = state,
+                                            myPlayerId = pid,
+                                            monsterSearchResults = monsterSearchResults,
+                                            onStartCombat = { gameSessionViewModel.startCombat() },
+                                            onAddMonster = { name, level, mod, undead, badStuff, treasures, levels ->
+                                                gameSessionViewModel.addMonster(
+                                                    name, level, mod, undead, badStuff, treasures, levels
+                                                )
+                                            },
+                                            onUpdateMonsterModifier = { monsterId, flatModifier ->
+                                                gameSessionViewModel.updateMonster(monsterId, flatModifier)
+                                            },
+                                            onRemoveMonster = { gameSessionViewModel.removeMonster(it) },
+                                            onSearchMonsters = { gameSessionViewModel.searchMonsters(it) },
+                                            onRequestCreateGlobalMonster = { name, level, mod, undead, treasures, levels, badStuff ->
+                                                gameSessionViewModel.requestCreateGlobalMonster(
+                                                    name, level, mod, undead, treasures, levels, badStuff
+                                                )
+                                            },
+                                            onAddHelper = { gameSessionViewModel.addHelper(it) },
+                                            onRemoveHelper = { gameSessionViewModel.removeHelper() },
+                                            onAddTempBonus = { target, label, amount ->
+                                                gameSessionViewModel.addTempBonus(target, label, amount)
+                                            },
+                                            onRemoveTempBonus = { gameSessionViewModel.removeTempBonus(it) },
+                                            onModifyModifier = { target, delta ->
+                                                gameSessionViewModel.modifyCombatModifier(target, delta)
+                                            },
+                                            onRollCombatDice = { purpose, result, success ->
+                                                gameSessionViewModel.rollForCombat(purpose, result, success)
+                                            },
+                                            onEndCombat = { gameSessionViewModel.endCombat() },
+                                            onCancelCombat = { gameSessionViewModel.cancelCombat() },
+                                            onResolveRunAway = { success -> gameSessionViewModel.resolveRunAway(success) },
+                                            onGoToBoard = goToBoard,
+                                            onBack = goToBoard,
+                                            isCombatResolving = isCombatResolving,
+                                            serverTimeOffsetMs = serverTimeOffsetMs
+                                        )
+                                    } else {
+                                        LaunchedEffect(Unit) {
+                                            navController.popBackStack(Routes.HOME, inclusive = false)
+                                        }
+                                    }
+                                }
+
+                                composable(Routes.PLAYER_DETAIL) {
+                                    val selectedPlayer by gameSessionViewModel.selectedPlayer.collectAsState()
+                                    val pid = myPlayerId
+                                    val player = selectedPlayer
+                                    if (player != null) {
+                                        PlayerDetailScreen(
+                                            player = player,
+                                            onIncrementLevel = { gameSessionViewModel.incrementLevel() },
+                                            onDecrementLevel = { gameSessionViewModel.decrementLevel() },
+                                            onModifyGear = { amount ->
+                                                if (amount > 0) gameSessionViewModel.incrementGear(amount)
+                                                else gameSessionViewModel.decrementGear(-amount)
+                                            },
+                                            onApplyDeath = { gameSessionViewModel.applyDeath() },
+                                            onSetClass = { gameSessionViewModel.setCharacterClass(it) },
+                                            onSetRace = { gameSessionViewModel.setCharacterRace(it) },
+                                            onSetSecondaryClass = {
+                                                gameSessionViewModel.setCharacterClass(it, isSecondary = true)
+                                            },
+                                            onSetSecondaryRace = {
+                                                gameSessionViewModel.setCharacterRace(it, isSecondary = true)
+                                            },
+                                            onSetSuperMunchkin = { gameSessionViewModel.setSuperMunchkin(it) },
+                                            onSetHalfBreed = { gameSessionViewModel.setHalfBreed(it) },
+                                            onBack = { navController.popBackStack() },
+                                            isReadOnly = player.playerId != pid,
+                                            maxLevel = gameState?.settings?.maxLevel ?: 10
+                                        )
+                                    } else {
+                                        LaunchedEffect(Unit) {
+                                            navController.popBackStack()
+                                        }
+                                    }
+                                }
+
+                                composable(Routes.CATALOG) {
+                                    MonsterCatalogScreen(
+                                        onBack = { navController.popBackStack() },
+                                        canCreateMonster = userProfile != null
+                                    )
+                                }
+
+                                composable(Routes.SETTINGS) {
+                                    SettingsScreen(
+                                        isCheckingUpdate = isCheckingUpdate,
+                                        largeNumbersMode = largeNumbersMode,
+                                        onToggleLargeNumbersMode = { lobbyViewModel.setLargeNumbersMode(it) },
+                                        onBack = { navController.popBackStack() },
+                                        onCheckUpdate = { lobbyViewModel.forceCheckUpdate() }
+                                    )
+                                }
+
+                                composable(Routes.AUTH) {
+                                    AuthScreen(
+                                        onLogin = { email, pass -> authViewModel.login(email, pass) },
+                                        onRegister = { user, email, pass ->
+                                            authViewModel.register(user, email, pass)
+                                        },
+                                        onBack = { navController.popBackStack() },
+                                        isLoading = authIsLoading,
+                                        error = authError
+                                    )
+                                }
+
+                                composable(Routes.PROFILE) {
+                                    val gameHistory by authViewModel.gameHistory.collectAsState()
+                                    val playerTotals by authViewModel.playerTotals.collectAsState()
+                                    val user = userProfile
+                                    if (user != null) {
+                                        ProfileScreen(
+                                            userProfile = user,
+                                            gameHistory = gameHistory,
+                                            playerTotals = playerTotals,
+                                            isLoading = authIsLoading,
+                                            error = authError,
+                                            onBack = { navController.popBackStack() },
+                                            onRefresh = { authViewModel.loadHistory() },
+                                            onClearError = { authViewModel.clearError() },
+                                            onUpdateProfile = { name, newPass, currentPass, avatar, gender ->
+                                                authViewModel.updateProfile(
+                                                    username = name,
+                                                    password = newPass,
+                                                    avatarId = avatar,
+                                                    gender = gender,
+                                                    currentPassword = currentPass
+                                                )
+                                            },
+                                            onDeleteAccount = { pw -> authViewModel.deleteAccount(pw) }
+                                        )
+                                    } else {
+                                        LaunchedEffect(Unit) {
+                                            navController.popBackStack(Routes.HOME, inclusive = false)
+                                        }
+                                    }
+                                }
+
+                                composable(Routes.HISTORY) {
+                                    val gameHistory by authViewModel.gameHistory.collectAsState()
+                                    val historyError by authViewModel.historyError.collectAsState()
+                                    HistoryScreen(
+                                        history = gameHistory,
+                                        isLoading = authIsLoading,
+                                        error = historyError,
+                                        onBack = { navController.popBackStack() },
+                                        onRefresh = { authViewModel.loadHistory() }
+                                    )
+                                }
+
+                                composable(Routes.LEADERBOARD) {
+                                    val leaderboard by authViewModel.leaderboard.collectAsState()
+                                    val leaderboardSelf by authViewModel.leaderboardSelf.collectAsState()
+                                    val leaderboardError by authViewModel.leaderboardError.collectAsState()
+                                    LeaderboardScreen(
+                                        leaderboard = leaderboard,
+                                        isLoading = authIsLoading,
+                                        error = leaderboardError,
+                                        onBack = { navController.popBackStack() },
+                                        onRefresh = { authViewModel.loadLeaderboard() },
+                                        self = leaderboardSelf,
+                                        currentUserId = userProfile?.id
+                                    )
+                                }
+                            }
+                        }
+
+                        // Authoritative defeat Bad Stuff reminder at root overlay level
+                        BadStuffDialog(
+                            monsters = pendingBadStuff,
+                            onDismiss = { gameSessionViewModel.dismissBadStuff() },
+                            onDecrementLevel = { gameSessionViewModel.decrementLevel() },
+                            onApplyDeath = { gameSessionViewModel.applyDeath() }
+                        )
+
+                        DebugLogViewer(showTrigger = BuildConfig.DEBUG)
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        extractDeepLinkCode(intent)?.let { code ->
+            pendingDeepLinkCode = code
+        }
+    }
+
+    private fun extractDeepLinkCode(intent: Intent?): String? =
+        intent?.data?.toString()?.let { JoinCodeParser.extractJoinCode(it) }
+}

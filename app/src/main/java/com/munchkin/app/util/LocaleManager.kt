@@ -5,8 +5,10 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
 import android.os.LocaleList
+import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
+import com.munchkin.app.R
 import java.util.Locale
 
 /**
@@ -17,11 +19,15 @@ object LocaleManager {
     private const val PREFS_NAME = "locale_prefs"
     private const val KEY_LOCALE = "app_locale"
     
-    enum class AppLocale(val code: String, val displayName: String) {
-        SYSTEM("", "Sistema"),
-        SPANISH("es", "Español"),
-        ENGLISH("en", "English"),
-        FRENCH("fr", "Français")
+    enum class AppLocale(
+        val code: String,
+        val displayName: String,
+        @StringRes val labelRes: Int
+    ) {
+        SYSTEM("", "System", R.string.language_system),
+        SPANISH("es", "Español", R.string.language_spanish),
+        ENGLISH("en", "English", R.string.language_english),
+        FRENCH("fr", "Français", R.string.language_french)
     }
     
     fun getAvailableLocales(): List<AppLocale> = AppLocale.entries
@@ -62,13 +68,6 @@ object LocaleManager {
             LocaleListCompat.forLanguageTags(locale.code)
         }
         AppCompatDelegate.setApplicationLocales(localeList)
-    }
-    
-    fun applyStoredLocale(context: Context) {
-        val locale = getCurrentLocale(context)
-        if (locale != AppLocale.SYSTEM) {
-            setLocale(context, locale)
-        }
     }
     
     /**

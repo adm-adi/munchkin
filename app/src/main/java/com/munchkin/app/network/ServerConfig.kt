@@ -15,7 +15,4 @@ object ServerConfig {
     val PORT: Int = BuildConfig.SERVER_PORT
 
     val WS_URL: String = "$SCHEME://$HOST:$PORT"
-
-    /** True when talking to the server over an unencrypted socket. */
-    val isInsecure: Boolean get() = SCHEME != "wss"
 }

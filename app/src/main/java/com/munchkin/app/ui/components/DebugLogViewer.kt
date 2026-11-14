@@ -86,8 +86,8 @@ enum class LogLevel {
  */
 @Composable
 fun DebugLogViewer(
-    showTrigger: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showTrigger: Boolean = true
 ) {
     var isExpanded by remember { mutableStateOf(false) }
     val logs by DebugLogManager.logs.collectAsState()
