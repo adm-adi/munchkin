@@ -27,12 +27,22 @@ android {
         // be targeted without editing source, e.g.
         //   ./gradlew assembleDebug -PmunchkinScheme=ws -PmunchkinHost=10.0.2.2
         // (10.0.2.2 is the host machine as seen from the Android emulator.)
-        val serverScheme = (project.findProperty("munchkinScheme") as String?) ?: "wss"
-        val serverHost = (project.findProperty("munchkinHost") as String?) ?: "munchking-sirpepo.duckdns.org"
-        val serverPort = (project.findProperty("munchkinPort") as String?) ?: "8765"
+        val serverScheme = project.findProperty("munchkinScheme")?.toString() ?: "wss"
+        val serverHost = project.findProperty("munchkinHost")?.toString() ?: "munchking-sirpepo.duckdns.org"
+        val serverPort = project.findProperty("munchkinPort")?.toString() ?: "8765"
+        require(serverScheme.matches(Regex("^(ws|wss)$"))) {
+            "Invalid munchkinScheme '$serverScheme': must be 'ws' or 'wss'"
+        }
+        require(serverHost.matches(Regex("^[a-zA-Z0-9.-]+$"))) {
+            "Invalid munchkinHost '$serverHost': must match ^[a-zA-Z0-9.-]+$"
+        }
+        val parsedPort = serverPort.toIntOrNull()?.takeIf { it in 1..65535 }
+        require(parsedPort != null) {
+            "Invalid munchkinPort '$serverPort': must be an integer between 1 and 65535"
+        }
         buildConfigField("String", "SERVER_SCHEME", "\"$serverScheme\"")
         buildConfigField("String", "SERVER_HOST", "\"$serverHost\"")
-        buildConfigField("int", "SERVER_PORT", serverPort)
+        buildConfigField("int", "SERVER_PORT", parsedPort.toString())
     }
     
     signingConfigs {
@@ -79,17 +89,11 @@ android {
     }
 
     lint {
-        // English and French had drifted 28 strings behind Spanish. That surfaces as
-        // untranslated text mid-screen rather than as any kind of failure, so nothing
-        // caught it. This makes the drift fail the build instead.
-        //
-        // checkOnly narrows the lint task to these two checks. The project has ~210
-        // other lint warnings and 1 pre-existing error; turning them all fatal here
-        // would mean fixing an unrelated backlog before this gate could land, so they
-        // are deliberately left for their own pass rather than silenced.
-        checkOnly += listOf("MissingTranslation", "ExtraTranslation")
+        // English and French had drifted behind Spanish. This makes translation
+        // drift fail the build while pre-existing issues live in lint-baseline.xml.
         error += listOf("MissingTranslation", "ExtraTranslation")
         abortOnError = true
+        baseline = file("lint-baseline.xml")
     }
     
     composeOptions {
@@ -100,7 +104,6 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "/META-INF/INDEX.LIST"
-            excludes += "/META-INF/io.netty.versions.properties"
         }
     }
 }
@@ -123,6 +126,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
+    implementation("androidx.navigation:navigation-compose:2.7.7")
     
     // AppCompat for per-app language support
     implementation("androidx.appcompat:appcompat:1.6.1")
@@ -159,9 +163,6 @@ dependencies {
     // ML Kit for barcode scanning
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
     
-    // DataStore for preferences
-    implementation("androidx.datastore:datastore-preferences:1.0.0")
-    
     // Accompanist Permissions (for camera in QR scanner)
     implementation("com.google.accompanist:accompanist-permissions:0.34.0")
     
@@ -178,6 +179,7 @@ dependencies {
     // Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
+    testImplementation("io.ktor:ktor-client-mock:$ktorVersion")
     // ktor-server-test-host removed: no test imports io.ktor, and it pulled the
     // Ktor server stack back into the test classpath.
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

@@ -21,11 +21,13 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.munchkin.app.BuildConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.text.SimpleDateFormat
-import java.util.*
+import kotlinx.coroutines.flow.update
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
 /**
  * Debug log manager for in-app log viewing.
@@ -35,17 +37,19 @@ object DebugLogManager {
     val logs: StateFlow<List<LogEntry>> = _logs.asStateFlow()
     
     private val maxLogs = 100
-    private val dateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+    private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
     
     fun log(tag: String, message: String, level: LogLevel = LogLevel.INFO) {
+        if (!BuildConfig.DEBUG) return
+
         val entry = LogEntry(
-            timestamp = dateFormat.format(Date()),
+            timestamp = LocalTime.now().format(timeFormatter),
             tag = tag,
             message = message,
             level = level
         )
         
-        _logs.value = (_logs.value + entry).takeLast(maxLogs)
+        _logs.update { (it + entry).takeLast(maxLogs) }
         
         // Also log to Android Logcat
         when (level) {

@@ -17,6 +17,7 @@ import com.munchkin.app.core.CombatStart
 import com.munchkin.app.network.GameClient
 import com.munchkin.app.network.CatalogMonster
 import com.munchkin.app.core.BonusTarget
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -88,14 +89,17 @@ fun GameViewModel.searchMonsters(query: String) {
             return@launch
         }
         try {
-            val client = GameClient()
-            val result = client.searchMonsters(GameViewModel.SERVER_URL, query)
+            val result = GameClient().use { client ->
+                client.searchMonsters(GameViewModel.SERVER_URL, query)
+            }
             if (result.isSuccess) {
                 _uiState.update {
                     it.copy(monsterSearchResults = result.getOrElse { emptyList() })
                 }
             }
-        } catch (e: Exception) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
         }
     }
 }
@@ -140,8 +144,9 @@ fun GameViewModel.requestCreateGlobalMonster(
 
     viewModelScope.launch {
         try {
-            val client = GameClient()
-            val result = client.addMonsterToCatalog(GameViewModel.SERVER_URL, monster, token)
+            val result = GameClient().use { client ->
+                client.addMonsterToCatalog(GameViewModel.SERVER_URL, monster, token)
+            }
 
             if (result.isSuccess) {
                 val created = result.getOrNull()
@@ -156,6 +161,8 @@ fun GameViewModel.requestCreateGlobalMonster(
                     MunchkinApp.context.getString(R.string.error_save_monster)
                 ))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             _events.emit(GameUiEvent.ShowError(getFriendlyErrorMessage(e)))
         }

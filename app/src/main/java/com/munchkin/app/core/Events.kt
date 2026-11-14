@@ -1,11 +1,12 @@
 package com.munchkin.app.core
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
  * Game events for event sourcing architecture.
- * All state changes go through events that are validated by the host.
+ * All state changes go through events validated by the server.
  */
 
 @Serializable
@@ -19,54 +20,12 @@ sealed class GameEvent {
 // ============== Game Lifecycle Events ==============
 
 @Serializable
-@SerialName("GAME_CREATE")
-data class GameCreate(
-    override val eventId: String,
-    override val actorId: PlayerId,
-    override val timestamp: Long,
-    override val targetPlayerId: PlayerId? = null,
-    val gameId: GameId,
-    val joinCode: String,
-    val hostMeta: PlayerMeta
-) : GameEvent()
-
-@Serializable
-@SerialName("PLAYER_JOIN")
-data class PlayerJoin(
-    override val eventId: String,
-    override val actorId: PlayerId,
-    override val timestamp: Long,
-    override val targetPlayerId: PlayerId? = null,
-    val playerMeta: PlayerMeta,
-    val lastKnownIp: String?
-) : GameEvent()
-
-@Serializable
-@SerialName("PLAYER_LEAVE")
-data class PlayerLeave(
-    override val eventId: String,
-    override val actorId: PlayerId,
-    override val timestamp: Long,
-    override val targetPlayerId: PlayerId? = null
-) : GameEvent()
-
-@Serializable
 @SerialName("GAME_START")
 data class GameStart(
     override val eventId: String,
     override val actorId: PlayerId,
     override val timestamp: Long,
     override val targetPlayerId: PlayerId? = null
-) : GameEvent()
-
-@Serializable
-@SerialName("SWAP_PLAYERS")
-data class SwapPlayers(
-    override val eventId: String,
-    override val actorId: PlayerId,
-    override val timestamp: Long,
-    override val targetPlayerId: PlayerId?, // Player 1
-    val otherPlayerId: PlayerId // Player 2
 ) : GameEvent()
 
 @Serializable
@@ -140,7 +99,7 @@ data class IncLevel(
     override val timestamp: Long,
     override val targetPlayerId: PlayerId,
     val amount: Int = 1,
-    val reason: String? = null  // For level 10 override
+    val reason: String? = null
 ) : GameEvent()
 
 @Serializable
@@ -214,105 +173,27 @@ data class SetSuperMunchkin(
 ) : GameEvent()
 
 @Serializable
-@SerialName("ADD_RACE")
-data class AddRace(
+@SerialName("SET_CLASS")
+data class SetClass(
     override val eventId: String,
     override val actorId: PlayerId,
     override val timestamp: Long,
     override val targetPlayerId: PlayerId,
-    val entryId: EntryId
+    val newClass: CharacterClass,
+    /** Targets the Super Munchkin second slot instead of the primary one. */
+    val isSecondary: Boolean = false
 ) : GameEvent()
 
 @Serializable
-@SerialName("REMOVE_RACE")
-data class RemoveRace(
+@SerialName("SET_RACE")
+data class SetRace(
     override val eventId: String,
     override val actorId: PlayerId,
     override val timestamp: Long,
     override val targetPlayerId: PlayerId,
-    val entryId: EntryId
-) : GameEvent()
-
-@Serializable
-@SerialName("CLEAR_RACES")
-data class ClearRaces(
-    override val eventId: String,
-    override val actorId: PlayerId,
-    override val timestamp: Long,
-    override val targetPlayerId: PlayerId
-) : GameEvent()
-
-@Serializable
-@SerialName("ADD_CLASS")
-data class AddClass(
-    override val eventId: String,
-    override val actorId: PlayerId,
-    override val timestamp: Long,
-    override val targetPlayerId: PlayerId,
-    val entryId: EntryId
-) : GameEvent()
-
-@Serializable
-@SerialName("REMOVE_CLASS")
-data class RemoveClass(
-    override val eventId: String,
-    override val actorId: PlayerId,
-    override val timestamp: Long,
-    override val targetPlayerId: PlayerId,
-    val entryId: EntryId
-) : GameEvent()
-
-@Serializable
-@SerialName("CLEAR_CLASSES")
-data class ClearClasses(
-    override val eventId: String,
-    override val actorId: PlayerId,
-    override val timestamp: Long,
-    override val targetPlayerId: PlayerId
-) : GameEvent()
-
-// ============== Catalog Events ==============
-
-@Serializable
-@SerialName("CATALOG_ADD_RACE")
-data class CatalogAddRace(
-    override val eventId: String,
-    override val actorId: PlayerId,
-    override val timestamp: Long,
-    override val targetPlayerId: PlayerId? = null,
-    val displayName: String,
-    val aliases: List<String> = emptyList()
-) : GameEvent()
-
-@Serializable
-@SerialName("CATALOG_ADD_CLASS")
-data class CatalogAddClass(
-    override val eventId: String,
-    override val actorId: PlayerId,
-    override val timestamp: Long,
-    override val targetPlayerId: PlayerId? = null,
-    val displayName: String,
-    val aliases: List<String> = emptyList()
-) : GameEvent()
-
-@Serializable
-@SerialName("CATALOG_ARCHIVE_RACE")
-data class CatalogArchiveRace(
-    override val eventId: String,
-    override val actorId: PlayerId,
-    override val timestamp: Long,
-    override val targetPlayerId: PlayerId? = null,
-    val entryId: EntryId
-) : GameEvent()
-
-@Serializable
-@SerialName("CATALOG_ARCHIVE_CLASS")
-data class CatalogArchiveClass(
-    override val eventId: String,
-    override val actorId: PlayerId,
-    override val timestamp: Long,
-    override val targetPlayerId: PlayerId? = null,
-    val entryId: EntryId
+    val newRace: CharacterRace,
+    /** Targets the Half-Breed second slot instead of the primary one. */
+    val isSecondary: Boolean = false
 ) : GameEvent()
 
 // ============== Combat Events ==============
@@ -406,18 +287,9 @@ data class CombatEnd(
     val outcome: CombatOutcome,
     val levelsGained: Int = 0,
     val treasuresGained: Int = 0,
-    val helperLevelsGained: Int = 0
-) : GameEvent()
-
-@Serializable
-@SerialName("COMBAT_MODIFY_MODIFIER")
-data class CombatModifyModifier(
-    override val eventId: String,
-    override val actorId: PlayerId,
-    override val timestamp: Long,
-    override val targetPlayerId: PlayerId? = null,
-    val target: BonusTarget, // HEROES or MONSTER
-    val delta: Int           // +1 or -1
+    val helperLevelsGained: Int = 0,
+    val expectedSeq: Long? = null,
+    val cancelled: Boolean = false
 ) : GameEvent()
 
 @Serializable
@@ -431,61 +303,22 @@ data class CombatSetModifier(
     val value: Int           // Absolute value
 ) : GameEvent()
 
-// ============== Combat Dice Roll ==============
+// ============== Dice Roll Models ==============
 
 @Serializable
 enum class DiceRollPurpose {
     COMBAT,         // Combat roll
     RUN_AWAY,       // Escaping combat
-    CURSE,          // Curse effect
-    RANDOM,         // Generic roll
-    TIE_BREAKER     // Breaking ties
+    RANDOM          // Generic roll
 }
 
-
-
+@Immutable
 @Serializable
 data class DiceRollInfo(
     val playerId: PlayerId,
     val playerName: String,
     val result: Int,
-    val success: Boolean = false, // Did they succeed (e.g., escaped)
+    val success: Boolean = false,
     val timestamp: Long = System.currentTimeMillis(),
     val purpose: DiceRollPurpose = DiceRollPurpose.RANDOM
 )
-
-@Serializable
-@SerialName("COMBAT_DICE_ROLL")
-data class CombatDiceRoll(
-    override val eventId: String,
-    override val actorId: PlayerId,
-    override val timestamp: Long,
-    override val targetPlayerId: PlayerId? = null,
-    val result: Int,
-    val purpose: DiceRollPurpose,
-    val success: Boolean = false
-) : GameEvent()
-
-@Serializable
-@SerialName("SET_CLASS")
-data class SetClass(
-    override val eventId: String,
-    override val actorId: PlayerId,
-    override val timestamp: Long,
-    override val targetPlayerId: PlayerId,
-    val newClass: CharacterClass,
-    /** Targets the Super Munchkin second slot instead of the primary one. */
-    val isSecondary: Boolean = false
-) : GameEvent()
-
-@Serializable
-@SerialName("SET_RACE")
-data class SetRace(
-    override val eventId: String,
-    override val actorId: PlayerId,
-    override val timestamp: Long,
-    override val targetPlayerId: PlayerId,
-    val newRace: CharacterRace,
-    /** Targets the Half-Breed second slot instead of the primary one. */
-    val isSecondary: Boolean = false
-) : GameEvent()

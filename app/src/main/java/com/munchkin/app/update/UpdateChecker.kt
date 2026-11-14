@@ -1,71 +1,116 @@
 package com.munchkin.app.update
 
-import android.app.DownloadManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
-import android.net.Uri
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.os.Build
-import android.os.Environment
 import android.util.Log
 import androidx.core.content.FileProvider
+import androidx.core.content.pm.PackageInfoCompat
+import com.munchkin.app.BuildConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URL
+import java.security.MessageDigest
 
 /**
- * Handles checking for updates from GitHub releases and installing APKs.
+ * Handles checking for updates from GitHub releases, securely downloading APKs over HTTPS,
+ * verifying optional SHA-256 digests and APK signing certificates/version codes, and launching install.
  */
 class UpdateChecker(private val context: Context) {
     companion object {
         private const val TAG = "UpdateChecker"
         private const val GITHUB_API_URL = "https://api.github.com/repos/adm-adi/munchkin/releases/latest"
+        private const val MAX_REDIRECTS = 5
+
+        private val ALLOWED_DOWNLOAD_HOSTS = setOf(
+            "api.github.com",
+            "github.com",
+            "objects.githubusercontent.com",
+            "release-assets.githubusercontent.com"
+        )
+
+        private val SHA256_HEX_REGEX = Regex("^[a-f0-9]{64}$")
+
+        /**
+         * Returns true only when [url] uses `https` and targets an allowlisted GitHub release host.
+         */
+        internal fun isAllowedDownloadUrl(url: String): Boolean {
+            return try {
+                val uri = URI(url.trim())
+                if (!uri.scheme.equals("https", ignoreCase = true)) return false
+                val host = uri.host?.lowercase() ?: return false
+                host in ALLOWED_DOWNLOAD_HOSTS
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        /**
+         * Parses a `.sha256` checksum asset (either raw 64-char hex or `<hex>  <filename>`).
+         */
+        internal fun parseSha256Text(text: String): String? {
+            val token = text.trim().split(Regex("\\s+")).firstOrNull()?.lowercase() ?: return null
+            return token.takeIf { SHA256_HEX_REGEX.matches(it) }
+        }
     }
-    
-    private val json = Json { 
+
+    private val json = Json {
         ignoreUnknownKeys = true
         coerceInputValues = true
     }
-    
+
+    internal fun isAllowedDownloadUrl(url: String): Boolean = Companion.isAllowedDownloadUrl(url)
+
+    internal fun parseSha256Text(text: String): String? = Companion.parseSha256Text(text)
+
     /**
-     * Check for available updates.
-     * @return UpdateInfo if update available, null otherwise
+     * Check for available updates from GitHub Releases.
      */
     suspend fun checkForUpdate(): UpdateResult = withContext(Dispatchers.IO) {
+        var conn: HttpURLConnection? = null
         try {
-            // Get actual version from package info (NOT hardcoded)
-            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            val packageInfo = getInstalledPackageInfo(includeSignatures = false)
             val currentVersion = packageInfo.versionName ?: "0.0.0"
-            
-            Log.d(TAG, "Checking for updates... Current installed: $currentVersion")
-            
-            // Fetch latest release from GitHub
-            val response = (URL(GITHUB_API_URL).openConnection() as java.net.HttpURLConnection).let { conn ->
-                conn.connectTimeout = 5000
-                conn.readTimeout = 5000
-                conn.inputStream.bufferedReader().use { it.readText() }
+
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "Checking for updates... Current installed: $currentVersion")
             }
+
+            conn = openAllowedConnection(GITHUB_API_URL)
+            val response = conn.inputStream.bufferedReader().use { it.readText() }
             val release = json.decodeFromString<GitHubRelease>(response)
             val latestVersion = release.tagName.removePrefix("v")
-            
-            Log.d(TAG, "Current: $currentVersion, Latest: $latestVersion")
-            
+
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "Current: $currentVersion, Latest: $latestVersion")
+            }
+
             if (isNewerVersion(latestVersion, currentVersion)) {
-                // Find APK asset
-                val apkAsset = release.assets.find { it.name.endsWith(".apk") }
-                
+                val apkAsset = release.assets.find { it.name.endsWith(".apk", ignoreCase = true) }
                 if (apkAsset != null) {
+                    val sha256Asset = release.assets.find {
+                        it.name.equals("${apkAsset.name}.sha256", ignoreCase = true)
+                    } ?: release.assets.find {
+                        it.name.endsWith(".sha256", ignoreCase = true)
+                    }
+
                     UpdateResult.UpdateAvailable(
                         UpdateInfo(
                             version = latestVersion,
                             releaseNotes = release.body ?: "Nueva versión disponible",
                             downloadUrl = apkAsset.browserDownloadUrl,
-                            fileSize = apkAsset.size
+                            fileSize = apkAsset.size,
+                            sha256Url = sha256Asset?.browserDownloadUrl
                         )
                     )
                 } else {
@@ -74,163 +119,262 @@ class UpdateChecker(private val context: Context) {
             } else {
                 UpdateResult.NoUpdate
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Update check failed", e)
             UpdateResult.Error(e.message ?: "Error desconocido")
+        } finally {
+            conn?.disconnect()
         }
     }
-    
+
     /**
-     * Download and install APK update.
+     * Securely downloads, verifies (SHA-256 if published, package name, anti-rollback version code,
+     * and signing certificate match), and starts the package installer for [updateInfo].
      */
-    fun downloadAndInstall(updateInfo: UpdateInfo, onProgress: (Int) -> Unit, onComplete: () -> Unit) {
-        val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        
-        val apkFile = File(
-            context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
-            "munchkin-${updateInfo.version}.apk"
-        )
-        
-        // Delete old file if exists
-        if (apkFile.exists()) {
-            apkFile.delete()
-        }
-        
-        val request = DownloadManager.Request(Uri.parse(updateInfo.downloadUrl))
-            .setTitle("Munchkin v${updateInfo.version}")
-            .setDescription("Descargando actualización...")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationUri(Uri.fromFile(apkFile))
-            .setAllowedOverMetered(true)
-            .setAllowedOverRoaming(true)
-        
-        val downloadId = downloadManager.enqueue(request)
-        
-        // Register receiver for download complete
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent) {
-                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-                if (id != downloadId) return
+    suspend fun downloadAndInstall(updateInfo: UpdateInfo): Result<Unit> = withContext(Dispatchers.IO) {
+        val updatesDir = File(context.filesDir, "updates").apply { mkdirs() }
+        val safeVersion = updateInfo.version.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val apkFile = File(updatesDir, "munchkin-$safeVersion.apk")
+        val tempFile = File(updatesDir, "munchkin-$safeVersion.apk.tmp")
 
-                context.unregisterReceiver(this)
-                onComplete()
+        var downloadConn: HttpURLConnection? = null
+        var checksumConn: HttpURLConnection? = null
 
-                // ACTION_DOWNLOAD_COMPLETE fires for failures too. Handing a
-                // partial or empty file to the package installer produced an
-                // opaque "app not installed" dialog with no explanation.
-                if (isDownloadSuccessful(downloadManager, downloadId)) {
-                    installApk(apkFile)
-                } else {
-                    Log.e(TAG, "Update download did not complete successfully; not installing")
-                    apkFile.delete()
+        try {
+            if (tempFile.exists()) tempFile.delete()
+            if (apkFile.exists()) apkFile.delete()
+
+            downloadConn = openAllowedConnection(updateInfo.downloadUrl)
+            val digest = MessageDigest.getInstance("SHA-256")
+            downloadConn.inputStream.use { input ->
+                tempFile.outputStream().use { output ->
+                    val buffer = ByteArray(8 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        digest.update(buffer, 0, read)
+                        output.write(buffer, 0, read)
+                    }
+                    output.flush()
                 }
             }
-        }
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(
-                receiver,
-                IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-                Context.RECEIVER_NOT_EXPORTED
-            )
-        } else {
-            context.registerReceiver(
-                receiver,
-                IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-            )
+            val actualSha256 = digest.digest().joinToString("") { "%02x".format(it) }
+
+            if (!tempFile.renameTo(apkFile)) {
+                tempFile.copyTo(apkFile, overwrite = true)
+                tempFile.delete()
+            }
+
+            val sha256Url = updateInfo.sha256Url
+            if (sha256Url != null) {
+                checksumConn = openAllowedConnection(sha256Url)
+                val checksumBody = checksumConn.inputStream.bufferedReader().use { it.readText() }
+                val expectedSha256 = parseSha256Text(checksumBody)
+                    ?: throw SecurityException("Invalid SHA-256 checksum file format")
+                if (!actualSha256.equals(expectedSha256, ignoreCase = true)) {
+                    throw SecurityException("Downloaded APK SHA-256 checksum mismatch")
+                }
+            }
+
+            verifyDownloadedApk(apkFile)
+
+            withContext(Dispatchers.Main) {
+                installApk(apkFile)
+            }
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            tempFile.delete()
+            apkFile.delete()
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Update download/verification failed", e)
+            tempFile.delete()
+            apkFile.delete()
+            Result.failure(e)
+        } finally {
+            downloadConn?.disconnect()
+            checksumConn?.disconnect()
         }
     }
-    
-    /** True only when DownloadManager reports the download actually finished. */
-    private fun isDownloadSuccessful(manager: DownloadManager, downloadId: Long): Boolean {
-        return try {
-            manager.query(DownloadManager.Query().setFilterById(downloadId)).use { cursor ->
-                if (cursor == null || !cursor.moveToFirst()) return false
-                val statusColumn = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
-                if (statusColumn < 0) return false
-                cursor.getInt(statusColumn) == DownloadManager.STATUS_SUCCESSFUL
+
+    private fun openAllowedConnection(startUrl: String): HttpURLConnection {
+        var currentUrl = startUrl
+        var redirects = 0
+        while (true) {
+            if (!isAllowedDownloadUrl(currentUrl)) {
+                throw SecurityException("Disallowed update URL: $currentUrl")
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Could not read download status", e)
-            false
+            val conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = false
+                connectTimeout = 10_000
+                readTimeout = 30_000
+            }
+            val code = conn.responseCode
+            if (code in 300..399) {
+                val location = conn.getHeaderField("Location")
+                conn.disconnect()
+                if (location.isNullOrBlank()) {
+                    throw IOException("Redirect without Location header")
+                }
+                if (redirects >= MAX_REDIRECTS) {
+                    throw IOException("Too many redirects")
+                }
+                currentUrl = URL(URL(currentUrl), location).toString()
+                redirects++
+                continue
+            }
+            if (code !in 200..299) {
+                conn.disconnect()
+                throw IOException("Unexpected HTTP status $code")
+            }
+            return conn
         }
+    }
+
+    private fun verifyDownloadedApk(apkFile: File) {
+        val archiveInfo = getArchivePackageInfo(apkFile)
+            ?: throw SecurityException("Downloaded file is not a valid APK archive")
+
+        if (archiveInfo.packageName != context.packageName) {
+            throw SecurityException("APK package mismatch: ${archiveInfo.packageName}")
+        }
+
+        val installedInfo = getInstalledPackageInfo(includeSignatures = true)
+        val installedVersionCode = PackageInfoCompat.getLongVersionCode(installedInfo)
+        val archiveVersionCode = PackageInfoCompat.getLongVersionCode(archiveInfo)
+        if (archiveVersionCode <= installedVersionCode) {
+            throw SecurityException(
+                "APK version code ($archiveVersionCode) is not newer than installed ($installedVersionCode)"
+            )
+        }
+
+        val installedCerts = extractCertDigests(installedInfo)
+        val archiveCerts = extractCertDigests(archiveInfo)
+        if (installedCerts.isEmpty() || archiveCerts.isEmpty() || installedCerts.intersect(archiveCerts).isEmpty()) {
+            throw SecurityException("APK signing certificate does not match installed app")
+        }
+    }
+
+    private fun getInstalledPackageInfo(includeSignatures: Boolean): PackageInfo {
+        val pm = context.packageManager
+        return if (!includeSignatures) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0L))
+            } else {
+                pm.getPackageInfo(context.packageName, 0)
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getPackageInfo(
+                context.packageName,
+                PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong())
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+        } else {
+            @Suppress("DEPRECATION")
+            pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES)
+        }
+    }
+
+    private fun getArchivePackageInfo(apkFile: File): PackageInfo? {
+        val pm = context.packageManager
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getPackageArchiveInfo(
+                apkFile.absolutePath,
+                PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong())
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            pm.getPackageArchiveInfo(apkFile.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
+        } else {
+            @Suppress("DEPRECATION")
+            pm.getPackageArchiveInfo(apkFile.absolutePath, PackageManager.GET_SIGNATURES)
+        }
+    }
+
+    private fun extractCertDigests(info: PackageInfo): Set<String> {
+        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val signingInfo = info.signingInfo
+            signingInfo?.apkContentsSigners ?: signingInfo?.signingCertificateHistory
+        } else {
+            @Suppress("DEPRECATION")
+            info.signatures
+        }
+        if (signatures.isNullOrEmpty()) return emptySet()
+
+        val md = MessageDigest.getInstance("SHA-256")
+        return signatures.map { sig ->
+            md.reset()
+            md.digest(sig.toByteArray()).joinToString("") { "%02x".format(it) }
+        }.toSet()
     }
 
     private fun installApk(apkFile: File) {
-        try {
-            val uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                apkFile
-            )
-            
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
-            }
-            
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to install APK", e)
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            apkFile
+        )
+
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
         }
+
+        context.startActivity(intent)
     }
-    
+
     /**
      * Compare semantic versions. Returns true if latest > current.
      * Handles versions like "2.17.3", "v2.17.3", "2.17.3-beta", etc.
      */
     private fun isNewerVersion(latest: String, current: String): Boolean {
-        // Clean both versions: remove 'v' prefix and any suffix after '-'
         val cleanLatest = cleanVersion(latest)
         val cleanCurrent = cleanVersion(current)
-        
-        Log.d(TAG, "Version comparison: cleanLatest='$cleanLatest', cleanCurrent='$cleanCurrent'")
-        
-        // If versions are exactly equal, no update needed
+
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "Version comparison: cleanLatest='$cleanLatest', cleanCurrent='$cleanCurrent'")
+        }
+
         if (cleanLatest == cleanCurrent) {
-            Log.d(TAG, "Versions are equal, no update needed")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Versions are equal, no update needed")
             return false
         }
-        
+
         val latestParts = cleanLatest.split(".").mapNotNull { it.toIntOrNull() }
         val currentParts = cleanCurrent.split(".").mapNotNull { it.toIntOrNull() }
-        
-        // If parsing failed, compare as strings
+
         if (latestParts.isEmpty() || currentParts.isEmpty()) {
             Log.w(TAG, "Failed to parse versions, comparing as strings")
             return cleanLatest > cleanCurrent
         }
-        
-        // Compare each part
+
         val maxLen = maxOf(latestParts.size, currentParts.size)
         for (i in 0 until maxLen) {
             val l = latestParts.getOrElse(i) { 0 }
             val c = currentParts.getOrElse(i) { 0 }
-            Log.d(TAG, "Comparing part $i: latest=$l, current=$c")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Comparing part $i: latest=$l, current=$c")
             if (l > c) {
-                Log.d(TAG, "Latest is newer at part $i")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Latest is newer at part $i")
                 return true
             }
             if (l < c) {
-                Log.d(TAG, "Current is newer at part $i, no update needed")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Current is newer at part $i, no update needed")
                 return false
             }
         }
-        
-        Log.d(TAG, "All parts equal, no update needed")
+
+        if (BuildConfig.DEBUG) Log.d(TAG, "All parts equal, no update needed")
         return false
     }
-    
-    /**
-     * Clean version string: remove 'v' prefix, trim whitespace, 
-     * and remove any suffix after '-' (like -beta, -debug, etc.)
-     */
+
     private fun cleanVersion(version: String): String {
         return version
             .trim()
             .removePrefix("v")
             .removePrefix("V")
-            .split("-")[0]  // Remove suffixes like -beta, -debug
+            .split("-")[0]
             .trim()
     }
 }
@@ -241,7 +385,8 @@ data class UpdateInfo(
     val version: String,
     val releaseNotes: String,
     val downloadUrl: String,
-    val fileSize: Long
+    val fileSize: Long,
+    val sha256Url: String? = null
 )
 
 sealed class UpdateResult {

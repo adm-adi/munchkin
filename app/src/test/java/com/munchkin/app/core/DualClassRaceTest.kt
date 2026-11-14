@@ -1,6 +1,5 @@
 package com.munchkin.app.core
 
-import com.munchkin.app.R
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -215,11 +214,11 @@ class DualClassRaceTest {
 
         assertTrue(
             "must include a Warrior ability",
-            abilities.any { it.sourceRes == R.string.class_warrior }
+            abilities.any { it.sourceKey == AbilitySourceKey.WARRIOR }
         )
         assertTrue(
             "must include a Wizard ability from the second slot",
-            abilities.any { it.sourceRes == R.string.class_wizard }
+            abilities.any { it.sourceKey == AbilitySourceKey.WIZARD }
         )
         // The tie-break is applied by the app; Berserking and the spells are not.
         assertTrue(abilities.any { it.kind == AbilityKind.AUTOMATIC })

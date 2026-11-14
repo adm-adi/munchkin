@@ -1,9 +1,10 @@
 package com.munchkin.app.core
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 
 /**
- * Core domain models for Munchkin Mesa Tracker
+ * Core domain models for Munchkin Mesa Tracker.
  */
 
 // ============== Identity Types ==============
@@ -12,13 +13,9 @@ import kotlinx.serialization.Serializable
 @JvmInline
 value class GameId(val value: String)
 
-@Serializable  
-@JvmInline
-value class PlayerId(val value: String)
-
 @Serializable
 @JvmInline
-value class EntryId(val value: String)
+value class PlayerId(val value: String)
 
 // ============== Enums ==============
 
@@ -55,6 +52,7 @@ enum class GamePhase {
 
 // ============== Player State ==============
 
+@Immutable
 @Serializable
 data class PlayerState(
     val playerId: PlayerId,
@@ -76,34 +74,27 @@ data class PlayerState(
     val gearBonus: Int = 0,
     val tempCombatBonus: Int = 0,
     val treasures: Int = 0,
-    val raceIds: List<EntryId> = emptyList(),
-    val classIds: List<EntryId> = emptyList(),
     val hasHalfBreed: Boolean = false,
     val hasSuperMunchkin: Boolean = false,
-    val lastKnownIp: String? = null,
     val isConnected: Boolean = true,
     val lastRoll: Int? = null, // For initial roll or others
     /**
      * Whether this player's arrival at [GameSettings.maxLevel] came from killing a
      * monster — including an Elf levelling up by helping kill one.
      *
-     * The rule is that the winning level may only be reached that way, and
-     * [GameSettings.levelTenOnlyCombat] declares it, but nothing recorded *how* a
-     * level was gained, so the win prompt fired for anyone who tapped +1 up to the
-     * maximum. Cleared by the server if the player drops back below it.
-     *
      * Nullable on purpose: `null` means the server does not report this at all.
-     * A non-null default would make an updated app talking to a not-yet-updated
-     * server read every player as "did not kill anything", and nobody could ever
-     * win. See [canBeConfirmedWinner].
+     * See [canBeConfirmedWinner].
      */
     val reachedMaxLevelViaCombat: Boolean? = null
 ) {
     /**
-     * Combined combat power = level + gear + temp bonus
+     * Combined combat power = level + clamped gear + clamped temp bonus
      */
-    val combatPower: Int get() = level + gearBonus + tempCombatBonus
-    
+    val combatPower: Int
+        get() = level +
+            gearBonus.coerceIn(GameEngine.GEAR_MIN, GameEngine.GEAR_MAX) +
+            tempCombatBonus.coerceIn(GameEngine.TEMP_COMBAT_BONUS_MIN, GameEngine.TEMP_COMBAT_BONUS_MAX)
+
     /**
      * Maximum races allowed based on Half-Breed status
      */
@@ -151,59 +142,15 @@ data class PlayerState(
 
     /**
      * Whether this player may be offered to the host as the winner.
-     *
-     * Only a server that reports [reachedMaxLevelViaCombat] can enforce "the
-     * winning level only counts if you killed something"; an older one says
-     * nothing, and then the pre-existing behaviour applies rather than locking
-     * the game so it can never end.
      */
     fun canBeConfirmedWinner(settings: GameSettings): Boolean =
         level >= settings.maxLevel &&
             (!settings.requiresCombatToWin || reachedMaxLevelViaCombat != false)
-
-    /**
-     * Check if player can add another race
-     */
-    val canAddRace: Boolean get() = raceIds.size < maxRaces
-
-    /**
-     * Check if player can add another class
-     */
-    val canAddClass: Boolean get() = classIds.size < maxClasses
-}
-
-// ============== Catalog Entry ==============
-
-@Serializable
-data class CatalogEntry(
-    val entryId: EntryId,
-    val displayName: String,
-    val normalizedName: String,
-    val aliases: List<String> = emptyList(),
-    val createdByPlayerId: PlayerId,
-    val createdAt: Long,
-    val isArchived: Boolean = false
-) {
-    companion object {
-        /**
-         * Normalize a name for comparison (lowercase, trim, single spaces)
-         */
-        fun normalize(name: String): String {
-            return name.trim().lowercase().replace(Regex("\\s+"), " ")
-        }
-        
-        /**
-         * Validate display name length
-         */
-        fun isValidName(name: String): Boolean {
-            val trimmed = name.trim()
-            return trimmed.length in 2..24
-        }
-    }
 }
 
 // ============== Game State ==============
 
+@Immutable
 @Serializable
 data class GameState(
     val gameId: GameId,
@@ -212,8 +159,6 @@ data class GameState(
     val seq: Long = 0,
     val hostId: PlayerId,
     val players: Map<PlayerId, PlayerState> = emptyMap(),
-    val races: Map<EntryId, CatalogEntry> = emptyMap(),
-    val classes: Map<EntryId, CatalogEntry> = emptyMap(),
     val combat: CombatState? = null,
     val phase: GamePhase = GamePhase.LOBBY,
     val winnerId: PlayerId? = null,
@@ -224,59 +169,52 @@ data class GameState(
     val settings: GameSettings = GameSettings()
 ) {
     /**
-     * Get sorted list of players by explicit order or default
+     * Get sorted list of players by explicit order or default.
+     * Uses a HashSet for O(1) membership checks when appending unordered players.
      */
-    val playerList: List<PlayerState> 
+    val playerList: List<PlayerState>
         get() = if (playerOrder.isNotEmpty()) {
-            playerOrder.mapNotNull { players[it] } + players.values.filter { !playerOrder.contains(it.playerId) }
+            val orderedSet = playerOrder.toHashSet()
+            playerOrder.mapNotNull { players[it] } + players.values.filter { it.playerId !in orderedSet }
         } else {
             players.values.toList().sortedBy { it.playerId.value }
         }
-    
+
     /**
      * Check if game is full (6 players max)
      */
     val isFull: Boolean get() = players.size >= 6
-    
+
     /**
      * Check if all players have rolled dice
      */
     val allPlayersRolled: Boolean get() = players.values.all { it.lastRoll != null }
-    
+
     /**
      * Check if there is a tie for highest dice roll among players who need to re-roll
      */
-    val hasRollTie: Boolean get() {
-        if (!allPlayersRolled) return false
-        val maxRoll = players.values.maxOfOrNull { it.lastRoll ?: 0 } ?: return false
-        return players.values.count { it.lastRoll == maxRoll } > 1
-    }
-    
+    val hasRollTie: Boolean
+        get() {
+            if (!allPlayersRolled) return false
+            val maxRoll = players.values.maxOfOrNull { it.lastRoll ?: 0 } ?: return false
+            return players.values.count { it.lastRoll == maxRoll } > 1
+        }
+
     /**
      * Get player IDs that need to re-roll (tied for highest)
      */
-    val tiedPlayerIds: Set<PlayerId> get() {
-        if (!allPlayersRolled) return emptySet()
-        val maxRoll = players.values.maxOfOrNull { it.lastRoll ?: 0 } ?: return emptySet()
-        return players.values.filter { it.lastRoll == maxRoll }.map { it.playerId }.toSet()
-    }
-    
+    val tiedPlayerIds: Set<PlayerId>
+        get() {
+            if (!allPlayersRolled) return emptySet()
+            val maxRoll = players.values.maxOfOrNull { it.lastRoll ?: 0 } ?: return emptySet()
+            val tied = players.values.filter { it.lastRoll == maxRoll }.map { it.playerId }.toSet()
+            return if (tied.size > 1) tied else emptySet()
+        }
+
     /**
      * Check if game can start (2+ players and all rolled with no ties)
      */
     val canStart: Boolean get() = players.size >= 2 && allPlayersRolled && !hasRollTie
-    
-    /**
-     * Get active (non-archived) races
-     */
-    val activeRaces: Map<EntryId, CatalogEntry>
-        get() = races.filterValues { !it.isArchived }
-    
-    /**
-     * Get active (non-archived) classes
-     */
-    val activeClasses: Map<EntryId, CatalogEntry>
-        get() = classes.filterValues { !it.isArchived }
 }
 
 // ============== Game Settings ==============
@@ -285,6 +223,7 @@ data class GameState(
  * The rules in force for a room. The server sends every field, so both sides
  * agree on them rather than each falling back to its own defaults.
  */
+@Immutable
 @Serializable
 data class GameSettings(
     val minLevel: Int = 1,
@@ -306,6 +245,7 @@ data class GameSettings(
 
 // ============== Player Meta (for joining) ==============
 
+@Immutable
 @Serializable
 data class PlayerMeta(
     val playerId: PlayerId,

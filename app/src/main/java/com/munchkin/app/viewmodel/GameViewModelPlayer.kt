@@ -1,17 +1,10 @@
 package com.munchkin.app.viewmodel
 
 import com.munchkin.app.core.PlayerId
-import com.munchkin.app.core.EntryId
-import com.munchkin.app.core.AddClass
-import com.munchkin.app.core.AddRace
-import com.munchkin.app.core.CatalogAddClass
-import com.munchkin.app.core.CatalogAddRace
 import com.munchkin.app.core.DecGear
 import com.munchkin.app.core.DecLevel
 import com.munchkin.app.core.IncGear
 import com.munchkin.app.core.IncLevel
-import com.munchkin.app.core.RemoveClass
-import com.munchkin.app.core.RemoveRace
 import com.munchkin.app.core.SetClass
 import com.munchkin.app.core.SetGear
 import com.munchkin.app.core.SetGender
@@ -115,76 +108,6 @@ fun GameViewModel.setSuperMunchkin(enabled: Boolean) {
             timestamp = System.currentTimeMillis(),
             targetPlayerId = playerId,
             enabled = enabled
-        )
-    }
-}
-
-fun GameViewModel.addRace(entryId: EntryId) {
-    sendPlayerEvent { playerId ->
-        AddRace(
-            eventId = UUID.randomUUID().toString(),
-            actorId = playerId,
-            timestamp = System.currentTimeMillis(),
-            targetPlayerId = playerId,
-            entryId = entryId
-        )
-    }
-}
-
-fun GameViewModel.removeRace(entryId: EntryId) {
-    sendPlayerEvent { playerId ->
-        RemoveRace(
-            eventId = UUID.randomUUID().toString(),
-            actorId = playerId,
-            timestamp = System.currentTimeMillis(),
-            targetPlayerId = playerId,
-            entryId = entryId
-        )
-    }
-}
-
-fun GameViewModel.addClass(entryId: EntryId) {
-    sendPlayerEvent { playerId ->
-        AddClass(
-            eventId = UUID.randomUUID().toString(),
-            actorId = playerId,
-            timestamp = System.currentTimeMillis(),
-            targetPlayerId = playerId,
-            entryId = entryId
-        )
-    }
-}
-
-fun GameViewModel.removeClass(entryId: EntryId) {
-    sendPlayerEvent { playerId ->
-        RemoveClass(
-            eventId = UUID.randomUUID().toString(),
-            actorId = playerId,
-            timestamp = System.currentTimeMillis(),
-            targetPlayerId = playerId,
-            entryId = entryId
-        )
-    }
-}
-
-fun GameViewModel.addRaceToCatalog(displayName: String) {
-    sendPlayerEvent { playerId ->
-        CatalogAddRace(
-            eventId = UUID.randomUUID().toString(),
-            actorId = playerId,
-            timestamp = System.currentTimeMillis(),
-            displayName = displayName
-        )
-    }
-}
-
-fun GameViewModel.addClassToCatalog(displayName: String) {
-    sendPlayerEvent { playerId ->
-        CatalogAddClass(
-            eventId = UUID.randomUUID().toString(),
-            actorId = playerId,
-            timestamp = System.currentTimeMillis(),
-            displayName = displayName
         )
     }
 }

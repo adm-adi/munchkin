@@ -12,14 +12,11 @@ import com.munchkin.app.network.*
 import com.munchkin.app.update.UpdateChecker
 import com.munchkin.app.update.UpdateInfo
 import com.munchkin.app.update.UpdateResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import io.ktor.client.*
-import io.ktor.client.engine.cio.*
-import io.ktor.client.plugins.websocket.*
-import io.ktor.websocket.*
 import java.util.UUID
 import com.munchkin.app.network.DiscoveredGame
 import com.munchkin.app.R
@@ -121,8 +118,9 @@ class GameViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 // We use a temp client to validate the token
-                val client = GameClient()
-                val result = client.loginWithToken(SERVER_URL, token)
+                val result = GameClient().use { client ->
+                    client.loginWithToken(SERVER_URL, token)
+                }
 
                 if (result.isSuccess) {
                     val authData = result.getOrNull()
@@ -327,12 +325,15 @@ class GameViewModel : ViewModel() {
                          // Give it a moment to send
                          kotlinx.coroutines.delay(500)
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     // Ignore error on leave
                 }
             }
 
             gameClient?.disconnect()
+            gameClient?.close()
             gameClient = null
             // Scoped to a game, not to the app process.
             hasRecordedGame = false
@@ -359,6 +360,7 @@ class GameViewModel : ViewModel() {
         // viewModelScope is already cancelled here, so the work needs its own.
         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
             client.disconnect()
+            client.close()
         }
     }
 
@@ -436,7 +438,7 @@ class GameViewModel : ViewModel() {
 
                             // Log Combat Result (Combat property cleared)
                             if (prev.combat != null && s.combat == null) {
-                                addLogEntry(context.getString(R.string.log_combat_ended), LogType.combat)
+                                addLogEntry(context.getString(R.string.log_combat_ended), LogType.COMBAT)
                             }
                         }
                         previousState = s
@@ -650,22 +652,6 @@ sealed class GameUiEvent {
     data object PlaySound : GameUiEvent()
     data object Reconnected : GameUiEvent()  // Fired when RECONNECTING → CONNECTED transition
 }
-
-// Response from server for available games
-@kotlinx.serialization.Serializable
-data class GamesListResponse(
-    val type: String,
-    val games: List<ServerGame>
-)
-
-@kotlinx.serialization.Serializable
-data class ServerGame(
-    val joinCode: String,
-    val hostName: String,
-    val playerCount: Int,
-    val maxPlayers: Int,
-    val createdAt: Long = 0
-)
 
 /**
  * Convert technical error messages into something a player can act on.

@@ -1,7 +1,6 @@
 package com.munchkin.app.core
 
-import androidx.annotation.StringRes
-import com.munchkin.app.R
+import androidx.compose.runtime.Immutable
 
 /**
  * Reminders of what a player's class and race actually do in combat.
@@ -15,72 +14,82 @@ import com.munchkin.app.R
  *  - [AbilityKind.MANUAL]: the rules grant it, but the app cannot know when it
  *    applies. The player resolves it at the table and enters the effect with the
  *    combat modifier.
- *
- * Keeping both in one list stops the app from silently looking like it handles
- * everything, which is what makes a half-automated tracker untrustworthy.
  */
 enum class AbilityKind { AUTOMATIC, MANUAL }
 
+enum class AbilitySourceKey { WARRIOR, WIZARD, THIEF, CLERIC, ELF, DWARF, HALFLING }
+
+enum class AbilityDescriptionKey {
+    WARRIOR_TIES, WARRIOR_BERSERK,
+    WIZARD_CHARM, WIZARD_FLIGHT,
+    THIEF_BACKSTAB, THIEF_STEAL,
+    CLERIC_UNDEAD, CLERIC_RESURRECT,
+    ELF_HELP_LEVEL, ELF_RUN_AWAY,
+    DWARF_BIG_ITEMS, DWARF_HAND_SIZE,
+    HALFLING_SELL, HALFLING_RUN_AWAY
+}
+
+@Immutable
 data class Ability(
-    /** Short label naming the card the ability comes from, e.g. the Warrior class. */
-    @StringRes val sourceRes: Int,
-    @StringRes val descriptionRes: Int,
+    val sourceKey: AbilitySourceKey,
+    val descriptionKey: AbilityDescriptionKey,
     val kind: AbilityKind
 )
 
 object Abilities {
+    const val RUN_AWAY_THRESHOLD = 5
 
     fun forClass(characterClass: CharacterClass): List<Ability> = when (characterClass) {
         CharacterClass.NONE -> emptyList()
 
         CharacterClass.WARRIOR -> listOf(
             Ability(
-                sourceRes = R.string.class_warrior,
-                descriptionRes = R.string.ability_warrior_ties,
+                sourceKey = AbilitySourceKey.WARRIOR,
+                descriptionKey = AbilityDescriptionKey.WARRIOR_TIES,
                 kind = AbilityKind.AUTOMATIC
             ),
             Ability(
-                sourceRes = R.string.class_warrior,
-                descriptionRes = R.string.ability_warrior_berserk,
+                sourceKey = AbilitySourceKey.WARRIOR,
+                descriptionKey = AbilityDescriptionKey.WARRIOR_BERSERK,
                 kind = AbilityKind.MANUAL
             )
         )
 
         CharacterClass.WIZARD -> listOf(
             Ability(
-                sourceRes = R.string.class_wizard,
-                descriptionRes = R.string.ability_wizard_charm,
+                sourceKey = AbilitySourceKey.WIZARD,
+                descriptionKey = AbilityDescriptionKey.WIZARD_CHARM,
                 kind = AbilityKind.MANUAL
             ),
             Ability(
-                sourceRes = R.string.class_wizard,
-                descriptionRes = R.string.ability_wizard_flight,
+                sourceKey = AbilitySourceKey.WIZARD,
+                descriptionKey = AbilityDescriptionKey.WIZARD_FLIGHT,
                 kind = AbilityKind.MANUAL
             )
         )
 
         CharacterClass.THIEF -> listOf(
             Ability(
-                sourceRes = R.string.class_thief,
-                descriptionRes = R.string.ability_thief_backstab,
+                sourceKey = AbilitySourceKey.THIEF,
+                descriptionKey = AbilityDescriptionKey.THIEF_BACKSTAB,
                 kind = AbilityKind.MANUAL
             ),
             Ability(
-                sourceRes = R.string.class_thief,
-                descriptionRes = R.string.ability_thief_steal,
+                sourceKey = AbilitySourceKey.THIEF,
+                descriptionKey = AbilityDescriptionKey.THIEF_STEAL,
                 kind = AbilityKind.MANUAL
             )
         )
 
         CharacterClass.CLERIC -> listOf(
             Ability(
-                sourceRes = R.string.class_cleric,
-                descriptionRes = R.string.ability_cleric_undead,
+                sourceKey = AbilitySourceKey.CLERIC,
+                descriptionKey = AbilityDescriptionKey.CLERIC_UNDEAD,
                 kind = AbilityKind.AUTOMATIC
             ),
             Ability(
-                sourceRes = R.string.class_cleric,
-                descriptionRes = R.string.ability_cleric_resurrect,
+                sourceKey = AbilitySourceKey.CLERIC,
+                descriptionKey = AbilityDescriptionKey.CLERIC_RESURRECT,
                 kind = AbilityKind.MANUAL
             )
         )
@@ -92,42 +101,39 @@ object Abilities {
 
         CharacterRace.ELF -> listOf(
             Ability(
-                sourceRes = R.string.race_elf,
-                descriptionRes = R.string.ability_elf_help_level,
+                sourceKey = AbilitySourceKey.ELF,
+                descriptionKey = AbilityDescriptionKey.ELF_HELP_LEVEL,
                 kind = AbilityKind.AUTOMATIC
             ),
             Ability(
-                sourceRes = R.string.race_elf,
-                descriptionRes = R.string.ability_elf_run_away,
+                sourceKey = AbilitySourceKey.ELF,
+                descriptionKey = AbilityDescriptionKey.ELF_RUN_AWAY,
                 kind = AbilityKind.AUTOMATIC
             )
         )
 
         CharacterRace.DWARF -> listOf(
             Ability(
-                sourceRes = R.string.race_dwarf,
-                descriptionRes = R.string.ability_dwarf_big_items,
+                sourceKey = AbilitySourceKey.DWARF,
+                descriptionKey = AbilityDescriptionKey.DWARF_BIG_ITEMS,
                 kind = AbilityKind.MANUAL
             ),
             Ability(
-                sourceRes = R.string.race_dwarf,
-                descriptionRes = R.string.ability_dwarf_hand_size,
+                sourceKey = AbilitySourceKey.DWARF,
+                descriptionKey = AbilityDescriptionKey.DWARF_HAND_SIZE,
                 kind = AbilityKind.MANUAL
             )
         )
 
         CharacterRace.HALFLING -> listOf(
             Ability(
-                sourceRes = R.string.race_halfling,
-                descriptionRes = R.string.ability_halfling_sell,
+                sourceKey = AbilitySourceKey.HALFLING,
+                descriptionKey = AbilityDescriptionKey.HALFLING_SELL,
                 kind = AbilityKind.MANUAL
             ),
-            // A penalty, not a bonus — and the app applies it to the roll, so it
-            // is automatic like the Elf's. This slot previously held the Dwarf's
-            // hand-size clause, which the Halfling does not have.
             Ability(
-                sourceRes = R.string.race_halfling,
-                descriptionRes = R.string.ability_halfling_run_away,
+                sourceKey = AbilitySourceKey.HALFLING,
+                descriptionKey = AbilityDescriptionKey.HALFLING_RUN_AWAY,
                 kind = AbilityKind.AUTOMATIC
             )
         )
@@ -146,8 +152,7 @@ object Abilities {
     /**
      * Every race modifier that applies to this player's run-away roll, in the
      * order they should be shown. An Elf is +1 and a Halfling is -1, so a
-     * Half-Breed holding both cards nets zero — which is why this returns the
-     * breakdown rather than only the total.
+     * Half-Breed holding both cards nets zero.
      */
     fun runAwayModifiers(player: PlayerState): List<Pair<CharacterRace, Int>> = buildList {
         if (player.hasRace(CharacterRace.ELF)) add(CharacterRace.ELF to 1)
@@ -156,9 +161,6 @@ object Abilities {
 
     /**
      * Net modifier to a run-away roll from the player's races.
-     *
-     * The Halfling's -1 was missing entirely: only the Elf's +1 was ever counted,
-     * so a Halfling saw an unmodified roll.
      */
     fun runAwayBonus(player: PlayerState): Int =
         runAwayModifiers(player).sumOf { it.second }

@@ -7,6 +7,7 @@ import com.munchkin.app.R
 import com.munchkin.app.network.GameClient
 import com.munchkin.app.update.UpdateChecker
 import com.munchkin.app.update.UpdateResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -71,15 +72,24 @@ fun GameViewModel.dismissUpdate() {
 
 fun GameViewModel.downloadUpdate() {
     val info = _updateInfo.value ?: return
-    _isDownloading.value = true
+    val checker = updateChecker ?: return
+    if (_isDownloading.value) return
 
-    updateChecker?.downloadAndInstall(
-        updateInfo = info,
-        onProgress = { /* Could update progress here */ },
-        onComplete = {
+    viewModelScope.launch {
+        _isDownloading.value = true
+        try {
+            val result = checker.downloadAndInstall(info)
+            if (result.isFailure) {
+                val msg = result.exceptionOrNull()?.message
+                    ?: MunchkinApp.context.getString(R.string.error_unknown)
+                _events.emit(GameUiEvent.ShowError(msg))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } finally {
             _isDownloading.value = false
         }
-    )
+    }
 }
 
 fun GameViewModel.loadHistory() {
@@ -94,7 +104,7 @@ fun GameViewModel.loadHistory() {
 
     viewModelScope.launch {
         _uiState.update { it.copy(isLoading = true) }
-        GameClient().getHistory(GameViewModel.SERVER_URL, user.id, token)
+        GameClient().use { it.getHistory(GameViewModel.SERVER_URL, user.id, token) }
             .onSuccess { result ->
                 _uiState.update {
                     it.copy(
@@ -118,12 +128,9 @@ fun GameViewModel.loadLeaderboard() {
     _uiState.update { it.copy(isLoading = true) }
 
     viewModelScope.launch {
-        // Sending the token when we have one lets the server return this player's
-        // own totals alongside the ranking. Reading the ranking itself needs no
-        // account, so an anonymous viewer still gets the list.
         val token = sessionManager?.getAuthToken()
 
-        GameClient().getLeaderboard(GameViewModel.SERVER_URL, token)
+        GameClient().use { it.getLeaderboard(GameViewModel.SERVER_URL, token) }
             .onSuccess { result ->
                 _uiState.update {
                     it.copy(
@@ -145,7 +152,8 @@ fun GameViewModel.updateProfile(
     username: String? = null,
     pass: String? = null,
     avatarId: Int? = null,
-    gender: Gender? = null
+    gender: Gender? = null,
+    currentPassword: String? = null
 ) {
     val currentUser = _uiState.value.userProfile ?: return
     val token = sessionManager?.getAuthToken() ?: run {
@@ -158,13 +166,24 @@ fun GameViewModel.updateProfile(
     _uiState.update { it.copy(isLoading = true, error = null) }
 
     viewModelScope.launch {
-        val result = GameClient().updateProfile(
-            GameViewModel.SERVER_URL, currentUser.id, username, pass, token, avatarId, gender
-        )
+        val result = GameClient().use { client ->
+            client.updateProfile(
+                GameViewModel.SERVER_URL,
+                currentUser.id,
+                username,
+                pass,
+                token,
+                avatarId,
+                gender,
+                currentPassword
+            )
+        }
         if (result.isSuccess) {
-            val updatedUser = result.getOrThrow()
+            val updated = result.getOrThrow()
+            val updatedUser = updated.user
             _uiState.update { it.copy(userProfile = updatedUser, isLoading = false, error = null) }
             sessionManager?.saveSession(updatedUser)
+            updated.token?.let { sessionManager?.saveAuthToken(it) }
             _events.emit(GameUiEvent.ShowMessage(MunchkinApp.context.getString(R.string.profile_updated)))
         } else {
             val error = result.exceptionOrNull()?.message ?: MunchkinApp.context.getString(R.string.error_unknown)
@@ -179,8 +198,9 @@ fun GameViewModel.fetchHostedGames() {
 
     viewModelScope.launch {
         try {
-            val client = GameClient()
-            val result = client.getHostedGames(GameViewModel.SERVER_URL, token)
+            val result = GameClient().use { client ->
+                client.getHostedGames(GameViewModel.SERVER_URL, token)
+            }
 
             if (result.isSuccess) {
                 val games = result.getOrNull() ?: emptyList()
@@ -190,6 +210,8 @@ fun GameViewModel.fetchHostedGames() {
                     android.util.Log.d("GameViewModel", "Fetched ${games.size} hosted games")
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             android.util.Log.e("GameViewModel", "Failed to fetch hosted games", e)
         }
@@ -202,8 +224,9 @@ fun GameViewModel.deleteHostedGame(gameId: String) {
     viewModelScope.launch {
         _uiState.update { it.copy(isLoading = true) }
         try {
-            val client = GameClient()
-            val result = client.deleteHostedGame(GameViewModel.SERVER_URL, token, gameId)
+            val result = GameClient().use { client ->
+                client.deleteHostedGame(GameViewModel.SERVER_URL, token, gameId)
+            }
 
             if (result.isSuccess) {
                 _hostedGames.update { list -> list.filter { it.gameId != gameId } }
@@ -213,6 +236,8 @@ fun GameViewModel.deleteHostedGame(gameId: String) {
             } else {
                 _uiState.update { it.copy(error = result.exceptionOrNull()?.message) }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             _uiState.update { it.copy(error = e.message) }
         } finally {

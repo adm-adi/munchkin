@@ -9,13 +9,7 @@ import com.munchkin.app.network.DiscoveredGame
 import com.munchkin.app.core.Gender
 import com.munchkin.app.core.GameStart
 import com.munchkin.app.ui.components.DebugLogManager as DLog
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.websocket.WebSockets
-import io.ktor.client.plugins.websocket.webSocket
-import io.ktor.websocket.Frame
-import io.ktor.websocket.readText
-import io.ktor.websocket.send
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
@@ -49,6 +43,8 @@ fun GameViewModel.resumeSavedGame() {
             // its own selector and thread pool, and overwriting the field left the
             // old one running — still holding a socket for this same seat.
             gameClient?.disconnect()
+            gameClient?.close()
+            gameClient = null
 
             val client = GameClient()
             val result = client.connect(
@@ -60,6 +56,7 @@ fun GameViewModel.resumeSavedGame() {
             )
 
             if (result.isFailure) {
+                client.close()
                 val friendlyError = getFriendlyErrorMessage(result.exceptionOrNull())
                 _uiState.update {
                     it.copy(
@@ -122,25 +119,32 @@ fun GameViewModel.resumeSavedGame() {
  * CONNECTING and RECONNECTING belong to the existing client; leave them alone.
  */
 fun GameViewModel.checkReconnection() {
-    val saved = _savedGame.value ?: return
+    if (_savedGame.value == null) return
     val client = gameClient
 
-    val shouldResume = when (client?.connectionState?.value) {
+    when (client?.connectionState?.value) {
         null,
         com.munchkin.app.network.ConnectionState.DISCONNECTED,
-        com.munchkin.app.network.ConnectionState.FAILED_PERMANENTLY -> true
-        else -> false
-    }
-
-    if (shouldResume) {
-        android.util.Log.d("GameViewModel", "Auto-reconnecting to saved game...")
-        resumeSavedGame()
+        com.munchkin.app.network.ConnectionState.FAILED_PERMANENTLY -> {
+            android.util.Log.d("GameViewModel", "Auto-reconnecting to saved game...")
+            resumeSavedGame()
+        }
+        com.munchkin.app.network.ConnectionState.CONNECTED,
+        com.munchkin.app.network.ConnectionState.RECONNECTING -> {
+            client.nudge()
+        }
+        com.munchkin.app.network.ConnectionState.CONNECTING -> Unit
     }
 }
 
 fun GameViewModel.retryReconnect() {
     _uiState.update { it.copy(isReconnectFailed = false) }
-    resumeSavedGame()
+    val client = gameClient
+    if (client != null && client.connectionState.value == com.munchkin.app.network.ConnectionState.FAILED_PERMANENTLY) {
+        client.nudge()
+    } else {
+        resumeSavedGame()
+    }
 }
 
 fun GameViewModel.deleteSavedGame() {
@@ -150,28 +154,30 @@ fun GameViewModel.deleteSavedGame() {
         if (saved.isHost) {
             _uiState.update { it.copy(isLoading = true) }
             try {
-                val client = GameClient()
+                GameClient().use { client ->
+                    val playerMeta = PlayerMeta(
+                        playerId = saved.myPlayerId,
+                        name = "Host",
+                        avatarId = 0,
+                        gender = Gender.M,
+                        userId = _uiState.value.userProfile?.id
+                    )
 
-                val playerMeta = PlayerMeta(
-                    playerId = saved.myPlayerId,
-                    name = "Host",
-                    avatarId = 0,
-                    gender = Gender.M,
-                    userId = _uiState.value.userProfile?.id
-                )
-
-                val connectResult = client.connect(
-                    GameViewModel.SERVER_URL,
-                    saved.gameState.joinCode,
-                    playerMeta,
-                    reconnectToken = sessionManager?.getReconnectToken(saved.gameState.joinCode),
-                    authToken = sessionManager?.getAuthToken()
-                )
-                if (connectResult.isSuccess) {
-                    client.sendDeleteGame()
-                    delay(500)
-                    client.disconnect()
+                    val connectResult = client.connect(
+                        GameViewModel.SERVER_URL,
+                        saved.gameState.joinCode,
+                        playerMeta,
+                        reconnectToken = sessionManager?.getReconnectToken(saved.gameState.joinCode),
+                        authToken = sessionManager?.getAuthToken()
+                    )
+                    if (connectResult.isSuccess) {
+                        client.sendDeleteGame()
+                        delay(500)
+                        client.disconnect()
+                    }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 DLog.e("GameVM", "Failed to delete on server: ${e.message}")
             }
@@ -207,6 +213,10 @@ fun GameViewModel.createGame(name: String, avatarId: Int, gender: Gender, timerS
             DLog.i("GameVM", "🎮 Creating game on Hetzner...")
             DLog.i("GameVM", "📡 Server: ${GameViewModel.SERVER_URL}")
 
+            gameClient?.disconnect()
+            gameClient?.close()
+            gameClient = null
+
             val client = GameClient()
             gameClient = client
 
@@ -219,6 +229,8 @@ fun GameViewModel.createGame(name: String, avatarId: Int, gender: Gender, timerS
             )
 
             if (result.isFailure) {
+                gameClient = null
+                client.close()
                 val error = result.exceptionOrNull()?.message ?: "Error desconocido"
                 DLog.e("GameVM", "❌ Create failed: $error")
                 _uiState.update {
@@ -300,6 +312,10 @@ fun GameViewModel.joinGame(
                 userId = user?.id
             )
 
+            gameClient?.disconnect()
+            gameClient?.close()
+            gameClient = null
+
             val client = GameClient()
             val result = client.connect(
                 wsUrl,
@@ -310,6 +326,7 @@ fun GameViewModel.joinGame(
             )
 
             if (result.isFailure) {
+                client.close()
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -363,30 +380,16 @@ fun GameViewModel.startDiscovery() {
     viewModelScope.launch(Dispatchers.IO) {
         _uiState.update { it.copy(isDiscovering = true, discoveredGames = emptyList()) }
         try {
-            val client = HttpClient(CIO) {
-                install(WebSockets)
+            val result = GameClient().use { client ->
+                client.listGames(GameViewModel.SERVER_URL)
             }
-            client.webSocket(GameViewModel.SERVER_URL) {
-                send("{\"type\": \"LIST_GAMES\"}")
-                val frame = incoming.receive()
-                if (frame is Frame.Text) {
-                    val text = frame.readText()
-                    DLog.i("GameViewModel", "Games list response: $text")
-                    val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
-                    val response = json.decodeFromString<GamesListResponse>(text)
-                    val discovered = response.games.map { game ->
-                        DiscoveredGame(
-                            hostName = game.hostName,
-                            joinCode = game.joinCode,
-                            playerCount = game.playerCount,
-                            maxPlayers = game.maxPlayers,
-                            wsUrl = GameViewModel.SERVER_URL
-                        )
-                    }
-                    _uiState.update { it.copy(discoveredGames = discovered) }
-                }
+            result.onSuccess { games ->
+                _uiState.update { it.copy(discoveredGames = games) }
+            }.onFailure { e ->
+                DLog.e("GameViewModel", "Discovery failed: ${e.message}")
             }
-            client.close()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             DLog.e("GameViewModel", "Discovery failed: ${e.message}")
         } finally {
@@ -426,6 +429,8 @@ fun GameViewModel.resumeHostedGame(joinCode: String) {
             )
 
             gameClient?.disconnect()
+            gameClient?.close()
+            gameClient = null
 
             val client = GameClient()
             val result = client.connect(
@@ -437,6 +442,7 @@ fun GameViewModel.resumeHostedGame(joinCode: String) {
             )
 
             if (result.isFailure) {
+                client.close()
                 val friendlyError = getFriendlyErrorMessage(result.exceptionOrNull())
                 _uiState.update {
                     it.copy(

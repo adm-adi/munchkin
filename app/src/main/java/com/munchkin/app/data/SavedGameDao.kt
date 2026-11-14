@@ -30,9 +30,6 @@ interface SavedGameDao {
     @Query("SELECT * FROM saved_games ORDER BY savedAt DESC LIMIT 1")
     fun getLatestSavedGame(): Flow<SavedGameEntity?>
     
-    @Query("SELECT * FROM saved_games WHERE gameId = :gameId")
-    suspend fun getByGameId(gameId: String): SavedGameEntity?
-    
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun save(game: SavedGameEntity)
     

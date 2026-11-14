@@ -1,10 +1,12 @@
 package com.munchkin.app.core
 
+import androidx.compose.runtime.Immutable
+
 /**
  * Combat calculator that evaluates combat outcomes with conditional modifiers.
  */
 object CombatCalculator {
-    
+
     /**
      * Calculate combat result based on current combat state and participating players.
      */
@@ -14,60 +16,56 @@ object CombatCalculator {
     ): CombatResult {
         val mainPlayer = gameState.players[combatState.mainPlayerId]
             ?: return CombatResult(0, 0, CombatOutcome.LOSE)
-        
+
         val helperPlayer = combatState.helperPlayerId?.let { gameState.players[it] }
-        
+
         // Calculate base hero power
         val heroBasePower = mainPlayer.combatPower + (helperPlayer?.combatPower ?: 0)
-        
+
         // Calculate conditional modifiers for heroes (Data Driven)
         val heroConditionalBonus = calculateConditionalBonus(
             monsters = combatState.monsters,
             mainPlayer = mainPlayer,
             helperPlayer = helperPlayer,
-            gameState = gameState,
             side = ModifierSide.HEROES
         )
-        
+
         // Calculate Class/Race intrinsic bonuses (Code Driven)
         val intrinsicHeroBonus = calculateIntrinsicBonuses(
             monsters = combatState.monsters,
             mainPlayer = mainPlayer,
             helperPlayer = helperPlayer
         )
-        
+
         // Calculate temp bonuses for heroes
         val heroTempBonus = combatState.tempBonuses
             .filter { it.appliesTo == BonusTarget.HEROES }
             .sumOf { it.amount }
-        
+
         val heroesPower = heroBasePower + heroConditionalBonus + intrinsicHeroBonus + heroTempBonus + combatState.heroModifier
-        
+
         // Calculate monster power
         val monsterBasePower = combatState.monsters.sumOf { it.basePower }
-        
+
         // Calculate conditional modifiers for monsters
         val monsterConditionalBonus = calculateConditionalBonus(
             monsters = combatState.monsters,
             mainPlayer = mainPlayer,
             helperPlayer = helperPlayer,
-            gameState = gameState,
             side = ModifierSide.MONSTER
         )
-        
+
         // Calculate temp bonuses for monsters
         val monsterTempBonus = combatState.tempBonuses
             .filter { it.appliesTo == BonusTarget.MONSTER }
             .sumOf { it.amount }
-        
+
         val monstersPower = monsterBasePower + monsterConditionalBonus + monsterTempBonus + combatState.monsterModifier
-        
-        // Determine outcome (ties go to monsters unless a hero is a Warrior)
+
+        // Determine outcome (ties go to monsters unless a hero is a Warrior or tiesGoToMonsters is false)
         val isWarriorInvolved = mainPlayer.hasClass(CharacterClass.WARRIOR) ||
             helperPlayer?.hasClass(CharacterClass.WARRIOR) == true
 
-        // The tie rule was hardcoded while GameSettings declared a switch for it,
-        // so the setting was a lie. It is read here and mirrored server-side.
         val heroesWinTies = isWarriorInvolved || !gameState.settings.tiesGoToMonsters
 
         val outcome = if (heroesPower > monstersPower || (heroesPower == monstersPower && heroesWinTies)) {
@@ -75,22 +73,22 @@ object CombatCalculator {
         } else {
             CombatOutcome.LOSE
         }
-        
-        // Sum rewards if won
+
+        // Zero rewards on defeat
         var levels = 0
         var treasures = 0
         var helperLevels = 0
-        
+
         if (outcome == CombatOutcome.WIN) {
             levels = combatState.monsters.sumOf { it.levels }
             treasures = combatState.monsters.sumOf { it.treasures }
-            
+
             // Elf Helper Bonus: Helper gains 1 level per monster defeated if they help and win
             if (combatState.monsters.isNotEmpty() && helperPlayer?.hasRace(CharacterRace.ELF) == true) {
                 helperLevels = combatState.monsters.size
             }
         }
-        
+
         return CombatResult(
             heroesPower = heroesPower,
             monstersPower = monstersPower,
@@ -99,10 +97,11 @@ object CombatCalculator {
             totalTreasures = treasures,
             warriorTieBreak = heroesPower == monstersPower && isWarriorInvolved,
             helperLevelsGained = helperLevels,
-            isWarriorInvolved = isWarriorInvolved
+            isWarriorInvolved = isWarriorInvolved,
+            heroesWinTies = heroesWinTies
         )
     }
-    
+
     /**
      * Calculate intrinsic bonuses from Class/Race traits (e.g. Cleric vs Undead).
      */
@@ -113,17 +112,16 @@ object CombatCalculator {
     ): Int {
         var bonus = 0
         val isUndeadPresent = monsters.any { it.isUndead }
-        
-        // Cleric: +3 vs Undead. Goes through hasClass so Super Munchkin
-        // (Warrior + Cleric, say) still grants it.
+
+        // Cleric: +3 vs Undead. Goes through hasClass so Super Munchkin still grants it.
         if (isUndeadPresent) {
             if (mainPlayer.hasClass(CharacterClass.CLERIC)) bonus += 3
             if (helperPlayer?.hasClass(CharacterClass.CLERIC) == true) bonus += 3
         }
-        
+
         return bonus
     }
-    
+
     /**
      * Calculate total bonus from conditional modifiers for a given side.
      */
@@ -131,22 +129,20 @@ object CombatCalculator {
         monsters: List<MonsterInstance>,
         mainPlayer: PlayerState,
         helperPlayer: PlayerState?,
-        gameState: GameState,
         side: ModifierSide
     ): Int {
         var totalBonus = 0
-        
+
         for (monster in monsters) {
             for (modifier in monster.conditionalModifiers) {
                 if (modifier.side != side) continue
-                
+
                 val matchCount = countMatches(
                     modifier = modifier,
                     mainPlayer = mainPlayer,
-                    helperPlayer = helperPlayer,
-                    gameState = gameState
+                    helperPlayer = helperPlayer
                 )
-                
+
                 if (matchCount > 0) {
                     totalBonus += when (modifier.applyMode) {
                         ApplyMode.ONCE_IF_MATCH -> modifier.amount
@@ -155,61 +151,46 @@ object CombatCalculator {
                 }
             }
         }
-        
+
         return totalBonus
     }
-    
+
     /**
      * Count how many players match a condition based on scope.
      */
     private fun countMatches(
         modifier: ConditionalModifier,
         mainPlayer: PlayerState,
-        helperPlayer: PlayerState?,
-        gameState: GameState
+        helperPlayer: PlayerState?
     ): Int {
         val playersToCheck = when (modifier.scope) {
             ModifierScope.MAIN_ONLY -> listOf(mainPlayer)
             ModifierScope.HELPER_ONLY -> listOfNotNull(helperPlayer)
             ModifierScope.ANY_PARTICIPANT -> listOfNotNull(mainPlayer, helperPlayer)
         }
-        
+
         return playersToCheck.count { player ->
-            matchesCondition(modifier, player, gameState)
+            matchesCondition(modifier, player)
         }
     }
-    
+
     /**
-     * Check if a player matches a condition.
+     * Check if a player matches a condition using canonical enum names.
      */
     private fun matchesCondition(
         modifier: ConditionalModifier,
-        player: PlayerState,
-        gameState: GameState
+        player: PlayerState
     ): Boolean {
-        // Enum lookups go through find rather than valueOf + catch: this runs for
-        // every monster x modifier x participant, and a miss is the normal path
-        // (the value is then treated as a catalog EntryId), not an error.
         return when (modifier.conditionType) {
             ConditionType.RACE_ID -> {
                 val raceName = modifier.conditionValue.uppercase()
                 val raceEnum = CharacterRace.entries.find { it.name == raceName }
-                if (raceEnum != null) {
-                    // Half-Breed means a card condition can match either race.
-                    player.hasRace(raceEnum) || player.characterRace == raceEnum
-                } else {
-                    player.raceIds.contains(EntryId(modifier.conditionValue))
-                }
+                raceEnum != null && (player.hasRace(raceEnum) || player.characterRace == raceEnum)
             }
             ConditionType.CLASS_ID -> {
                 val className = modifier.conditionValue.uppercase()
                 val classEnum = CharacterClass.entries.find { it.name == className }
-                if (classEnum != null) {
-                    // Super Munchkin means a card condition can match either class.
-                    player.hasClass(classEnum) || player.characterClass == classEnum
-                } else {
-                    player.classIds.contains(EntryId(modifier.conditionValue))
-                }
+                classEnum != null && (player.hasClass(classEnum) || player.characterClass == classEnum)
             }
             ConditionType.GENDER -> {
                 val targetGender = Gender.entries.find { it.name == modifier.conditionValue }
@@ -217,7 +198,7 @@ object CombatCalculator {
             }
         }
     }
-    
+
     /**
      * Get a detailed breakdown of combat power sources.
      */
@@ -227,34 +208,40 @@ object CombatCalculator {
     ): CombatBreakdown {
         val mainPlayer = gameState.players[combatState.mainPlayerId]
             ?: return CombatBreakdown.empty()
-        
+
         val helperPlayer = combatState.helperPlayerId?.let { gameState.players[it] }
-        
+
         val heroSources = mutableListOf<PowerSource>()
         val monsterSources = mutableListOf<PowerSource>()
-        
+
         // Main player base
-        heroSources.add(PowerSource(
-            label = "${mainPlayer.name} (base)",
-            amount = mainPlayer.combatPower
-        ))
-        
+        heroSources.add(
+            PowerSource(
+                label = "${mainPlayer.name} (base)",
+                amount = mainPlayer.combatPower
+            )
+        )
+
         // Helper base
         helperPlayer?.let {
-            heroSources.add(PowerSource(
-                label = "${it.name} (ayudante)",
-                amount = it.combatPower
-            ))
+            heroSources.add(
+                PowerSource(
+                    label = "${it.name} (ayudante)",
+                    amount = it.combatPower
+                )
+            )
         }
-        
+
         // Monster bases
         for (monster in combatState.monsters) {
-            monsterSources.add(PowerSource(
-                label = "${monster.name} (nivel ${monster.baseLevel})",
-                amount = monster.basePower
-            ))
+            monsterSources.add(
+                PowerSource(
+                    label = "${monster.name} (nivel ${monster.baseLevel})",
+                    amount = monster.basePower
+                )
+            )
         }
-        
+
         // Temp bonuses
         for (bonus in combatState.tempBonuses) {
             val source = PowerSource(label = bonus.label, amount = bonus.amount)
@@ -264,20 +251,22 @@ object CombatCalculator {
             }
         }
 
-        // Manual +/- modifiers. calculateResult() folds these into the totals, so
-        // omitting them here made the breakdown fail to add up to the displayed
-        // result — an unbounded discrepancy now that the ±20 cap is gone.
+        // Manual +/- modifiers
         if (combatState.heroModifier != 0) {
-            heroSources.add(PowerSource(
-                label = "Modificador manual",
-                amount = combatState.heroModifier
-            ))
+            heroSources.add(
+                PowerSource(
+                    label = "Modificador manual",
+                    amount = combatState.heroModifier
+                )
+            )
         }
         if (combatState.monsterModifier != 0) {
-            monsterSources.add(PowerSource(
-                label = "Modificador manual",
-                amount = combatState.monsterModifier
-            ))
+            monsterSources.add(
+                PowerSource(
+                    label = "Modificador manual",
+                    amount = combatState.monsterModifier
+                )
+            )
         }
 
         // Intrinsic Bonuses (e.g. Class Abilities)
@@ -290,38 +279,40 @@ object CombatCalculator {
                 heroSources.add(PowerSource("Ayudante Clérigo vs No-Muerto", 3))
             }
         }
-        
+
         // Conditional modifiers (Data Driven)
         val conditionalHero = calculateConditionalBonus(
             monsters = combatState.monsters,
             mainPlayer = mainPlayer,
             helperPlayer = helperPlayer,
-            gameState = gameState,
             side = ModifierSide.HEROES
         )
         if (conditionalHero != 0) {
-            heroSources.add(PowerSource(
-                label = "Modificadores carta",
-                amount = conditionalHero
-            ))
+            heroSources.add(
+                PowerSource(
+                    label = "Modificadores carta",
+                    amount = conditionalHero
+                )
+            )
         }
-        
+
         val conditionalMonster = calculateConditionalBonus(
             monsters = combatState.monsters,
             mainPlayer = mainPlayer,
             helperPlayer = helperPlayer,
-            gameState = gameState,
             side = ModifierSide.MONSTER
         )
         if (conditionalMonster != 0) {
-            monsterSources.add(PowerSource(
-                label = "Modificadores carta",
-                amount = conditionalMonster
-            ))
+            monsterSources.add(
+                PowerSource(
+                    label = "Modificadores carta",
+                    amount = conditionalMonster
+                )
+            )
         }
-        
+
         val result = calculateResult(combatState, gameState)
-        
+
         return CombatBreakdown(
             heroSources = heroSources,
             monsterSources = monsterSources,
@@ -333,6 +324,7 @@ object CombatCalculator {
 /**
  * Power source for combat breakdown display.
  */
+@Immutable
 data class PowerSource(
     val label: String,
     val amount: Int
@@ -341,6 +333,7 @@ data class PowerSource(
 /**
  * Full combat breakdown for UI display.
  */
+@Immutable
 data class CombatBreakdown(
     val heroSources: List<PowerSource>,
     val monsterSources: List<PowerSource>,
@@ -348,7 +341,7 @@ data class CombatBreakdown(
 ) {
     val totalHeroPower: Int get() = heroSources.sumOf { it.amount }
     val totalMonsterPower: Int get() = monsterSources.sumOf { it.amount }
-    
+
     companion object {
         fun empty() = CombatBreakdown(
             heroSources = emptyList(),

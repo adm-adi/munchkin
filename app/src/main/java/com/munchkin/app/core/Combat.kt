@@ -1,13 +1,15 @@
 package com.munchkin.app.core
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 
 /**
- * Combat models for Munchkin combat resolution
+ * Combat models for Munchkin combat resolution.
  */
 
 // ============== Combat State ==============
 
+@Immutable
 @Serializable
 data class CombatState(
     val mainPlayerId: PlayerId,
@@ -22,6 +24,7 @@ data class CombatState(
 
 // ============== Monster Instance ==============
 
+@Immutable
 @Serializable
 data class MonsterInstance(
     val id: String,
@@ -42,13 +45,14 @@ data class MonsterInstance(
 
 // ============== Conditional Modifier ==============
 
+@Immutable
 @Serializable
 data class ConditionalModifier(
     val id: String,
     val amount: Int,
     val side: ModifierSide,
     val conditionType: ConditionType,
-    val conditionValue: String,  // EntryId for race/class, "M"/"F"/"NA" for gender
+    val conditionValue: String,  // Enum name for race/class, "M"/"F"/"NA" for gender
     val scope: ModifierScope = ModifierScope.ANY_PARTICIPANT,
     val applyMode: ApplyMode = ApplyMode.ONCE_IF_MATCH
 )
@@ -61,8 +65,8 @@ enum class ModifierSide {
 
 @Serializable
 enum class ConditionType {
-    RACE_ID,    // Match by race catalog entry ID
-    CLASS_ID,   // Match by class catalog entry ID  
+    RACE_ID,    // Match by CharacterRace enum name
+    CLASS_ID,   // Match by CharacterClass enum name
     GENDER      // Match by gender (M/F/NA)
 }
 
@@ -81,6 +85,7 @@ enum class ApplyMode {
 
 // ============== Temporary Bonus ==============
 
+@Immutable
 @Serializable
 data class TempBonus(
     val id: String,
@@ -97,6 +102,7 @@ enum class BonusTarget {
 
 // ============== Combat Result ==============
 
+@Immutable
 @Serializable
 data class CombatResult(
     val heroesPower: Int,
@@ -106,28 +112,26 @@ data class CombatResult(
     val totalLevels: Int = 0,
     val warriorTieBreak: Boolean = false,
     val helperLevelsGained: Int = 0,
-    val isWarriorInvolved: Boolean = false
+    val isWarriorInvolved: Boolean = false,
+    val heroesWinTies: Boolean = isWarriorInvolved
 ) {
     val diff: Int get() = kotlin.math.abs(heroesPower - monstersPower)
-    
+
     /**
      * Power needed to turn a Loss into a Win.
      * 0 if already winning.
      */
-    val marginToWin: Int get() {
-        if (outcome == CombatOutcome.WIN) return 0
-        
-        // If loss:
-        // Warrior wins ties -> needs to reach monster power (diff)
-        // Others lose ties -> needs to exceed monster power (diff + 1)
-        val gap = monstersPower - heroesPower
-        return if (isWarriorInvolved) gap else gap + 1
-    }
+    val marginToWin: Int
+        get() {
+            if (outcome == CombatOutcome.WIN) return 0
+            val gap = monstersPower - heroesPower
+            return if (heroesWinTies) maxOf(gap, 0) else gap + 1
+        }
 }
 
 @Serializable
 enum class CombatOutcome {
-    WIN,    // Heroes win (heroesPower > monstersPower)
-    LOSE,   // Monsters win (monstersPower >= heroesPower, ties go to monsters)
+    WIN,    // Heroes win (heroesPower > monstersPower, or >= if heroesWinTies)
+    LOSE,   // Monsters win
     ESCAPE  // Heroes escaped — no rewards, no level penalty
 }

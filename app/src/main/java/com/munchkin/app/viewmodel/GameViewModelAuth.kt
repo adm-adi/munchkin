@@ -7,6 +7,7 @@ import com.munchkin.app.network.GameClient
 import com.munchkin.app.core.Gender
 import com.munchkin.app.ui.theme.AvatarResources
 import com.munchkin.app.network.ServerConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -28,8 +29,9 @@ fun GameViewModel.register(
     viewModelScope.launch {
         _uiState.update { it.copy(isLoading = true, error = null) }
         try {
-            val client = GameClient() // Temp instance
-            val result = client.register(ServerConfig.WS_URL, username, email, pass, avatarId, gender)
+            val result = GameClient().use { client ->
+                client.register(ServerConfig.WS_URL, username, email, pass, avatarId, gender)
+            }
 
             if (result.isSuccess) {
                 val authData = result.getOrNull()
@@ -53,6 +55,8 @@ fun GameViewModel.register(
                     it.copy(isLoading = false, error = result.exceptionOrNull()?.message)
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             _uiState.update { it.copy(isLoading = false, error = e.message) }
         }
@@ -63,8 +67,9 @@ fun GameViewModel.login(email: String, pass: String) {
     viewModelScope.launch {
         _uiState.update { it.copy(isLoading = true, error = null) }
         try {
-            val client = GameClient()
-            val result = client.login(ServerConfig.WS_URL, email, pass)
+            val result = GameClient().use { client ->
+                client.login(ServerConfig.WS_URL, email, pass)
+            }
 
             if (result.isSuccess) {
                 val authData = result.getOrNull()
@@ -88,6 +93,8 @@ fun GameViewModel.login(email: String, pass: String) {
                     it.copy(isLoading = false, error = result.exceptionOrNull()?.message)
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             _uiState.update { it.copy(isLoading = false, error = e.message) }
         }

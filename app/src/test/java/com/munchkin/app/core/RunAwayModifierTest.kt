@@ -66,14 +66,18 @@ class RunAwayModifierTest {
         val abilities = Abilities.forRace(CharacterRace.HALFLING)
         assertTrue(
             "the run-away penalty must be listed",
-            abilities.any { it.descriptionRes == com.munchkin.app.R.string.ability_halfling_run_away }
+            abilities.any {
+                it.sourceKey == AbilitySourceKey.HALFLING &&
+                    it.descriptionKey == AbilityDescriptionKey.HALFLING_RUN_AWAY
+            }
         )
         assertTrue(
             "the app applies it to the roll, so it is automatic",
             abilities.any {
-                it.descriptionRes == com.munchkin.app.R.string.ability_halfling_run_away &&
+                it.descriptionKey == AbilityDescriptionKey.HALFLING_RUN_AWAY &&
                     it.kind == AbilityKind.AUTOMATIC
             }
         )
+        assertEquals(5, Abilities.RUN_AWAY_THRESHOLD)
     }
 }

@@ -82,7 +82,7 @@ fun LogEntryItem(entry: GameLogEntry) {
         
         val color = when(entry.type) {
             LogType.LEVEL_UP -> Color(0xFF4CAF50) // Green
-            LogType.combat -> Color(0xFFF44336)   // Red
+            LogType.COMBAT -> Color(0xFFF44336)   // Red
             LogType.GAME_EVENT -> Color(0xFF2196F3) // Blue
             else -> Color.White
         }

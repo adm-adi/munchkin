@@ -4,70 +4,124 @@ import org.junit.Assert.*
 import org.junit.Test
 
 /**
- * Unit tests for race/class trait validation.
+ * Unit tests for enum-based race/class trait validation and reducer rules.
  */
 class TraitValidationTest {
-    
+
+    private val p1Id = PlayerId("test")
+
+    private fun gameWith(player: PlayerState) = GameState(
+        gameId = GameId("g1"),
+        joinCode = "ABCD",
+        hostId = p1Id,
+        players = mapOf(p1Id to player)
+    )
+
     @Test
-    fun `player without half-breed can have max 1 race`() {
+    fun `player without half-breed has max 1 active race`() {
         val player = PlayerState(
-            playerId = PlayerId("test"),
+            playerId = p1Id,
             name = "Test",
+            characterRace = CharacterRace.ELF,
+            secondaryRace = CharacterRace.DWARF,
             hasHalfBreed = false
         )
-        
+
         assertEquals(1, player.maxRaces)
-        assertTrue(player.canAddRace)
-        
-        val playerWithRace = player.copy(raceIds = listOf(EntryId("race1")))
-        assertFalse(playerWithRace.canAddRace)
+        assertEquals(listOf(CharacterRace.ELF), player.activeRaces)
+        assertTrue(player.hasRace(CharacterRace.ELF))
+        assertFalse(player.hasRace(CharacterRace.DWARF))
     }
-    
+
     @Test
-    fun `player with half-breed can have max 2 races`() {
+    fun `player with half-breed can have 2 distinct active races`() {
         val player = PlayerState(
-            playerId = PlayerId("test"),
+            playerId = p1Id,
             name = "Test",
+            characterRace = CharacterRace.ELF,
+            secondaryRace = CharacterRace.DWARF,
             hasHalfBreed = true
         )
-        
+
         assertEquals(2, player.maxRaces)
-        assertTrue(player.canAddRace)
-        
-        val playerWith1Race = player.copy(raceIds = listOf(EntryId("race1")))
-        assertTrue(playerWith1Race.canAddRace)
-        
-        val playerWith2Races = player.copy(raceIds = listOf(EntryId("race1"), EntryId("race2")))
-        assertFalse(playerWith2Races.canAddRace)
+        assertEquals(listOf(CharacterRace.ELF, CharacterRace.DWARF), player.activeRaces)
+        assertTrue(player.hasRace(CharacterRace.ELF))
+        assertTrue(player.hasRace(CharacterRace.DWARF))
     }
-    
+
     @Test
-    fun `player without super munchkin can have max 1 class`() {
+    fun `player without super munchkin has max 1 active class`() {
         val player = PlayerState(
-            playerId = PlayerId("test"),
+            playerId = p1Id,
             name = "Test",
+            characterClass = CharacterClass.WARRIOR,
+            secondaryClass = CharacterClass.WIZARD,
             hasSuperMunchkin = false
         )
-        
+
         assertEquals(1, player.maxClasses)
-        assertTrue(player.canAddClass)
-        
-        val playerWithClass = player.copy(classIds = listOf(EntryId("class1")))
-        assertFalse(playerWithClass.canAddClass)
+        assertEquals(listOf(CharacterClass.WARRIOR), player.activeClasses)
+        assertTrue(player.hasClass(CharacterClass.WARRIOR))
+        assertFalse(player.hasClass(CharacterClass.WIZARD))
     }
-    
+
     @Test
-    fun `player with super munchkin can have max 2 classes`() {
+    fun `player with super munchkin can have 2 distinct active classes`() {
         val player = PlayerState(
-            playerId = PlayerId("test"),
+            playerId = p1Id,
             name = "Test",
+            characterClass = CharacterClass.WARRIOR,
+            secondaryClass = CharacterClass.WIZARD,
             hasSuperMunchkin = true
         )
-        
+
         assertEquals(2, player.maxClasses)
-        assertTrue(player.canAddClass)
-        
-        val playerWith2Classes = player.copy(classIds = listOf(EntryId("class1"), EntryId("class2")))
-        assertFalse(playerWith2Classes.canAddClass)
+        assertEquals(listOf(CharacterClass.WARRIOR, CharacterClass.WIZARD), player.activeClasses)
+        assertTrue(player.hasClass(CharacterClass.WARRIOR))
+        assertTrue(player.hasClass(CharacterClass.WIZARD))
+    }
+
+    @Test
+    fun `reducer clears duplicate or disabled secondary class and race`() {
+        var state = gameWith(
+            PlayerState(
+                playerId = p1Id,
+                name = "Test",
+                characterClass = CharacterClass.WARRIOR,
+                characterRace = CharacterRace.ELF,
+                hasSuperMunchkin = true,
+                hasHalfBreed = true
+            )
+        )
+
+        // Setting secondary equal to primary clears secondary to NONE/HUMAN
+        state = GameEngine.reduce(
+            state,
+            SetClass("e1", p1Id, 1L, p1Id, CharacterClass.WARRIOR, isSecondary = true)
+        )
+        assertEquals(CharacterClass.NONE, state.players[p1Id]!!.secondaryClass)
+
+        state = GameEngine.reduce(
+            state,
+            SetRace("e2", p1Id, 2L, p1Id, CharacterRace.ELF, isSecondary = true)
+        )
+        assertEquals(CharacterRace.HUMAN, state.players[p1Id]!!.secondaryRace)
+
+        // Setting distinct secondary works, then disabling flag clears it
+        state = GameEngine.reduce(
+            state,
+            SetClass("e3", p1Id, 3L, p1Id, CharacterClass.CLERIC, isSecondary = true)
+        )
+        state = GameEngine.reduce(
+            state,
+            SetRace("e4", p1Id, 4L, p1Id, CharacterRace.DWARF, isSecondary = true)
+        )
+        assertEquals(CharacterClass.CLERIC, state.players[p1Id]!!.secondaryClass)
+        assertEquals(CharacterRace.DWARF, state.players[p1Id]!!.secondaryRace)
+
+        state = GameEngine.reduce(state, SetSuperMunchkin("e5", p1Id, 5L, p1Id, enabled = false))
+        state = GameEngine.reduce(state, SetHalfBreed("e6", p1Id, 6L, p1Id, enabled = false))
+        assertEquals(CharacterClass.NONE, state.players[p1Id]!!.secondaryClass)
+        assertEquals(CharacterRace.HUMAN, state.players[p1Id]!!.secondaryRace)
     }
 }

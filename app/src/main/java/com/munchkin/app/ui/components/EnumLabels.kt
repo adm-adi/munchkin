@@ -4,6 +4,8 @@ import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.munchkin.app.R
+import com.munchkin.app.core.AbilityDescriptionKey
+import com.munchkin.app.core.AbilitySourceKey
 import com.munchkin.app.core.CharacterClass
 import com.munchkin.app.core.CharacterRace
 
@@ -37,3 +39,38 @@ fun CharacterClass.label(): String = stringResource(labelRes())
 
 @Composable
 fun CharacterRace.label(): String = stringResource(labelRes())
+
+@StringRes
+fun AbilitySourceKey.labelRes(): Int = when (this) {
+    AbilitySourceKey.WARRIOR -> R.string.class_warrior
+    AbilitySourceKey.WIZARD -> R.string.class_wizard
+    AbilitySourceKey.THIEF -> R.string.class_thief
+    AbilitySourceKey.CLERIC -> R.string.class_cleric
+    AbilitySourceKey.ELF -> R.string.race_elf
+    AbilitySourceKey.DWARF -> R.string.race_dwarf
+    AbilitySourceKey.HALFLING -> R.string.race_halfling
+}
+
+@StringRes
+fun AbilityDescriptionKey.labelRes(): Int = when (this) {
+    AbilityDescriptionKey.WARRIOR_TIES -> R.string.ability_warrior_ties
+    AbilityDescriptionKey.WARRIOR_BERSERK -> R.string.ability_warrior_berserk
+    AbilityDescriptionKey.WIZARD_CHARM -> R.string.ability_wizard_charm
+    AbilityDescriptionKey.WIZARD_FLIGHT -> R.string.ability_wizard_flight
+    AbilityDescriptionKey.THIEF_BACKSTAB -> R.string.ability_thief_backstab
+    AbilityDescriptionKey.THIEF_STEAL -> R.string.ability_thief_steal
+    AbilityDescriptionKey.CLERIC_UNDEAD -> R.string.ability_cleric_undead
+    AbilityDescriptionKey.CLERIC_RESURRECT -> R.string.ability_cleric_resurrect
+    AbilityDescriptionKey.ELF_HELP_LEVEL -> R.string.ability_elf_help_level
+    AbilityDescriptionKey.ELF_RUN_AWAY -> R.string.ability_elf_run_away
+    AbilityDescriptionKey.DWARF_BIG_ITEMS -> R.string.ability_dwarf_big_items
+    AbilityDescriptionKey.DWARF_HAND_SIZE -> R.string.ability_dwarf_hand_size
+    AbilityDescriptionKey.HALFLING_SELL -> R.string.ability_halfling_sell
+    AbilityDescriptionKey.HALFLING_RUN_AWAY -> R.string.ability_halfling_run_away
+}
+
+@Composable
+fun AbilitySourceKey.label(): String = stringResource(labelRes())
+
+@Composable
+fun AbilityDescriptionKey.label(): String = stringResource(labelRes())

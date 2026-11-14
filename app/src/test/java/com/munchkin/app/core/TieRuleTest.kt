@@ -84,6 +84,36 @@ class TieRuleTest {
         val result = CombatCalculator.calculateResult(tiedCombat(), game)
         assertTrue(result.heroesPower < result.monstersPower)
         assertEquals(CombatOutcome.LOSE, result.outcome)
+        assertEquals("when heroes win ties, marginToWin equals gap (maxOf(gap, 0))", 1, result.marginToWin)
+    }
+
+    @Test
+    fun `marginToWin reflects tiesGoToMonsters and warrior tie-break on defeat`() {
+        val monster = CombatState(
+            mainPlayerId = PlayerId("p1"),
+            monsters = listOf(MonsterInstance(id = "m1", name = "Monstruo", baseLevel = 5))
+        )
+
+        val defaultLose = CombatCalculator.calculateResult(
+            monster,
+            gameOf(GameSettings(tiesGoToMonsters = true), player(level = 4))
+        )
+        assertEquals(CombatOutcome.LOSE, defaultLose.outcome)
+        assertEquals("default tie rule needs gap + 1 to exceed monster", 2, defaultLose.marginToWin)
+
+        val heroTiesLose = CombatCalculator.calculateResult(
+            monster,
+            gameOf(GameSettings(tiesGoToMonsters = false), player(level = 4))
+        )
+        assertEquals(CombatOutcome.LOSE, heroTiesLose.outcome)
+        assertEquals("tiesGoToMonsters=false only needs to match monster", 1, heroTiesLose.marginToWin)
+
+        val warriorLose = CombatCalculator.calculateResult(
+            monster,
+            gameOf(GameSettings(tiesGoToMonsters = true), player(level = 4, klass = CharacterClass.WARRIOR))
+        )
+        assertEquals(CombatOutcome.LOSE, warriorLose.outcome)
+        assertEquals("warrior only needs to match monster", 1, warriorLose.marginToWin)
     }
 
     @Test

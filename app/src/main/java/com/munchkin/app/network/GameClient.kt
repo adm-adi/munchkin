@@ -1,17 +1,25 @@
 package com.munchkin.app.network
 
 import android.util.Log
+import com.munchkin.app.BuildConfig
 import com.munchkin.app.core.*
+import com.munchkin.app.ui.components.DebugLogManager as DLog
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.websocket.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import com.munchkin.app.ui.components.DebugLogManager as DLog
+import java.io.Closeable
+import java.util.UUID
+import kotlin.random.Random
 
 /**
  * Custom exception representing a backend error code.
@@ -19,64 +27,110 @@ import com.munchkin.app.ui.components.DebugLogManager as DLog
 class ServerErrorException(val code: ErrorCode, message: String) : Exception(message)
 
 /**
- * WebSocket client for joining a game as a non-host player.
+ * WebSocket client for joining and interacting with a remote Munchkin game room,
+ * plus one-off account, catalog, discovery, and history RPC helpers.
  */
-class GameClient {
+class GameClient : Closeable {
     companion object {
         private const val TAG = "GameClient"
-        private const val RECONNECT_DELAY_MS = 1000L
-        private const val MAX_RECONNECT_DELAY_MS = 30_000L  // cap at 30 seconds
-        private const val MAX_RECONNECT_ATTEMPTS = 15       // was 5
+        private const val RECONNECT_DELAY_MS = 1_000L
+        private const val MAX_RECONNECT_DELAY_MS = 30_000L
+        private const val MAX_RECONNECT_ATTEMPTS = 15
+
+        private const val RESPONSE_TIMEOUT_MS = 15_000L
+        private const val CLOCK_SYNC_INTERVAL_MS = 20_000L
+        private const val PING_TIMEOUT_MS = 5_000L
+
+        private const val CONNECT_TIMEOUT_MS = 8_000L
+        private const val REQUEST_TIMEOUT_MS = 15_000L
+        private const val SOCKET_TIMEOUT_MS = 15_000L
+
+        private val WS_URL_REGEX = Regex("""^(wss?)://([^:/?#]+)(?::(\d+))?(/[^?#]*)?$""", RegexOption.IGNORE_CASE)
+
+        private val TERMINAL_ERROR_CODES = setOf(
+            ErrorCode.GAME_NOT_FOUND,
+            ErrorCode.GAME_FINISHED,
+            ErrorCode.INVALID_JOIN_CODE,
+            ErrorCode.UNAUTHORIZED,
+            ErrorCode.FORBIDDEN
+        )
 
         /**
-         * Every server reply is awaited with a timeout. A server that completes the
-         * WebSocket handshake but never answers would otherwise leave the caller
-         * suspended forever, stranding the UI on "Conectando…" with no way out.
+         * Parses a `ws://` or `wss://` server URL into `(host, port, path)`.
+         * Rejects plaintext `ws://` URLs unless [allowInsecure] is true (debug builds).
          */
-        private const val RESPONSE_TIMEOUT_MS = 15_000L
+        internal fun parseWsUrl(
+            url: String,
+            allowInsecure: Boolean = BuildConfig.DEBUG
+        ): Triple<String, Int, String>? {
+            val match = WS_URL_REGEX.find(url.trim()) ?: return null
+            val scheme = match.groupValues[1].lowercase()
+            val isSecure = scheme == "wss"
+            if (!isSecure && !allowInsecure) {
+                return null
+            }
 
-        /** How often to re-measure the server clock offset. */
-        private const val CLOCK_SYNC_INTERVAL_MS = 20_000L
+            val host = match.groupValues[2]
+            if (host.isEmpty()) return null
+
+            val portGroup = match.groupValues[3]
+            val port = if (portGroup.isEmpty()) {
+                if (isSecure) 443 else 80
+            } else {
+                portGroup.toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
+            }
+
+            val path = match.groupValues[4].ifEmpty { "/" }
+            return Triple(host, port, path)
+        }
     }
 
     /** Thrown when the server accepts the connection but does not reply in time. */
     class ServerTimeoutException : Exception("El servidor no respondió a tiempo")
 
-    /**
-     * Receives the next frame, or fails instead of suspending indefinitely.
-     */
     private suspend fun WebSocketSession.receiveWithTimeout(): Frame =
         withTimeoutOrNull(RESPONSE_TIMEOUT_MS) { incoming.receive() }
             ?: throw ServerTimeoutException()
-    
-    private var client: HttpClient? = null
+
+    private val httpClientLock = Any()
+    @Volatile
+    private var sharedHttpClient: HttpClient? = null
+    @Volatile
+    private var isClosed = false
+
+    private val lifecycleMutex = Mutex()
+    private val stateLock = Any()
+
+    @Volatile
     private var session: WebSocketSession? = null
-    private var scope: CoroutineScope? = null
+    private var clientScope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var activeSessionJob: Job? = null
+    private var clockSyncJob: Job? = null
     private var reconnectJob: Job? = null
-    
+
+    private val nudgeChannel = Channel<Unit>(Channel.CONFLATED)
+    private val pingTriggerChannel = Channel<Unit>(Channel.CONFLATED)
+
     private var lastUrl: String? = null
     private var lastJoinCode: String? = null
     private var lastPlayerMeta: PlayerMeta? = null
     private var lastReconnectToken: String? = null
     private var lastAuthToken: String? = null
 
+    private var lastSeq: Long = 0L
+
     // Persistent engine — reused across events to avoid allocating a new instance per message
     private var gameEngine: GameEngine? = null
-    
+
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
-    
+
     private val _gameState = MutableStateFlow<GameState?>(null)
     val gameState: StateFlow<GameState?> = _gameState.asStateFlow()
-    
+
     private val _myPlayerId = MutableStateFlow<PlayerId?>(null)
     val myPlayerId: StateFlow<PlayerId?> = _myPlayerId.asStateFlow()
-    
-    // Buffered on purpose: with the default (replay = 0, extraBufferCapacity = 0)
-    // emit() suspends until a collector receives the value. An ERROR arriving while
-    // nothing was collecting — app backgrounded, collector not yet attached — stalled
-    // the WebSocket read loop indefinitely. DROP_OLDEST keeps the socket moving even
-    // if errors outpace the UI.
+
     private val _errors = MutableSharedFlow<String>(
         extraBufferCapacity = 16,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
@@ -86,60 +140,34 @@ class GameClient {
     private val _reconnectAttempt = MutableStateFlow(0)
     val reconnectAttempt: StateFlow<Int> = _reconnectAttempt.asStateFlow()
 
-    /**
-     * The seat's current reconnect token, republished every time the server
-     * rotates it (which is on every WELCOME, including the ones the internal
-     * backoff loop triggers).
-     *
-     * Exposed as a flow so persistence happens wherever the token changes. It
-     * used to be saved only at the explicit join call sites, so after the first
-     * automatic reconnect the stored copy was stale and a guest who lost the
-     * process could no longer reclaim their seat.
-     */
     private val _reconnectToken = MutableStateFlow<String?>(null)
     val reconnectToken: StateFlow<String?> = _reconnectToken.asStateFlow()
 
-    /**
-     * Set for the whole of [disconnect] so the read loop's `finally` does not
-     * mistake a deliberate teardown for a dropped connection. Without it, closing
-     * the session made the loop exit, call handleDisconnect(), and spawn a
-     * reconnect loop on a scope that [disconnect] does not own — silently
-     * rejoining the game the user had just left.
-     */
+    private val _lastCloseReason = MutableStateFlow<CloseReason?>(null)
+    val lastCloseReason: StateFlow<CloseReason?> = _lastCloseReason.asStateFlow()
+
     @Volatile
     private var isShuttingDown = false
 
-    /** Signals that the host deleted the room. Carries the server's reason. */
     private val _gameDeleted = MutableSharedFlow<String>(
         extraBufferCapacity = 4,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val gameDeleted: SharedFlow<String> = _gameDeleted.asSharedFlow()
 
-    /**
-     * Estimated difference between the server's clock and this device's, in ms.
-     *
-     * Deadlines such as `turnEndsAt` are server timestamps. Comparing them against
-     * System.currentTimeMillis() made the countdown wrong by however far the phone's
-     * clock drifted, while the server still cut the turn on its own schedule.
-     * Add this to a local time to get server time.
-     */
     private val _serverTimeOffsetMs = MutableStateFlow(0L)
     val serverTimeOffsetMs: StateFlow<Long> = _serverTimeOffsetMs.asStateFlow()
 
-    /** Last measured round-trip time, in ms. */
     private val _latencyMs = MutableStateFlow(0L)
     val latencyMs: StateFlow<Long> = _latencyMs.asStateFlow()
 
-    /** When the outstanding PING was sent, by the local clock. */
+    @Volatile
     private var pingSentAtMs: Long? = null
-    
+
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
         classDiscriminator = "type"
-        // Unknown enum values fall back to the property default instead of
-        // throwing, so a server that adds an error code cannot break this client.
         coerceInputValues = true
     }
 
@@ -148,9 +176,49 @@ class GameClient {
 
     val currentReconnectToken: String?
         get() = _reconnectToken.value
-    
+
     fun isConnected(): Boolean = _connectionState.value == ConnectionState.CONNECTED
-    
+
+    private fun getOrCreateHttpClient(): HttpClient {
+        sharedHttpClient?.let { if (!isClosed) return it }
+        return synchronized(httpClientLock) {
+            check(!isClosed) { "GameClient has been closed" }
+            sharedHttpClient ?: HttpClient(CIO) {
+                install(WebSockets) {
+                    pingInterval = 15_000
+                }
+                install(HttpTimeout) {
+                    connectTimeoutMillis = CONNECT_TIMEOUT_MS
+                    requestTimeoutMillis = REQUEST_TIMEOUT_MS
+                    socketTimeoutMillis = SOCKET_TIMEOUT_MS
+                }
+            }.also { sharedHttpClient = it }
+        }
+    }
+
+    private fun ensureScope(): CoroutineScope {
+        if (!clientScope.isActive) {
+            clientScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        }
+        return clientScope
+    }
+
+    private suspend fun resetActiveSessionLocked() {
+        reconnectJob?.cancel()
+        reconnectJob = null
+        clockSyncJob?.cancel()
+        clockSyncJob = null
+        activeSessionJob?.cancel()
+        activeSessionJob = null
+        try {
+            session?.close(CloseReason(CloseReason.Codes.NORMAL, "Replacing session"))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+        session = null
+    }
+
     /**
      * Create a new game on the remote server.
      */
@@ -162,103 +230,113 @@ class GameClient {
         authToken: String? = null
     ): Result<GameState> = withContext(Dispatchers.IO) {
         try {
-            DLog.i(TAG, "Creating game on $serverUrl")
-            beginSession()
-            _connectionState.value = ConnectionState.CONNECTING
-            
-            // Store for reconnection
-            lastUrl = serverUrl
-            lastPlayerMeta = playerMeta
-            lastAuthToken = authToken
-            
-            // Close any previous engine before replacing it: each CIO client owns a
-            // selector and thread pool, so overwriting the field leaked one engine per
-            // reconnect attempt (up to MAX_RECONNECT_ATTEMPTS per session).
-            client?.close()
-            client = HttpClient(CIO) {
-                install(WebSockets) {
-                    pingInterval = 15_000
+            reconnectJob?.cancel()
+            reconnectJob = null
+
+            lifecycleMutex.withLock {
+                if (isClosed) {
+                    return@withContext Result.failure(IllegalStateException("GameClient has been closed"))
                 }
-            }
-            
-            // Parse URL
-            val urlParts = parseWsUrl(serverUrl)
-            if (urlParts == null) {
-                DLog.e(TAG, "Invalid URL: $serverUrl")
-                _connectionState.value = ConnectionState.DISCONNECTED
-                return@withContext Result.failure(Exception("URL inválida: $serverUrl"))
-            }
-            
-            val (host, port, path) = urlParts
-            DLog.i(TAG, "Connecting to $host:$port$path")
 
-            scope?.cancel()
-            scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-            
-            // Use Deferred to signal result while keeping connection open
-            val resultDeferred = kotlinx.coroutines.CompletableDeferred<Result<GameState>>()
-            
-            // Launch the WebSocket session in background - it will stay open
-            scope?.launch {
-                try {
-                    client!!.webSocket(urlString = "${"wss".takeIf { serverUrl.startsWith("wss://") } ?: "ws"}://$host:$port$path") {
-                        session = this
-                        DLog.i(TAG, "Connected, sending CreateGame...")
+                DLog.i(TAG, "Creating game on $serverUrl")
+                beginSession()
+                resetActiveSessionLocked()
+                _connectionState.value = ConnectionState.CONNECTING
 
-                        val authResult = authenticateIfNeeded(authToken)
-                        if (authResult.isFailure) {
-                            _connectionState.value = ConnectionState.DISCONNECTED
-                            resultDeferred.complete(Result.failure(authResult.exceptionOrNull() ?: Exception("Auth failed")))
-                            return@webSocket
-                        }
+                lastUrl = serverUrl
+                lastPlayerMeta = playerMeta
+                lastAuthToken = authToken
 
-                        val createRequest = CreateGameRequest(
-                            playerMeta = playerMeta,
-                            superMunchkin = superMunchkin,
-                            turnTimerSeconds = turnTimerSeconds
-                        )
-                        send(json.encodeToString<WsMessage>(createRequest))
-                        DLog.i(TAG, "Waiting for welcome...")
-                        
-                        // Wait for welcome
-                        val welcomeResult = waitForWelcome()
-                        
-                        if (welcomeResult.isFailure) {
-                            DLog.e(TAG, "Welcome failed: ${welcomeResult.exceptionOrNull()?.message}")
-                            _connectionState.value = ConnectionState.DISCONNECTED
-                            resultDeferred.complete(Result.failure(welcomeResult.exceptionOrNull() ?: Exception("Welcome failed")))
-                            return@webSocket
-                        }
-                        
-                        DLog.i(TAG, "✅ Welcome received!")
-                        _connectionState.value = ConnectionState.CONNECTED
-                        lastJoinCode = _gameState.value?.joinCode
-                        
-                        // Signal success to caller
-                        resultDeferred.complete(Result.success(_gameState.value!!))
-                        
-                        // NOW stay in this block handling messages - keeps connection open!
-                        handleIncomingMessages()
-                    }
-                } catch (e: Exception) {
-                    DLog.e(TAG, "Connection error: ${e.message}")
-                    if (!resultDeferred.isCompleted) {
-                        resultDeferred.complete(Result.failure(e))
-                    }
+                val wsUrl = buildWsUrl(serverUrl)
+                if (wsUrl == null) {
+                    DLog.e(TAG, "Invalid URL: $serverUrl")
                     _connectionState.value = ConnectionState.DISCONNECTED
+                    return@withContext Result.failure(Exception("URL inválida: $serverUrl"))
                 }
+
+                val httpClient = getOrCreateHttpClient()
+                val scope = ensureScope()
+                val resultDeferred = CompletableDeferred<Result<GameState>>()
+
+                activeSessionJob = scope.launch {
+                    try {
+                        httpClient.webSocket(urlString = wsUrl) {
+                            session = this
+                            DLog.i(TAG, "Connected, sending CreateGame...")
+
+                            val authResult = authenticateIfNeeded(authToken)
+                            if (authResult.isFailure) {
+                                _connectionState.value = ConnectionState.DISCONNECTED
+                                resultDeferred.complete(
+                                    Result.failure(authResult.exceptionOrNull() ?: Exception("Auth failed"))
+                                )
+                                return@webSocket
+                            }
+
+                            val createRequest = CreateGameRequest(
+                                playerMeta = playerMeta,
+                                superMunchkin = superMunchkin,
+                                turnTimerSeconds = turnTimerSeconds
+                            )
+                            send(json.encodeToString<WsMessage>(createRequest))
+                            DLog.i(TAG, "Waiting for welcome...")
+
+                            val welcomeResult = waitForWelcome()
+                            if (welcomeResult.isFailure) {
+                                DLog.e(TAG, "Welcome failed: ${welcomeResult.exceptionOrNull()?.message}")
+                                _connectionState.value = ConnectionState.DISCONNECTED
+                                resultDeferred.complete(
+                                    Result.failure(welcomeResult.exceptionOrNull() ?: Exception("Welcome failed"))
+                                )
+                                return@webSocket
+                            }
+
+                            val createdState = synchronized(stateLock) { _gameState.value }
+                            if (createdState == null) {
+                                _connectionState.value = ConnectionState.DISCONNECTED
+                                resultDeferred.complete(Result.failure(Exception("No game state")))
+                                return@webSocket
+                            }
+
+                            DLog.i(TAG, "Welcome received!")
+                            lastJoinCode = createdState.joinCode
+                            _connectionState.value = ConnectionState.CONNECTED
+                            resultDeferred.complete(Result.success(createdState))
+
+                            startClockSync(this)
+                            handleIncomingMessages()
+                        }
+                    } catch (e: CancellationException) {
+                        if (!resultDeferred.isCompleted) {
+                            resultDeferred.complete(Result.failure(e))
+                        }
+                        throw e
+                    } catch (e: Exception) {
+                        DLog.e(TAG, "Connection error: ${e.message}")
+                        if (!resultDeferred.isCompleted) {
+                            resultDeferred.complete(Result.failure(e))
+                        }
+                        if (!isShuttingDown) {
+                            _connectionState.value = ConnectionState.DISCONNECTED
+                        }
+                    } finally {
+                        if (!resultDeferred.isCompleted) {
+                            resultDeferred.complete(Result.failure(Exception("Conexión cerrada antes de recibir respuesta")))
+                        }
+                    }
+                }
+
+                resultDeferred.await()
             }
-            
-            // Wait for result (but WebSocket stays open in background)
-            resultDeferred.await()
-            
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             DLog.e(TAG, "CreateGame failed: ${e.message}")
             _connectionState.value = ConnectionState.DISCONNECTED
             Result.failure(e)
         }
     }
-    
+
     /**
      * Connect to a game server.
      */
@@ -269,124 +347,159 @@ class GameClient {
         reconnectToken: String? = null,
         authToken: String? = null
     ): Result<GameState> = withContext(Dispatchers.IO) {
-        try {
-            DLog.i(TAG, "Connecting to $wsUrl with code $joinCode")
-            Log.i(TAG, "Connecting to $wsUrl with code $joinCode")
-            beginSession()
-            _connectionState.value = ConnectionState.CONNECTING
-            
-            // Store for reconnection
+        reconnectJob?.cancel()
+        reconnectJob = null
+        lifecycleMutex.withLock {
+            connectInternal(
+                wsUrl = wsUrl,
+                joinCode = joinCode,
+                playerMeta = playerMeta,
+                reconnectToken = reconnectToken,
+                authToken = authToken,
+                isReconnect = false
+            )
+        }
+    }
+
+    private suspend fun connectInternal(
+        wsUrl: String,
+        joinCode: String,
+        playerMeta: PlayerMeta,
+        reconnectToken: String? = null,
+        authToken: String? = null,
+        isReconnect: Boolean
+    ): Result<GameState> {
+        if (isClosed) {
+            return Result.failure(IllegalStateException("GameClient has been closed"))
+        }
+
+        return try {
+            DLog.i(TAG, "Connecting to $wsUrl with code $joinCode (reconnect=$isReconnect)")
+            if (!isReconnect) {
+                beginSession()
+                _connectionState.value = ConnectionState.CONNECTING
+            } else {
+                _connectionState.value = ConnectionState.RECONNECTING
+            }
+
+            // Close any previous dangling socket/clock job without cancelling an outer reconnect loop
+            clockSyncJob?.cancel()
+            clockSyncJob = null
+            activeSessionJob?.cancel()
+            activeSessionJob = null
+            try {
+                session?.close(CloseReason(CloseReason.Codes.NORMAL, "Replacing session"))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+            session = null
+
             lastUrl = wsUrl
             lastJoinCode = joinCode
             lastPlayerMeta = playerMeta
             lastReconnectToken = reconnectToken
             lastAuthToken = authToken
-            
-            // Close the previous engine first. connect() is called once per reconnect
-            // attempt, so overwriting this field without closing leaked a CIO engine
-            // (selector + thread pool) on every retry.
-            client?.close()
-            client = HttpClient(CIO) {
-                install(WebSockets) {
-                    pingInterval = 15_000
-                }
-            }
-            
-            // Parse URL
-            val urlParts = parseWsUrl(wsUrl)
-            if (urlParts == null) {
-                DLog.e(TAG, "Invalid URL format: $wsUrl")
-                Log.e(TAG, "Invalid URL format: $wsUrl")
-                _connectionState.value = ConnectionState.DISCONNECTED
-                return@withContext Result.failure(Exception("URL inválida: $wsUrl"))
-            }
-            
-            val (host, port, path) = urlParts
-            DLog.i(TAG, "Parsed -> $host:$port$path")
-            Log.i(TAG, "Parsed URL -> host=$host, port=$port, path=$path")
 
-            // Connect
-            scope?.cancel()
-            scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-            
-            // Use Deferred to signal result while keeping connection open
-            val resultDeferred = kotlinx.coroutines.CompletableDeferred<Result<GameState>>()
-            
-            // Launch the WebSocket session in background - it will stay open
-            scope?.launch {
+            val normalizedUrl = buildWsUrl(wsUrl)
+            if (normalizedUrl == null) {
+                DLog.e(TAG, "Invalid URL format: $wsUrl")
+                if (!isReconnect) {
+                    _connectionState.value = ConnectionState.DISCONNECTED
+                }
+                return Result.failure(Exception("URL inválida: $wsUrl"))
+            }
+
+            val httpClient = getOrCreateHttpClient()
+            val scope = ensureScope()
+            val resultDeferred = CompletableDeferred<Result<GameState>>()
+
+            activeSessionJob = scope.launch {
                 try {
                     DLog.i(TAG, "Opening WebSocket...")
-                    Log.i(TAG, "Opening WebSocket connection...")
-                    client!!.webSocket(urlString = "${"wss".takeIf { wsUrl.startsWith("wss://") } ?: "ws"}://$host:$port$path") {
+                    httpClient.webSocket(urlString = normalizedUrl) {
                         session = this
                         DLog.i(TAG, "WS connected, sending hello")
-                        Log.i(TAG, "WebSocket connected, sending hello...")
 
                         val authResult = authenticateIfNeeded(authToken)
                         if (authResult.isFailure) {
-                            _connectionState.value = ConnectionState.DISCONNECTED
-                            resultDeferred.complete(Result.failure(authResult.exceptionOrNull() ?: Exception("Auth failed")))
+                            if (!isReconnect) {
+                                _connectionState.value = ConnectionState.DISCONNECTED
+                            }
+                            resultDeferred.complete(
+                                Result.failure(authResult.exceptionOrNull() ?: Exception("Auth failed"))
+                            )
                             return@webSocket
                         }
-                        
-                        // Send hello
+
                         val hello = HelloMessage(
-                            gameId = "",  // Will be validated by join code
+                            gameId = "",
                             joinCode = joinCode,
                             playerMeta = playerMeta,
                             reconnectToken = reconnectToken
                         )
                         send(json.encodeToString<WsMessage>(hello))
-                        Log.i(TAG, "Hello sent, waiting for welcome...")
-                        
-                        // Wait for welcome or error
+
                         val welcomeResult = waitForWelcome()
-                        
                         if (welcomeResult.isFailure) {
                             Log.e(TAG, "Welcome failed: ${welcomeResult.exceptionOrNull()?.message}")
-                            _connectionState.value = ConnectionState.DISCONNECTED
-                            resultDeferred.complete(Result.failure(welcomeResult.exceptionOrNull() ?: Exception("Welcome failed")))
+                            if (!isReconnect) {
+                                _connectionState.value = ConnectionState.DISCONNECTED
+                            }
+                            resultDeferred.complete(
+                                Result.failure(welcomeResult.exceptionOrNull() ?: Exception("Welcome failed"))
+                            )
                             return@webSocket
                         }
-                        
-                        Log.i(TAG, "Welcome received! GameState set.")
-                        _connectionState.value = ConnectionState.CONNECTED
-                        
-                        // Signal success to caller
-                        val state = _gameState.value
-                        if (state != null) {
-                            resultDeferred.complete(Result.success(state))
-                        } else {
+
+                        val state = synchronized(stateLock) { _gameState.value }
+                        if (state == null) {
+                            if (!isReconnect) {
+                                _connectionState.value = ConnectionState.DISCONNECTED
+                            }
                             resultDeferred.complete(Result.failure(Exception("No game state")))
                             return@webSocket
                         }
-                        
-                        // Keep the server clock offset fresh while connected.
-                        startClockSync(this)
 
-                        // NOW stay in this block handling messages - keeps connection open!
+                        _connectionState.value = ConnectionState.CONNECTED
+                        resultDeferred.complete(Result.success(state))
+
+                        startClockSync(this)
                         handleIncomingMessages()
                     }
+                } catch (e: CancellationException) {
+                    if (!resultDeferred.isCompleted) {
+                        resultDeferred.complete(Result.failure(e))
+                    }
+                    throw e
                 } catch (e: Exception) {
                     DLog.e(TAG, "WS error: ${e.message}")
                     Log.e(TAG, "WebSocket exception: ${e.message}", e)
                     if (!resultDeferred.isCompleted) {
                         resultDeferred.complete(Result.failure(e))
                     }
-                    _connectionState.value = ConnectionState.DISCONNECTED
+                    if (!isReconnect && !isShuttingDown) {
+                        _connectionState.value = ConnectionState.DISCONNECTED
+                    }
+                } finally {
+                    if (!resultDeferred.isCompleted) {
+                        resultDeferred.complete(Result.failure(Exception("Conexión cerrada antes de recibir respuesta")))
+                    }
                 }
             }
-            
-            // Wait for result (but WebSocket stays open in background)
+
             resultDeferred.await()
-            
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Connection failed with exception", e)
-            _connectionState.value = ConnectionState.DISCONNECTED
+            if (!isReconnect && !isShuttingDown) {
+                _connectionState.value = ConnectionState.DISCONNECTED
+            }
             Result.failure(e)
         }
     }
-    
+
     private suspend fun WebSocketSession.authenticateIfNeeded(token: String?): Result<Unit> {
         if (token.isNullOrBlank()) return Result.success(Unit)
 
@@ -399,9 +512,14 @@ class GameClient {
 
             when (val message = json.decodeFromString<WsMessage>(frame.readText())) {
                 is AuthSuccessMessage -> Result.success(Unit)
-                is ErrorMessage -> Result.failure(ServerErrorException(message.code, message.message))
+                is ErrorMessage -> {
+                    _errors.emit(message.message)
+                    Result.failure(ServerErrorException(message.code, message.message))
+                }
                 else -> Result.failure(Exception("Respuesta de autenticacion inesperada"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -412,36 +530,39 @@ class GameClient {
      */
     private suspend fun WebSocketSession.waitForWelcome(): Result<Unit> {
         val frame = receiveWithTimeout()
-        
+
         if (frame !is Frame.Text) {
             return Result.failure(Exception("Respuesta inesperada"))
         }
-        
+
         val message = try {
             json.decodeFromString<WsMessage>(frame.readText())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            return Result.failure(Exception("Error al parsear respuesta"))
+            return Result.failure(Exception("Error al parsear respuesta", e))
         }
-        
+
         return when (message) {
             is WelcomeMessage -> {
-                _gameState.value = message.gameState
-                _myPlayerId.value = message.yourPlayerId
-                lastReconnectToken = message.reconnectToken
-                _reconnectToken.value = message.reconnectToken
-                // (Re-)initialize the persistent engine on every welcome/reconnect
-                val engine = GameEngine()
-                engine.loadState(message.gameState)
-                gameEngine = engine
+                synchronized(stateLock) {
+                    _gameState.value = message.gameState
+                    _myPlayerId.value = message.yourPlayerId
+                    lastReconnectToken = message.reconnectToken
+                    _reconnectToken.value = message.reconnectToken
+                    lastSeq = message.gameState.seq
+                    val engine = GameEngine()
+                    engine.loadState(message.gameState)
+                    gameEngine = engine
+                }
                 Result.success(Unit)
             }
             is StateSnapshotMessage -> {
-                _gameState.value = message.gameState
-                // Re-sync engine to authoritative snapshot
-                gameEngine?.loadState(message.gameState) ?: run {
-                    val engine = GameEngine()
+                synchronized(stateLock) {
+                    _gameState.value = message.gameState
+                    lastSeq = message.seq
+                    val engine = gameEngine ?: GameEngine().also { gameEngine = it }
                     engine.loadState(message.gameState)
-                        gameEngine = engine
                 }
                 Result.success(Unit)
             }
@@ -452,7 +573,7 @@ class GameClient {
             else -> Result.failure(Exception("Respuesta inesperada"))
         }
     }
-    
+
     /**
      * Handle incoming messages in a loop.
      */
@@ -462,57 +583,65 @@ class GameClient {
                 when (frame) {
                     is Frame.Text -> {
                         val text = frame.readText()
-                        // Log size only, not content: WELCOME carries a reconnectToken
-                        // and AUTH_SUCCESS carries a JWT. The decoded type is logged
-                        // just below, which is what is actually useful when debugging.
-                        DLog.i(TAG, "📩 Received message (${text.length} chars)")
+                        DLog.i(TAG, "Received message (${text.length} chars)")
                         val message = try {
                             json.decodeFromString<WsMessage>(text)
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             DLog.e(TAG, "Failed to parse: ${e.message}")
                             Log.e(TAG, "Failed to parse message", e)
                             continue
                         }
-                        
-                        DLog.i(TAG, "✅ Parsed as: ${message::class.simpleName}")
+
+                        DLog.i(TAG, "Parsed as: ${message::class.simpleName}")
                         try {
                             handleMessage(message)
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             DLog.e(TAG, "Error handling message: ${e.message}")
                             Log.e(TAG, "Error handling message", e)
                         }
                     }
                     is Frame.Close -> {
-                        Log.i(TAG, "Server closed connection")
+                        val reason = frame.readReason()
+                        _lastCloseReason.value = reason
+                        Log.i(TAG, "Server closed connection: code=${reason?.code}, message=${reason?.message}")
                         break
                     }
-                    else -> { /* Ignore */ }
+                    else -> Unit
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Message loop error", e)
         } finally {
+            if (session === this) {
+                session = null
+            }
+            clockSyncJob?.cancel()
+            clockSyncJob = null
             handleDisconnect()
         }
     }
-    
+
     /**
      * Handle a received message.
      */
     private suspend fun handleMessage(message: WsMessage) {
         when (message) {
             is StateSnapshotMessage -> {
-                _gameState.value = message.gameState
-                // Keep persistent engine in sync with server snapshots
-                gameEngine?.loadState(message.gameState) ?: run {
-                    val engine = GameEngine()
+                synchronized(stateLock) {
+                    _gameState.value = message.gameState
+                    lastSeq = message.seq
+                    val engine = gameEngine ?: GameEngine().also { gameEngine = it }
                     engine.loadState(message.gameState)
-                    gameEngine = engine
                 }
             }
             is EventBroadcastMessage -> {
-                // Apply event to local state
-                applyEvent(message.event)
+                applyEvent(message.event, message.seq)
             }
             is PlayerStatusMessage -> {
                 updatePlayerStatus(message.playerId, message.isConnected)
@@ -521,8 +650,6 @@ class GameClient {
                 _errors.emit(message.message)
             }
             is PongMessage -> {
-                // Estimate the clock offset, assuming the round trip is symmetric:
-                // the server's timestamp corresponds to roughly halfway through.
                 val sentAt = pingSentAtMs
                 if (sentAt != null) {
                     pingSentAtMs = null
@@ -534,10 +661,6 @@ class GameClient {
                 }
             }
             is GameDeletedMessage -> {
-                // A dedicated signal, not an error string: the ViewModel used to
-                // recognise this by comparing against the exact Spanish sentence,
-                // so any rewording (or a translation) silently skipped the local
-                // cleanup that follows it.
                 _gameDeleted.emit(message.reason)
                 disconnect()
             }
@@ -546,115 +669,224 @@ class GameClient {
             }
         }
     }
-    
+
     /**
-     * Periodically pings the server so [serverTimeOffsetMs] tracks clock drift.
-     *
-     * Nothing sent a PING before, which left the PONG handler unreachable and the
-     * latency reading permanently at zero.
+     * Periodically pings the server so [serverTimeOffsetMs] tracks clock drift and
+     * enforces a 5s PONG timeout to detect silently dropped links promptly.
      */
-    private fun startClockSync(session: WebSocketSession) {
-        scope?.launch {
-            while (isActive) {
+    private fun startClockSync(targetSession: WebSocketSession) {
+        clockSyncJob?.cancel()
+        clockSyncJob = ensureScope().launch {
+            while (isActive && session === targetSession && !isShuttingDown) {
                 try {
-                    pingSentAtMs = System.currentTimeMillis()
-                    session.send(json.encodeToString<WsMessage>(PingMessage()))
-                } catch (e: Exception) {
-                    // The socket is going away; the message loop handles reconnection.
+                    val sentAt = System.currentTimeMillis()
+                    pingSentAtMs = sentAt
+                    targetSession.send(json.encodeToString<WsMessage>(PingMessage()))
+                    delay(PING_TIMEOUT_MS)
+
+                    val pending = pingSentAtMs
+                    if (pending != null && pending == sentAt && session === targetSession && !isShuttingDown) {
+                        DLog.w(TAG, "PONG timeout after ${PING_TIMEOUT_MS}ms; closing session")
+                        try {
+                            targetSession.close(
+                                CloseReason(CloseReason.Codes.GOING_AWAY, "Ping timeout")
+                            )
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                        }
+                        return@launch
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
                     return@launch
                 }
-                delay(CLOCK_SYNC_INTERVAL_MS)
+
+                val remainingDelay = (CLOCK_SYNC_INTERVAL_MS - PING_TIMEOUT_MS).coerceAtLeast(1_000L)
+                withTimeoutOrNull(remainingDelay) {
+                    pingTriggerChannel.receive()
+                }
             }
         }
     }
 
     /**
-     * Apply a server-broadcast event to local game state using the persistent engine.
-     * Avoids allocating a new GameEngine instance on every incoming broadcast.
+     * Triggers an immediate reconnect attempt (when reconnecting or permanently failed)
+     * or an immediate ping/PONG check (when connected).
      */
-    private fun applyEvent(event: GameEvent) {
-        val engine = gameEngine ?: run {
-            // Edge case: event arrives before WELCOME (e.g. during reconnect race).
-            // Bootstrap from current state and promote as the persistent engine.
-            val s = _gameState.value ?: return
-            GameEngine().also { it.loadState(s); gameEngine = it }
+    fun nudge() {
+        when (_connectionState.value) {
+            ConnectionState.CONNECTED -> {
+                pingTriggerChannel.trySend(Unit)
+            }
+            ConnectionState.RECONNECTING -> {
+                if (reconnectJob?.isActive == true) {
+                    nudgeChannel.trySend(Unit)
+                } else {
+                    attemptReconnect()
+                }
+            }
+            ConnectionState.FAILED_PERMANENTLY -> {
+                if (!isShuttingDown && !isClosed && lastUrl != null && lastJoinCode != null && lastPlayerMeta != null) {
+                    beginSession()
+                    _connectionState.value = ConnectionState.RECONNECTING
+                    attemptReconnect()
+                    nudgeChannel.trySend(Unit)
+                }
+            }
+            ConnectionState.CONNECTING,
+            ConnectionState.DISCONNECTED -> Unit
         }
-        // applyRemoteEvent, not processEvent: the server already validated this
-        // event, and local re-validation silently dropped legitimate updates.
-        engine.applyRemoteEvent(event)
-        _gameState.value = engine.gameState.value
     }
-    
+
     /**
-     * Update player connection status in local state.
+     * Apply a server-broadcast event to local game state using the persistent engine.
+     */
+    private fun applyEvent(event: GameEvent, seq: Long) {
+        synchronized(stateLock) {
+            if (lastSeq > 0L && seq <= lastSeq) {
+                DLog.w(TAG, "Ignoring stale or duplicate event seq=$seq (lastSeq=$lastSeq)")
+                return
+            }
+            if (lastSeq > 0L && seq > lastSeq + 1L) {
+                DLog.w(TAG, "Sequence mismatch: expected=${lastSeq + 1}, received=$seq")
+                Log.w(TAG, "Sequence mismatch: expected=${lastSeq + 1}, received=$seq")
+            }
+            lastSeq = seq
+
+            val engine = gameEngine ?: run {
+                val s = _gameState.value ?: return
+                GameEngine().also { it.loadState(s); gameEngine = it }
+            }
+            engine.applyRemoteEvent(event)
+            _gameState.value = engine.gameState.value
+        }
+    }
+
+    /**
+     * Update player connection status in local state under [stateLock].
      */
     private fun updatePlayerStatus(playerId: PlayerId, isConnected: Boolean) {
-        val currentState = _gameState.value ?: return
-        val player = currentState.players[playerId] ?: return
-        
-        val updatedPlayer = player.copy(isConnected = isConnected)
-        _gameState.value = currentState.copy(
-            players = currentState.players + (playerId to updatedPlayer)
-        )
+        synchronized(stateLock) {
+            val engine = gameEngine
+            if (engine != null) {
+                engine.updatePlayerStatus(playerId, isConnected)
+                _gameState.value = engine.gameState.value
+            } else {
+                val currentState = _gameState.value ?: return
+                val player = currentState.players[playerId] ?: return
+                val updatedPlayer = player.copy(isConnected = isConnected)
+                _gameState.value = currentState.copy(
+                    players = currentState.players + (playerId to updatedPlayer)
+                )
+            }
+        }
     }
-    
+
     /**
      * Handle disconnection.
      */
-    private suspend fun handleDisconnect() {
-        if (isShuttingDown || _connectionState.value == ConnectionState.DISCONNECTED) return
+    private fun handleDisconnect() {
+        if (isShuttingDown || isClosed || _connectionState.value == ConnectionState.DISCONNECTED) return
 
         _connectionState.value = ConnectionState.RECONNECTING
         attemptReconnect()
     }
-    
-    /**
-     * Attempt to reconnect with exponential backoff (1s, 2s, 4s, 8s, 16s, 30s cap).
-     * Emits attempt counter so the UI can show progress.
-     * Sets FAILED_PERMANENTLY after all attempts are exhausted.
-     */
-    private suspend fun attemptReconnect() {
-        val url = lastUrl ?: return
-        val code = lastJoinCode ?: return
-        val meta = lastPlayerMeta ?: return
 
-        reconnectJob = CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+    /**
+     * Attempt to reconnect with exponential backoff + jitter (0..25%).
+     * Stops immediately on terminal server error codes and sets [ConnectionState.FAILED_PERMANENTLY].
+     */
+    private fun attemptReconnect() {
+        val url = lastUrl ?: run {
+            _connectionState.value = ConnectionState.DISCONNECTED
+            return
+        }
+        val code = lastJoinCode ?: run {
+            _connectionState.value = ConnectionState.DISCONNECTED
+            return
+        }
+        val meta = lastPlayerMeta ?: run {
+            _connectionState.value = ConnectionState.DISCONNECTED
+            return
+        }
+
+        if (reconnectJob?.isActive == true) return
+        while (nudgeChannel.tryReceive().isSuccess) {
+            // Drain stale signals before entering backoff loop.
+        }
+
+        reconnectJob = ensureScope().launch {
             var attempts = 0
 
-            while (attempts < MAX_RECONNECT_ATTEMPTS && isActive) {
-                // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s, 30s, ...
-                val delayMs = minOf(RECONNECT_DELAY_MS * (1L shl attempts), MAX_RECONNECT_DELAY_MS)
-                _reconnectAttempt.value = attempts + 1
-                Log.i(TAG, "Reconnect attempt ${attempts + 1}/$MAX_RECONNECT_ATTEMPTS (delay: ${delayMs}ms)")
-                delay(delayMs)
+            while (attempts < MAX_RECONNECT_ATTEMPTS && isActive && !isShuttingDown && !isClosed) {
+                val baseDelay = minOf(
+                    RECONNECT_DELAY_MS * (1L shl attempts.coerceAtMost(10)),
+                    MAX_RECONNECT_DELAY_MS
+                )
+                val jitter = (baseDelay * Random.nextDouble(0.0, 0.25)).toLong()
+                val delayMs = baseDelay + jitter
 
-                val result = connect(url, code, meta, lastReconnectToken, lastAuthToken)
+                _reconnectAttempt.value = attempts + 1
+                _connectionState.value = ConnectionState.RECONNECTING
+                Log.i(TAG, "Reconnect attempt ${attempts + 1}/$MAX_RECONNECT_ATTEMPTS (delay: ${delayMs}ms)")
+
+                withTimeoutOrNull(delayMs) {
+                    nudgeChannel.receive()
+                }
+                if (!isActive || isShuttingDown || isClosed) return@launch
+
+                val result = lifecycleMutex.withLock {
+                    if (!isActive || isShuttingDown || isClosed) return@launch
+                    connectInternal(
+                        wsUrl = url,
+                        joinCode = code,
+                        playerMeta = meta,
+                        reconnectToken = lastReconnectToken,
+                        authToken = lastAuthToken,
+                        isReconnect = true
+                    )
+                }
+
                 if (result.isSuccess) {
-                    Log.i(TAG, "✅ Reconnected successfully on attempt ${attempts + 1}")
+                    Log.i(TAG, "Reconnected successfully on attempt ${attempts + 1}")
                     _reconnectAttempt.value = 0
+                    return@launch
+                }
+
+                val error = result.exceptionOrNull()
+                if (error is ServerErrorException && error.code in TERMINAL_ERROR_CODES) {
+                    Log.w(TAG, "Terminal reconnect error (${error.code}): ${error.message}")
+                    _reconnectAttempt.value = 0
+                    _connectionState.value = ConnectionState.FAILED_PERMANENTLY
                     return@launch
                 }
 
                 attempts++
             }
 
-            Log.e(TAG, "❌ Failed to reconnect after $MAX_RECONNECT_ATTEMPTS attempts")
-            _reconnectAttempt.value = 0
-            _connectionState.value = ConnectionState.FAILED_PERMANENTLY
+            if (!isShuttingDown && !isClosed) {
+                Log.e(TAG, "Failed to reconnect after $MAX_RECONNECT_ATTEMPTS attempts")
+                _reconnectAttempt.value = 0
+                _connectionState.value = ConnectionState.FAILED_PERMANENTLY
+            }
         }
     }
-    
+
     /**
      * Send an event request to the server.
      */
     suspend fun sendEvent(event: GameEvent): Result<Unit> {
         val currentSession = session ?: return Result.failure(Exception("No conectado"))
-        
+
         return try {
             val msg = EventRequestMessage(event)
             val jsonStr = json.encodeToString<WsMessage>(msg)
             currentSession.send(jsonStr)
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -667,6 +899,22 @@ class GameClient {
             val jsonStr = json.encodeToString<WsMessage>(msg)
             currentSession.send(jsonStr)
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun sendTransferHost(targetPlayerId: PlayerId): Result<Unit> {
+        val currentSession = session ?: return Result.failure(Exception("No conectado"))
+        return try {
+            val msg = TransferHostMessage(targetPlayerId)
+            val jsonStr = json.encodeToString<WsMessage>(msg)
+            currentSession.send(jsonStr)
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -674,58 +922,86 @@ class GameClient {
 
     suspend fun sendDeleteGame(): Result<Unit> {
         val currentSession = session ?: return Result.failure(Exception("No conectado"))
-        
+
         return try {
             val msg = DeleteGameMessage()
             val jsonStr = json.encodeToString<WsMessage>(msg)
             currentSession.send(jsonStr)
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    
     /**
-     * Disconnect from the server.
+     * Disconnect from the server while keeping the client instance reusable.
+     * Call [close] when the client is permanently discarded.
      */
     suspend fun disconnect() {
-        // Before anything else: closing the session below makes the read loop
-        // exit into its `finally`, and that must not be read as a dropped link.
         isShuttingDown = true
         _connectionState.value = ConnectionState.DISCONNECTED
 
         reconnectJob?.cancel()
         reconnectJob = null
+        clockSyncJob?.cancel()
+        clockSyncJob = null
+        activeSessionJob?.cancel()
+        activeSessionJob = null
 
-        try {
-            session?.close(CloseReason(CloseReason.Codes.NORMAL, "Client disconnecting"))
-        } catch (e: Exception) {
-            Log.w(TAG, "Error closing session", e)
+        withContext(NonCancellable) {
+            lifecycleMutex.withLock {
+                try {
+                    session?.close(CloseReason(CloseReason.Codes.NORMAL, "Client disconnecting"))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error closing session", e)
+                }
+
+                session = null
+                synchronized(stateLock) {
+                    gameEngine = null
+                    lastSeq = 0L
+                }
+                _reconnectAttempt.value = 0
+                pingSentAtMs = null
+                _serverTimeOffsetMs.value = 0L
+                _latencyMs.value = 0L
+                _lastCloseReason.value = null
+
+                clientScope.cancel()
+                if (!isClosed) {
+                    clientScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+                }
+
+                _connectionState.value = ConnectionState.DISCONNECTED
+            }
         }
-        
-        session = null
-        client?.close()
-        client = null
-        scope?.cancel()
-        scope = null
-        gameEngine = null         // Reset so a fresh engine is created on next WELCOME
-        _reconnectAttempt.value = 0
-        pingSentAtMs = null
-        _serverTimeOffsetMs.value = 0L
-        _latencyMs.value = 0L
-
-        _connectionState.value = ConnectionState.DISCONNECTED
     }
 
-    /**
-     * Clears the teardown guard so a fresh connection can reconnect normally
-     * again. Called at the top of every entry point that opens a session.
-     */
+    override fun close() {
+        isShuttingDown = true
+        isClosed = true
+        reconnectJob?.cancel()
+        reconnectJob = null
+        clockSyncJob?.cancel()
+        clockSyncJob = null
+        activeSessionJob?.cancel()
+        activeSessionJob = null
+        session = null
+        clientScope.cancel()
+        synchronized(httpClientLock) {
+            sharedHttpClient?.close()
+            sharedHttpClient = null
+        }
+    }
+
     private fun beginSession() {
         isShuttingDown = false
     }
-    
+
     // ============== Auth Methods ==============
 
     suspend fun register(
@@ -733,15 +1009,13 @@ class GameClient {
         username: String,
         email: String,
         password: String,
-        // Previously hardcoded to avatar 0 here, and the profile could not change it
-        // afterwards, so every account displayed the same portrait forever.
         avatarId: Int = 0,
         gender: Gender = Gender.M
     ): Result<AuthSuccessMessage> {
-        // Auto-generate dummy email if empty (Backward compatibility with older servers)
         val finalEmail = if (email.isBlank()) {
-            val sanitized = username.lowercase().replace(Regex("[^a-z0-9]"), "")
-            "$sanitized@munchkin.local"
+            val sanitized = username.lowercase().replace(Regex("[^a-z0-9]"), "").ifEmpty { "player" }
+            val suffix = UUID.randomUUID().toString().replace("-", "").take(8)
+            "$sanitized.$suffix@munchkin.local"
         } else {
             email
         }
@@ -775,46 +1049,50 @@ class GameClient {
                 ?: return@withContext Result.failure(Exception("URL inválida"))
 
             DLog.i(TAG, "Auth: Connecting...")
-
+            val httpClient = getOrCreateHttpClient()
             var result: Result<AuthSuccessMessage>? = null
 
-            // use {} so the engine is released even if the handshake throws.
-            HttpClient(CIO) { install(WebSockets) }.use { authClient ->
-            authClient.webSocket(urlString = wsUrl) {
-                // Send auth message - Encoded as WsMessage to preserve "type" field
+            httpClient.webSocket(urlString = wsUrl) {
                 val finalJson = json.encodeToString<WsMessage>(message)
-                // Never log this payload: RegisterMessage/LoginMessage carry the
-                // user's plaintext password, and the reply carries their JWT. The
-                // debug log is readable in-app via DebugLogViewer.
                 DLog.i(TAG, "Sending auth request: ${message::class.simpleName}")
                 send(finalJson)
 
-                // Wait for response
                 try {
                     val frame = receiveWithTimeout()
                     if (frame is Frame.Text) {
-                        val text = frame.readText()
-
-                        val response = json.decodeFromString<WsMessage>(text)
+                        val response = json.decodeFromString<WsMessage>(frame.readText())
                         if (response is AuthSuccessMessage) {
                             result = Result.success(response)
                         } else if (response is ErrorMessage) {
                             result = Result.failure(ServerErrorException(response.code, response.message))
                         }
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     DLog.e(TAG, "Auth receive error: ${e.message}")
                     result = Result.failure(e)
                 }
                 close()
             }
-            }
 
             result ?: Result.failure(Exception("No response from server"))
-            
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             DLog.e(TAG, "Auth error: ${e.message}")
             Result.failure(e)
+        }
+    }
+
+    // ============== Discovery Methods ==============
+
+    suspend fun listGames(serverUrl: String): Result<List<DiscoveredGame>> = withContext(Dispatchers.IO) {
+        sendOneOffRequest(serverUrl, ListGamesRequest).mapCatching { response ->
+            when (response) {
+                is GameListMessage -> response.games
+                else -> throw Exception("Respuesta inesperada del servidor")
+            }
         }
     }
 
@@ -822,11 +1100,19 @@ class GameClient {
 
     suspend fun searchMonsters(
         serverUrl: String,
-        query: String
+        query: String,
+        expansion: String? = null,
+        limit: Int = 20,
+        offset: Int = 0
     ): Result<List<CatalogMonster>> = withContext(Dispatchers.IO) {
-        val msg = CatalogSearchRequest(query)
+        val msg = CatalogSearchRequest(
+            query = query,
+            expansion = expansion,
+            limit = limit,
+            offset = offset
+        )
         val response = sendOneOffRequest(serverUrl, msg)
-        
+
         response.map {
             if (it is CatalogSearchResult) it.results else emptyList()
         }
@@ -847,14 +1133,6 @@ class GameClient {
 
     // ============== History Methods ==============
 
-    /**
-     * A player's own game history plus their lifetime totals.
-     *
-     * This must be an authenticated request: the server serves history only for the
-     * session's own account (an unauthenticated one-off request is answered with
-     * UNAUTHORIZED), because trusting a client-supplied userId is what let any
-     * client read anyone's history.
-     */
     suspend fun getHistory(
         serverUrl: String,
         userId: String,
@@ -866,8 +1144,7 @@ class GameClient {
                     ?: throw Exception("Respuesta inesperada del servidor")
             }
     }
-    
-    // Generic Helper for One-Off Requests (Catalog, History, etc.)
+
     private suspend fun sendOneOffRequest(
         serverUrl: String,
         message: WsMessage
@@ -876,69 +1153,65 @@ class GameClient {
             val wsUrl = buildWsUrl(serverUrl)
                 ?: return@withContext Result.failure(Exception("URL inválida"))
 
+            val httpClient = getOrCreateHttpClient()
             var result: Result<WsMessage>? = null
 
-            // use {} so the engine is released even if the handshake throws.
-            HttpClient(CIO) { install(WebSockets) }.use { client ->
-                client.webSocket(urlString = wsUrl) {
-                    val jsonStr = json.encodeToString<WsMessage>(message)
-                    send(jsonStr)
+            httpClient.webSocket(urlString = wsUrl) {
+                send(json.encodeToString<WsMessage>(message))
 
-                    try {
-                        val frame = receiveWithTimeout()
-                        if (frame is Frame.Text) {
-                            val text = frame.readText()
-                            val response = json.decodeFromString<WsMessage>(text)
-
-                            if (response is ErrorMessage) {
-                                result = Result.failure(ServerErrorException(response.code, response.message))
-                            } else {
-                                result = Result.success(response)
-                            }
+                try {
+                    val frame = receiveWithTimeout()
+                    if (frame is Frame.Text) {
+                        val response = json.decodeFromString<WsMessage>(frame.readText())
+                        result = if (response is ErrorMessage) {
+                            Result.failure(ServerErrorException(response.code, response.message))
+                        } else {
+                            Result.success(response)
                         }
-                    } catch (e: Exception) {
-                        result = Result.failure(e)
                     }
-                    close()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    result = Result.failure(e)
                 }
+                close()
             }
 
             result ?: Result.failure(Exception("Sin respuesta del servidor"))
-
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    // ============== History Methods ==============
+    // ============== Game / Session Admin Methods ==============
 
-    suspend fun sendGameOver(gameId: String, winnerId: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun sendGameOver(gameId: String, winnerId: String?): Result<Unit> = withContext(Dispatchers.IO) {
         val currentSession = session ?: return@withContext Result.failure(Exception("No conectado"))
         return@withContext try {
             currentSession.send(json.encodeToString<WsMessage>(GameOverMessage(gameId, winnerId)))
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
     suspend fun sendSwapPlayers(player1: PlayerId, player2: PlayerId): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
+        val currentSession = session ?: return@withContext Result.failure(Exception("No conectado"))
+        return@withContext try {
             val msg = SwapPlayers(player1, player2)
-            session?.send(json.encodeToString<WsMessage>(msg))
+            currentSession.send(json.encodeToString<WsMessage>(msg))
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-
-
-    /**
-     * Fetches the ranking. Anyone may read it; passing [authToken] additionally
-     * returns the caller's own totals, which the server only knows for a signed-in
-     * session.
-     */
     suspend fun getLeaderboard(
         serverUrl: String,
         authToken: String? = null
@@ -954,7 +1227,7 @@ class GameClient {
                 ?: throw Exception("Respuesta inesperada del servidor")
         }
     }
-    
+
     suspend fun updateProfile(
         serverUrl: String,
         userId: String,
@@ -962,13 +1235,30 @@ class GameClient {
         password: String?,
         token: String,
         avatarId: Int? = null,
-        gender: Gender? = null
-    ): Result<UserProfile> = withContext(Dispatchers.IO) {
-        val req = UpdateProfileRequest(userId, username, password, avatarId, gender)
-        authenticatedRequest(serverUrl, token, req).map { response ->
-            if (response is ProfileUpdatedMessage) {
-                response.user
-            } else {
+        gender: Gender? = null,
+        currentPassword: String? = null
+    ): Result<ProfileUpdatedMessage> = withContext(Dispatchers.IO) {
+        val req = UpdateProfileRequest(
+            userId = userId,
+            username = username,
+            password = password,
+            avatarId = avatarId,
+            gender = gender,
+            currentPassword = currentPassword
+        )
+        authenticatedRequest(serverUrl, token, req).mapCatching { response ->
+            response as? ProfileUpdatedMessage
+                ?: throw Exception("Respuesta inesperada del servidor")
+        }
+    }
+
+    suspend fun deleteAccount(
+        serverUrl: String,
+        password: String,
+        token: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        authenticatedRequest(serverUrl, token, DeleteAccountRequest(password)).mapCatching { response ->
+            if (response !is AccountDeletedMessage) {
                 throw Exception("Respuesta inesperada del servidor")
             }
         }
@@ -997,10 +1287,6 @@ class GameClient {
         authenticatedRequest(serverUrl, token, DeleteHostedGame(gameId)).map { }
     }
 
-    /**
-     * Helper for authenticated one-off requests.
-     * Connects -> Logs in -> Sends Request -> Waits for Response -> Disconnects.
-     */
     private suspend fun authenticatedRequest(
         serverUrl: String,
         token: String,
@@ -1010,103 +1296,78 @@ class GameClient {
             val wsUrl = buildWsUrl(serverUrl)
                 ?: return@withContext Result.failure(Exception("URL inválida"))
 
+            val httpClient = getOrCreateHttpClient()
             var result: Result<WsMessage>? = null
 
-            // use {} so the engine is released even if the handshake throws.
-            HttpClient(CIO) { install(WebSockets) }.use { client ->
-                client.webSocket(urlString = wsUrl) {
-                    // 1. Login
-                    val loginMsg = LoginWithTokenMessage(token)
-                    send(json.encodeToString<WsMessage>(loginMsg))
+            httpClient.webSocket(urlString = wsUrl) {
+                val loginMsg = LoginWithTokenMessage(token)
+                send(json.encodeToString<WsMessage>(loginMsg))
 
-                    // Wait for Auth Success
-                    var authenticated = false
+                var authenticated = false
+                try {
+                    val frame = receiveWithTimeout()
+                    if (frame is Frame.Text) {
+                        val response = json.decodeFromString<WsMessage>(frame.readText())
+                        if (response is AuthSuccessMessage) {
+                            authenticated = true
+                        } else if (response is ErrorMessage) {
+                            result = Result.failure(ServerErrorException(response.code, response.message))
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    result = Result.failure(Exception("Auth handshake failed: ${e.message}", e))
+                }
+
+                if (authenticated) {
+                    send(json.encodeToString<WsMessage>(request))
+
                     try {
                         val frame = receiveWithTimeout()
                         if (frame is Frame.Text) {
                             val response = json.decodeFromString<WsMessage>(frame.readText())
-                            if (response is AuthSuccessMessage) {
-                                authenticated = true
-                            } else if (response is ErrorMessage) {
+                            if (response is ErrorMessage) {
+                                Log.e(TAG, "Server rejected request: ${response.message}")
+                                _errors.emit(response.message)
                                 result = Result.failure(ServerErrorException(response.code, response.message))
+                            } else {
+                                result = Result.success(response)
                             }
                         }
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
-                        result = Result.failure(Exception("Auth handshake failed"))
+                        result = Result.failure(Exception("Request failed: ${e.message}", e))
                     }
-
-                    if (authenticated) {
-                        // 2. Send Actual Request
-                        send(json.encodeToString<WsMessage>(request))
-
-                        // 3. Wait for Response
-                        try {
-                            val frame = receiveWithTimeout()
-                            if (frame is Frame.Text) {
-                                val response = json.decodeFromString<WsMessage>(frame.readText())
-                                if (response is ErrorMessage) {
-                                    // Also fail the call. Previously this only emitted to
-                                    // the shared error flow and left result null, so the
-                                    // caller surfaced a misleading "No response or auth
-                                    // failed" instead of the server's actual reason.
-                                    Log.e(TAG, "Server rejected request: ${response.message}")
-                                    _errors.emit(response.message)
-                                    result = Result.failure(ServerErrorException(response.code, response.message))
-                                } else {
-                                    result = Result.success(response)
-                                }
-                            }
-                        } catch (e: Exception) {
-                            result = Result.failure(Exception("Request failed: ${e.message}"))
-                        }
-                    }
-
-                    close()
                 }
+
+                close()
             }
 
             result ?: Result.failure(Exception("No response or auth failed"))
-
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    /**
-     * Builds the normalised ws(s) URL to connect to, preserving the path from the
-     * configured server URL. The one-off request helpers used to hardcode "/",
-     * so they silently ignored any configured path while connect() honoured it.
-     */
-    private fun buildWsUrl(serverUrl: String): String? {
-        val (host, port, path) = parseWsUrl(serverUrl) ?: return null
-        val scheme = if (serverUrl.trim().startsWith("wss://")) "wss" else "ws"
-        return "$scheme://$host:$port$path"
-    }
+    internal fun parseWsUrl(
+        url: String,
+        allowInsecure: Boolean = BuildConfig.DEBUG
+    ): Triple<String, Int, String>? = Companion.parseWsUrl(url, allowInsecure)
 
-    private fun parseWsUrl(url: String): Triple<String, Int, String>? {
-        // The port is optional: it previously was not, so a standard-port
-        // deployment such as wss://api.example.com/ was rejected as invalid.
-        val regex = Regex("""^(wss?)://([^:/?#]+)(?::(\d+))?(/[^?#]*)?""")
-        val match = regex.find(url.trim()) ?: return null
-
-        val scheme = match.groupValues[1]
-        val isSecure = scheme == "wss"
+    private fun buildWsUrl(
+        serverUrl: String,
+        allowInsecure: Boolean = BuildConfig.DEBUG
+    ): String? {
+        val (host, port, path) = parseWsUrl(serverUrl, allowInsecure) ?: return null
+        val isSecure = serverUrl.trim().startsWith("wss://", ignoreCase = true)
         if (!isSecure) {
-            DLog.w(TAG, "⚠️ Connecting over unencrypted ws://. Use wss:// for production servers.")
+            DLog.w(TAG, "Connecting over unencrypted ws://. Use wss:// for production servers.")
         }
-
-        val host = match.groupValues[2]
-        if (host.isEmpty()) return null
-
-        val portGroup = match.groupValues[3]
-        val port = if (portGroup.isEmpty()) {
-            if (isSecure) 443 else 80
-        } else {
-            portGroup.toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
-        }
-
-        val path = match.groupValues[4].ifEmpty { "/" }
-
-        return Triple(host, port, path)
+        val scheme = if (isSecure) "wss" else "ws"
+        return "$scheme://$host:$port$path"
     }
 }

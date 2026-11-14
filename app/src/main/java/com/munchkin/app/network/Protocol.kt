@@ -14,7 +14,7 @@ sealed class WsMessage
 // ============== Client → Host Messages ==============
 
 @Serializable
-@SerialName("CreateGameMessage")
+@SerialName("CREATE_GAME")
 data class CreateGameRequest(
     val playerMeta: PlayerMeta,
     val superMunchkin: Boolean = false,
@@ -30,8 +30,7 @@ data class HelloMessage(
     val gameId: String,
     val joinCode: String,
     val playerMeta: PlayerMeta,
-    val reconnectToken: String? = null,
-    val lastKnownIp: String? = null
+    val reconnectToken: String? = null
 ) : WsMessage()
 
 /**
@@ -178,20 +177,38 @@ data class UpdateProfileRequest(
     val password: String? = null,
     /** Null leaves it unchanged. 0 is a valid slot, so this cannot be a sentinel. */
     val avatarId: Int? = null,
-    val gender: Gender? = null
+    val gender: Gender? = null,
+    val currentPassword: String? = null
 ) : WsMessage()
 
 @Serializable
 @SerialName("PROFILE_UPDATED")
 data class ProfileUpdatedMessage(
-    val user: UserProfile
+    val user: UserProfile,
+    val token: String? = null
 ) : WsMessage()
+
+@Serializable
+@SerialName("DELETE_ACCOUNT")
+data class DeleteAccountRequest(
+    val password: String
+) : WsMessage()
+
+@Serializable
+@SerialName("ACCOUNT_DELETED")
+object AccountDeletedMessage : WsMessage()
 
 @Serializable
 @SerialName("SWAP_PLAYERS")
 data class SwapPlayers(
     val player1: PlayerId,
     val player2: PlayerId
+) : WsMessage()
+
+@Serializable
+@SerialName("TRANSFER_HOST")
+data class TransferHostMessage(
+    val targetPlayerId: PlayerId
 ) : WsMessage()
 
 @Serializable
@@ -231,7 +248,11 @@ data class GameHistoryItem(
     val playerCount: Int
 )
 
-// ============== Handover Messages ==============
+// ============== Room Discovery Messages ==============
+
+@Serializable
+@SerialName("LIST_GAMES")
+object ListGamesRequest : WsMessage()
 
 /**
  * Data class for discovered games from server.
@@ -241,24 +262,16 @@ data class DiscoveredGame(
     val hostName: String,
     val joinCode: String,
     val playerCount: Int = 1,
-    val maxPlayers: Int = 6,
-    val wsUrl: String = "",
-    val port: Int = 8765
+    val maxPlayers: Int = 6
 )
 
-/**
- * UDP broadcast when a new host takes over.
- */
 @Serializable
-@SerialName("HOST_ANNOUNCE")
-data class HostAnnounceMessage(
-    val gameId: String,
-    val epoch: Int,
-    val hostId: PlayerId,
-    val wsUrl: String
+@SerialName("GAMES_LIST")
+data class GameListMessage(
+    val games: List<DiscoveredGame>
 ) : WsMessage()
 
-// HANDOVER_INIT / HANDOVER_ACK removed along with the embedded LAN-host mode.
+// HANDOVER_INIT / HANDOVER_ACK / HOST_ANNOUNCE removed along with the embedded LAN-host mode.
 // The remote server is authoritative and migrates the host in place (see
 // gameAdminManager's pendingHostMigration), so it never sent these; the client
 // handler for them was unreachable code.
@@ -281,12 +294,13 @@ enum class ErrorCode {
     GAME_NOT_FOUND,
     GAME_FULL,
     GAME_ALREADY_STARTED,
+    GAME_FINISHED,
     PLAYER_NOT_FOUND,
     UNAUTHORIZED,
     VALIDATION_FAILED,
     INTERNAL_ERROR,
     CONNECTION_LOST,
-    HANDOVER_IN_PROGRESS,
+    CONFLICT,
     // Auth Errors
     AUTH_FAILED,
     EMAIL_EXISTS,
@@ -334,7 +348,10 @@ data class CatalogMonster(
 @Serializable
 @SerialName("CATALOG_SEARCH")
 data class CatalogSearchRequest(
-    val query: String
+    val query: String,
+    val expansion: String? = null,
+    val limit: Int = 20,
+    val offset: Int = 0
 ) : WsMessage()
 
 @Serializable
@@ -364,12 +381,8 @@ data class CatalogAddSuccess(
 @SerialName("GAME_OVER")
 data class GameOverMessage(
     val gameId: String,
-    val winnerId: String
+    val winnerId: String? = null
 ) : WsMessage()
-
-@Serializable
-@SerialName("END_TURN")
-object EndTurnMessage : WsMessage()
 
 @Serializable
 @SerialName("GET_LEADERBOARD")
@@ -412,14 +425,6 @@ data class LeaderboardSelf(
     val winRate: Int
         get() = if (gamesPlayed <= 0) 0 else (wins * 100) / gamesPlayed
 }
-
-// ============== Combat Dice Roll Result ==============
-
-@Serializable
-@SerialName("COMBAT_DICE_ROLL_RESULT")
-data class CombatDiceRollResult(
-    val diceRoll: DiceRollInfo
-) : WsMessage()
 
 @Serializable
 @SerialName("DELETE_GAME")
