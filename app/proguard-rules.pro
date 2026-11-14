@@ -1,36 +1,42 @@
-# Munchkin rules for ProGuard
--keepattributes *Annotation*
--keepattributes Signature
+# Munchkin R8 / ProGuard rules
+-keepattributes *Annotation*, InnerClasses, Signature, EnclosingMethod
 
-# Ktor
+# Ktor CIO
 -keep class io.ktor.** { *; }
 -keepclassmembers class io.ktor.** { *; }
 -dontwarn io.ktor.**
+-dontwarn org.slf4j.impl.StaticLoggerBinder
 
 # kotlinx.serialization
--keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.AnnotationsKt
 -keepclassmembers class kotlinx.serialization.json.** { *; }
 -keep,includedescriptorclasses class com.munchkin.app.**$$serializer { *; }
 -keepclassmembers class com.munchkin.app.** {
     *** Companion;
+    static *** INSTANCE;
 }
 -keepclasseswithmembers class com.munchkin.app.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
+-keepclassmembers enum com.munchkin.app.** {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}
 
 # Room
 -keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class com.munchkin.app.** { *; }
 -dontwarn androidx.room.paging.**
 
-# Netty
--dontwarn io.netty.**
--keep class io.netty.** { *; }
+# ML Kit / ZXing
+-dontwarn com.google.mlkit.**
+-keep class com.google.mlkit.** { *; }
+-dontwarn com.google.zxing.**
 
-# SLF4J
--dontwarn org.slf4j.**
--keep class org.slf4j.** { *; }
-
-# OkHttp (for GitHub API calls)
--dontwarn okhttp3.**
--dontwarn okio.**
+# Strip verbose, debug, and info logging calls in release builds
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}

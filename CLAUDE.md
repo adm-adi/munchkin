@@ -1,170 +1,130 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working in the **Munchkin Mesa Tracker** repository.
 
 ## Project Overview
 
-**Munchkin Mesa Tracker** is an Android client plus a Node.js backend for synchronized Munchkin sessions, plus a web client (`server/public/`) served by the backend itself so iPhone/desktop players can join the same rooms. The current product uses a remote authoritative WebSocket server; the old LAN/embedded-host path is no longer part of the active codebase.
+**Munchkin Mesa Tracker** is a synchronized multiplayer Munchkin tabletop tracker composed of:
 
-## Build Commands
+- **Authoritative Backend + Web PWA (`server/` & `server/public/`)**: Node.js 20+ WebSocket/HTTP server (`server/server.js` exporting `createAppServer`) with SQLite WAL + `withWriteLock` + FTS5 (`server/db.js`), serving a zero-build ES-module PWA (`server/public/`) for iOS, desktop, and mobile browsers.
+- **Native Android Client (`app/`)**: Kotlin + Jetpack Compose (`MunchkinApp.container: AppContainer` DI, 14-route Compose `NavHost`, Ktor CIO WebSockets, **Munchkin Dungeon Edition** theme per `DESIGN.md`).
 
-### Android Client
+All clients connect to the remote authoritative backend (`wss://munchking-sirpepo.duckdns.org:8765`).
+
+## Build, Validation & Test Commands
+
+### Server (`server/`)
 
 ```bash
-./gradlew assembleDebug
-./gradlew assembleRelease
-./gradlew :app:test
-./gradlew :app:test --tests "*.CombatCalculatorTest"
+npm --prefix server audit --audit-level=high
+npm --prefix server run check
+npm --prefix server test
 ```
 
-### Node.js Server
+Run locally (see `server/.env.example` for all supported variables):
 
 ```bash
 cd server
-npm install
-npm start
+npm ci
+JWT_SECRET="replace-with-at-least-32-character-random-secret" npm start
 ```
 
-### Security Verification
+### Android Client (`app/`)
 
 ```bash
-python scripts/security_verify.py
+./gradlew :app:testDebugUnitTest :app:lintDebug :app:minifyReleaseWithR8 :app:assembleDebug
+./gradlew :app:testDebugUnitTest --tests "*.CombatCalculatorTest"
+./gradlew :app:assembleRelease
+```
+
+Target a local/staging server at build time without editing source:
+
+```bash
+./gradlew :app:assembleDebug -PmunchkinScheme=ws -PmunchkinHost=10.0.2.2 -PmunchkinPort=8765
+```
+
+### Version Sync & Security Probe (`scripts/`)
+
+```bash
+python scripts/bump_version.py --check
+MUNCHKIN_SERVER_URL=ws://127.0.0.1:8765 python scripts/security_verify.py
+```
+
+PowerShell on Windows:
+
+```powershell
+$env:MUNCHKIN_SERVER_URL = "ws://127.0.0.1:8765"; python scripts/security_verify.py
 ```
 
 ## Architecture
 
 ### The Golden Rule
 
-Clients do not authoritatively mutate gameplay state. Every action flows:
+Clients never authoritatively mutate gameplay state. Every action flows:
 
-1. UI calls a `GameViewModel` action
-2. `GameViewModel` sends a `WsMessage` through `GameClient`
-3. `server.js` validates and mutates the room state
-4. The server sends snapshots and events back to clients
-5. The app renders the returned state
-
-### Key Data Flow
-
-```text
-UI -> GameViewModel -> GameClient -> server.js
-UI <- GameViewModel <- GameClient <- authoritative server state
-```
+1. UI triggers a method on one of the split ViewModels (`AuthViewModel`, `LobbyViewModel`, `GameSessionViewModel`, `CatalogViewModel`) or Web PWA (`server/public/js/app.mjs`).
+2. Client transmits a `WsMessage` via `GameClient.kt` (`Closeable`, shared CIO `HttpClient`, `lifecycleMutex`, `nudge()`) or `server/public/js/net.mjs`.
+3. `server/server.js` and its manager modules validate session/phase/bounds, mutate `GameRoom`, persist via `server/db.js`, and broadcast snapshots/events.
+4. Clients reduce broadcasts via `GameEngine.kt` / `engine.mjs` or adopt `STATE_SNAPSHOT`.
 
 ### Core Modules
 
 | Module | Purpose |
 | --- | --- |
-| `core/Models.kt` | Shared game model |
-| `core/Events.kt` | Player/game events |
-| `core/Combat.kt` | Combat state types |
-| `core/CombatCalculator.kt` | Client-side combat math helpers |
-| `core/GameEngine.kt` | Client reducer for snapshots/events |
-| `network/Protocol.kt` | WebSocket message types |
-| `network/GameClient.kt` | WebSocket client and one-off API requests |
-| `network/ServerConfig.kt` | Active backend host/port/url |
-| `viewmodel/GameViewModel.kt` | Shared state holder; behaviour lives in the `GameViewModel*.kt` extension files |
-| `viewmodel/GameViewModelAuth/Combat/Lobby/Player/System.kt` | Top-level `GameViewModel` extension functions by area |
-| `server/server.js` | Main WebSocket server |
-| `server/validation.js` | Pure input-validation helpers (unit tested; no side effects on require) |
-| `server/db.js` | SQLite persistence |
-| `server/turnManager.js` | Turn order and timer lifecycle |
-| `server/combatManager.js` | Combat-specific server logic |
-| `server/catalogManager.js` | Monster catalog handlers |
-| `server/authManager.js` | Login/register/profile handlers |
-| `server/historyManager.js` | History and leaderboard handlers |
-| `server/gameAdminManager.js` | Game-over/delete/kick/swap/admin handlers |
-| `server/staticFiles.js` | Safe static serving for the web client (path-traversal proof) |
-| `server/public/` | Web client (PWA, no build step): `js/protocol.mjs` mirrors `Protocol.kt`/`Events.kt`, `js/engine.mjs` mirrors `GameEngine.kt`, `js/combat.mjs` mirrors `CombatCalculator.kt`, `js/net.mjs` mirrors `GameClient.kt`, `js/app.mjs` is the UI |
+| `app/.../MunchkinApp.kt` & `di/AppContainer.kt` | Explicit `AppContainer` DI (no static `Context`), `StringResolver`, `GameSessionCoordinator`, `ViewModelProvider.Factory` |
+| `app/.../core/` | Domain-pure Kotlin: `Models.kt`, `Events.kt`, `Combat.kt`, `CombatCalculator.kt`, `GameEngine.kt`, `Abilities.kt`, `GameLogEntry.kt` |
+| `app/.../data/` | `SessionManager.kt` (`EncryptedSharedPreferences` + KeyStore corruption recovery), `GameRepository.kt`, `MunchkinDatabase.kt` / `SavedGameDao.kt`, `AppSettingsPrefs.kt`, `TutorialPrefs.kt` |
+| `app/.../network/` | `GameClient.kt`, `Protocol.kt`, `ServerConfig.kt`, `JoinCodeParser.kt` |
+| `app/.../update/UpdateChecker.kt` | HTTPS GitHub allowlist updater with internal storage (`filesDir/updates/`), `.sha256` digest check, signing cert verification, and anti-rollback `longVersionCode` check |
+| `app/.../viewmodel/` | `AuthViewModel.kt`, `LobbyViewModel.kt`, `GameSessionViewModel.kt`, `CatalogViewModel.kt`, `SessionGateways.kt`, `GameConnectionSupport.kt`, `UiModels.kt` |
+| `app/.../MainActivity.kt` | Single-activity Compose `NavHost` with 14 routes (`home`, `create_game`, `join_game?code={code}`, `lobby`, `table`, `board`, `combat`, `player_detail`, `catalog`, `settings`, `auth`, `profile`, `history`, `leaderboard`) + `TutorialScreen` |
+| `app/.../ui/theme/` | **Munchkin Dungeon Edition** tokens (`Color.kt`, `Theme.kt`, `Type.kt`, `AvatarResources.kt` canonical 0..7 mapping) aligned with `DESIGN.md` |
+| `server/server.js` | `createAppServer`: HTTP (`/health`, `/api/monsters`, static PWA), WebSocket (`ws`, 50 KB `maxPayload`, 25s heartbeat, `Origin` check, `MUNCHKIN_TRUST_PROXY`), room & event router |
+| `server/db.js` | SQLite WAL + `withWriteLock` write queue + `monsters_fts` FTS5 prefix search + `users.token_version` + `active_games` & history persistence |
+| `server/authManager.js` | `createAuthManager`: async `bcryptjs`, HS256 JWT (`alg` + `exp` + `token_version` validation), `REGISTER`, `LOGIN`, `LOGIN_WITH_TOKEN`, `UPDATE_PROFILE` (requires `currentPassword`), `DELETE_ACCOUNT` |
+| `server/catalogManager.js` | `createCatalogManager`: `CATALOG_SEARCH` (FTS5 + expansion filter, omits `createdBy`) & rate-limited `CATALOG_ADD` (supports 0 treasures) |
+| `server/combatManager.js` | `createCombatManager`: authoritative combat math, `VALID_DICE_PURPOSES`, `getRunAwayBonus`, `requiresCombatToWin` |
+| `server/gameAdminManager.js` | `createGameAdminManager`: `GAME_OVER`, `GAME_END`, `KICK_PLAYER`, `TRANSFER_HOST`, `SWAP_PLAYERS`, `GET_HOSTED_GAMES`, `DELETE_HOSTED_GAME`, `DELETE_GAME` |
+| `server/historyManager.js` | `createHistoryManager`: IDOR-protected `GET_HISTORY`, `GET_LEADERBOARD` (camelCase DTOs, excludes guests) |
+| `server/turnManager.js` | `createTurnManager`: turn order & server-enforced clamped turn timers (`MAX_TURN_TIMER_SECONDS = 7200`) |
+| `server/validation.js` | Pure enum whitelists, integer clamping, name/gender/monster/bonus sanitization (zero side effects on `require`) |
+| `server/staticFiles.js` & `logger.js` | In-memory preloaded `ETag`/Brotli/gzip static server (traversal/dotfile proof), Winston daily rotating logs |
+| `server/jsconfig.json` | TypeScript `checkJs: true` config for `server/*.js` |
+| `server/public/` | Web PWA (`index.html`, `sw.js`, `manifest.webmanifest`, `css/app.css`, `js/{protocol,combat,engine,net,session,i18n,ui,app}.mjs`) |
 
-### Serialization Constraints
+### Serialization & Decoding Constraints
 
-The Android client uses `kotlinx.serialization`; the Node server parses raw JSON. When changing `Models.kt`, `Events.kt`, or `Protocol.kt`:
+- Android `kotlinx.serialization` decoding is strict and snapshot failures break the entire room.
+- `server/validation.js` (`VALID_GENDERS`, `VALID_CLASSES`, `VALID_RACES`, `sanitizeConditionalModifier`) must mirror `core/Models.kt` and `core/Combat.kt` enums exactly.
+- `ErrorMessage.code` falls back to `ErrorCode.UNKNOWN` via `coerceInputValues`; all other enums require lockstep updates across Kotlin, Node.js, and `server/public/js/protocol.mjs`.
+- Response DTOs (`HISTORY_RESULT`, `LEADERBOARD_RESULT`, etc.) must map SQLite snake_case columns (`avatar_id`, `ended_at`) to camelCase (`avatarId`, `endedAt`).
 
-- `@JvmInline value class` serializes as its primitive value
-- Enum names must match the server expectations exactly
-- `@SerialName` controls the wire field names
+## Testing Architecture
 
-**Decoding is strict and failures are room-wide.** Client state arrives as a full
-snapshot broadcast to everyone, so a value the client cannot decode breaks every
-player in the room, not just the sender. Two consequences:
+- **Server (`node:test`)**:
+  - `server/validation.test.js` & `server/combat.test.js`: unit tests for pure validation/combat logic.
+  - `server/protocol.test.js`: end-to-end WebSocket & HTTP integration tests spinning up a real `server.js` subprocess per server via `server/testServer.js` (`PORT`, `MUNCHKIN_DB_PATH`, `MUNCHKIN_LOG_DIR`, `MUNCHKIN_REGISTER_LIMIT`, `MUNCHKIN_CREATE_GAME_LIMIT`).
+  - `server/webclient.test.mjs`: tests `staticFiles.js` (MIME types, `ETag`/304/Brotli, CSP, path traversal protection) and drives the real server using `server/public/js/{protocol,net,engine,combat,session}.mjs`.
+  - Use `client.drain()` / `await client.settle()` before asserting on protocol responses so stale broadcasts do not race assertions.
+- **Android (`app/src/test/`)**:
+  - `core/*Test.kt` (8 suites): domain rules, combat breakdown, tie-breaking, run-away modifiers, reducer semantics, level/trait validation.
+  - `viewmodel/*Test.kt` + `TestFakes.kt` (4 suites + fakes): `AuthViewModelTest`, `LobbyViewModelTest`, `GameSessionViewModelTest`, `CatalogViewModelTest`.
+- **CI Gate (`.github/workflows/ci.yml`)**:
+  - Android: `compileDebugKotlin`, `compileDebugAndroidTestKotlin`, `testDebugUnitTest`, `lintDebug`, and `minifyReleaseWithR8` (with ephemeral keystore).
+  - Server: `npm audit --audit-level=high`, `npm run check`, `npm test`, and live `scripts/security_verify.py` probe.
 
-- Any gameplay value the server writes must be validated first. `server/validation.js`
-  holds the whitelists and clamps; its `VALID_GENDERS` / `VALID_CLASSES` / `VALID_RACES`
-  sets must mirror the Kotlin enums in `core/Models.kt` exactly, and a test asserts it.
-- Adding an enum case server-side without adding it client-side is a breaking change.
-  `ErrorCode` has an `UNKNOWN` fallback plus `coerceInputValues` for this reason; other
-  enums do not, so they need both sides changed together.
+## Invariants Worth Preserving
 
-Response DTOs must be mapped to camelCase before sending. SQLite returns snake_case
-(`avatar_id`), and a client field with no default (`LeaderboardEntry.avatarId`) makes
-decoding throw outright.
+- **Never commit `server/munchkin.db`, `server/.env`, `local.properties`, or `munchkin.keystore` secrets.**
+- **Never log credentials or tokens.** `WELCOME` carries `reconnectToken`, `AUTH_SUCCESS` carries a JWT, and `proguard-rules.pro` strips `Log.v/d/i` in release builds.
+- **Keep `bcryptjs` async** and reject passwords over 72 UTF-8 bytes so login never blocks the Node event loop or silently truncates passwords.
+- **Three-engine combat parity**: any change to combat outcome rules must update `core/CombatCalculator.kt`, `server/combatManager.js`, and `server/public/js/combat.mjs`.
+- **Web PWA speaks the Android dialect**: `server/public/js/protocol.mjs` builders must include all fields required by Kotlin decoding, and `css/app.css` / `ui.mjs` must keep strict CSP (zero inline `style="..."` or `innerHTML`).
+- **IDOR & QR safety**: server endpoints carrying `userId` must authorize against `ws.userId`; `JoinCodeParser` extracts only the `joinCode` (`https://munchking-sirpepo.duckdns.org/#/join/<CODE>`) and ignores any `wsUrl`, always connecting to configured `ServerConfig.WS_URL`.
+- **Design system parity**: follow `DESIGN.md` (**Munchkin Dungeon Edition**) across Android and Web PWA — zero purple/violet and zero nested `cards-inside-cards`.
 
-## Current Product Assumptions
+## DevOps & Release Files
 
-- The backend is authoritative
-- Turn timers are enforced on the server
-- Critical turn/combat/win transitions are snapshot-first
-- Home/profile/history/leaderboard calls use one-off network requests instead of requiring an active game socket
-
-## Validation
-
-Run these before closing backend/client changes:
-
-```bash
-cd server && npm run check && npm test
-```
-
-```bash
-./gradlew :app:test
-```
-
-The Android build is the real gate — v2.20.12 was published with imports that did
-not resolve, so a green `node --check` alone proves very little:
-
-```bash
-./gradlew :app:compileDebugKotlin
-```
-
-Server tests use the built-in `node:test` runner, so there is no test dependency to
-install. There are two layers:
-
-- `validation.test.js` — pure helpers from `validation.js`. Keep validation logic
-  there rather than in `server.js`: requiring `server.js` binds a port and opens the
-  database, so nothing defined in it is testable.
-- `protocol.test.js` — integration tests that boot the real server on a free port
-  against a temporary database (`testServer.js`) and drive it over a real
-  WebSocket. This is the layer that covers the handlers, which is where the bugs
-  have actually been.
-- `webclient.test.mjs` — static-file serving (MIME types, traversal attempts) plus
-  the same boot-a-real-server pattern driven through the web client's own modules
-  (`public/js/protocol.mjs`, `net.mjs`, `engine.mjs`, `combat.mjs`), proving the
-  web client and the server stay wire-compatible.
-
-When writing protocol tests, use `client.drain()` / `await client.settle()` before
-asserting on a reply. Joins, another player's actions, and timer changes all
-broadcast to every client, so an assertion that accepts `STATE_SNAPSHOT` will
-otherwise match a stale queued broadcast instead of the response it just triggered.
-
-Test-only environment knobs, all with production-safe defaults: `PORT`,
-`MUNCHKIN_DB_PATH`, `MUNCHKIN_LOG_DIR`, `MUNCHKIN_REGISTER_LIMIT`.
-
-## Invariants worth preserving
-
-- **Never commit `server/munchkin.db`.** It holds `users(email, password_hash)` and
-  `active_games.players_json` with per-seat `reconnectTokenHash` values. It was
-  committed to this public repo once already.
-- **Never log credentials.** WELCOME carries a `reconnectToken`, AUTH_SUCCESS carries
-  a JWT, and login/register requests carry a plaintext password. The in-app
-  `DebugLogViewer` makes client-side logs user-visible.
-- **bcrypt must stay async.** The sync variants block Node's single event loop for the
-  full cost-12 hash, freezing every active game on each login.
-- **Client-side combat math must match `combatManager.js`.** Three implementations
-  compute the outcome — `core/CombatCalculator.kt`, `server/combatManager.js`, and
-  `server/public/js/combat.mjs` — and the server wins. A rule change must land in
-  all three. Divergence shows up as the `COMBAT_END mismatch` warning.
-- **The web client speaks the Android dialect.** Events built in
-  `public/js/protocol.mjs` are re-broadcast verbatim to Android clients, whose
-  kotlinx decoding throws on a missing field with no default — builders must send
-  every field, defaults included (`webclient.test.mjs` asserts the shapes).
-- **Requests carrying a `userId` must authorize it against `ws.userId`.** Trusting the
-  client-supplied id is how `GET_HISTORY` became an IDOR.
+- Containerization: `Dockerfile`, `compose.yml`, `.dockerignore`
+- VPS setup & backups: `server/.env.example`, `server/setup.sh` (`munchkin` user, `/etc/munchkin/server.env`, `/var/lib/munchkin/munchkin.db`), `server/scripts/backup_db.sh`
+- Automation & CI: `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/dependabot.yml`, `scripts/{security_verify,verify_releases_secrets,bump_version}.py`, `deploy_updates.ps1`
