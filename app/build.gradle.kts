@@ -167,7 +167,7 @@ dependencies {
     implementation("com.google.accompanist:accompanist-permissions:0.34.0")
     
     // Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     
     // Encrypted SharedPreferences.
     // 1.1.0 is stable now; this held the session token and JWT on an alpha build.
