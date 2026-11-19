@@ -200,7 +200,13 @@ class GameSessionViewModel internal constructor(
                     val prev = lastConnectionState
                     lastConnectionState = connState
                     sessionCoordinator.updateConnectionState(connState)
+                    if (connState != ConnectionState.CONNECTED && _isCombatResolving.value) {
+                        _isCombatResolving.value = false
+                        pendingCombatEndCandidate = null
+                    }
                     if (prev == ConnectionState.RECONNECTING && connState == ConnectionState.CONNECTED) {
+                        _isCombatResolving.value = false
+                        pendingCombatEndCandidate = null
                         sessionCoordinator.emitEvent(GameUiEvent.Reconnected)
                     }
                 }
@@ -346,16 +352,23 @@ class GameSessionViewModel internal constructor(
         )
     }
 
+    private var monsterSearchJob: Job? = null
+
     fun nudgeConnection() {
         sessionCoordinator.activeSession.value?.nudge()
     }
 
-    fun checkReconnection() {
+    fun checkReconnection(allowColdResume: Boolean = false) {
         val session = sessionCoordinator.activeSession.value
         val state = connectionState.value
         if (session != null && state != ConnectionState.DISCONNECTED) {
             session.nudge()
-        } else if (session == null && sessionCoordinator.savedGame.value != null && !sessionCoordinator.isConnectingOrLoading.value) {
+        } else if (
+            allowColdResume &&
+            session == null &&
+            sessionCoordinator.savedGame.value != null &&
+            !sessionCoordinator.isConnectingOrLoading.value
+        ) {
             resumeDisconnectedSavedGame()
         }
     }
@@ -829,9 +842,15 @@ class GameSessionViewModel internal constructor(
     fun rollForCombat(
         purpose: DiceRollPurpose = DiceRollPurpose.RUN_AWAY,
         manualResult: Int? = null,
-        success: Boolean = false
+        success: Boolean = false,
+        modifier: Int = 0
     ) {
         val result = (manualResult ?: (1..6).random()).coerceIn(1, 6)
+        val clampedMod = if (purpose == DiceRollPurpose.RUN_AWAY) {
+            modifier.coerceIn(GameEngine.RUN_AWAY_MODIFIER_MIN, GameEngine.RUN_AWAY_MODIFIER_MAX)
+        } else {
+            0
+        }
         sendPlayerEvent { playerId ->
             PlayerRoll(
                 eventId = UUID.randomUUID().toString(),
@@ -840,7 +859,8 @@ class GameSessionViewModel internal constructor(
                 targetPlayerId = playerId,
                 result = result,
                 purpose = purpose,
-                success = success
+                success = success,
+                modifier = clampedMod
             )
         }
     }
@@ -849,7 +869,8 @@ class GameSessionViewModel internal constructor(
         if (_isCombatResolving.value) return
         val currentState = gameState.value ?: return
         val combat = currentState.combat ?: return
-        if (!canTouchCombat(currentState, myPlayerId.value)) return
+        val actorId = myPlayerId.value ?: return
+        if (!canTouchCombat(currentState, actorId)) return
 
         val result = CombatCalculator.calculateResult(combat, currentState)
         val mainPlayer = currentState.players[combat.mainPlayerId]
@@ -860,12 +881,12 @@ class GameSessionViewModel internal constructor(
             prevMainTreasures = mainPlayer?.treasures ?: 0,
             expectBadStuff = result.outcome == CombatOutcome.LOSE
         )
-        _isCombatResolving.value = true
+        markCombatResolving()
 
         sendCombatEndEvent(
             CombatEnd(
                 eventId = UUID.randomUUID().toString(),
-                actorId = myPlayerId.value ?: return,
+                actorId = actorId,
                 timestamp = clockMs(),
                 outcome = result.outcome,
                 levelsGained = if (result.outcome == CombatOutcome.WIN) result.totalLevels else 0,
@@ -881,7 +902,8 @@ class GameSessionViewModel internal constructor(
         if (_isCombatResolving.value) return
         val currentState = gameState.value ?: return
         val combat = currentState.combat ?: return
-        if (!canTouchCombat(currentState, myPlayerId.value)) return
+        val actorId = myPlayerId.value ?: return
+        if (!canTouchCombat(currentState, actorId)) return
 
         val mainPlayer = currentState.players[combat.mainPlayerId]
         val outcome = if (success) CombatOutcome.ESCAPE else CombatOutcome.LOSE
@@ -892,12 +914,12 @@ class GameSessionViewModel internal constructor(
             prevMainTreasures = mainPlayer?.treasures ?: 0,
             expectBadStuff = !success
         )
-        _isCombatResolving.value = true
+        markCombatResolving()
 
         sendCombatEndEvent(
             CombatEnd(
                 eventId = UUID.randomUUID().toString(),
-                actorId = myPlayerId.value ?: return,
+                actorId = actorId,
                 timestamp = clockMs(),
                 outcome = outcome,
                 levelsGained = 0,
@@ -913,15 +935,16 @@ class GameSessionViewModel internal constructor(
         if (_isCombatResolving.value) return
         val currentState = gameState.value ?: return
         if (currentState.combat == null) return
-        if (!canTouchCombat(currentState, myPlayerId.value)) return
+        val actorId = myPlayerId.value ?: return
+        if (!canTouchCombat(currentState, actorId)) return
 
         pendingCombatEndCandidate = null
-        _isCombatResolving.value = true
+        markCombatResolving()
 
         sendCombatEndEvent(
             CombatEnd(
                 eventId = UUID.randomUUID().toString(),
-                actorId = myPlayerId.value ?: return,
+                actorId = actorId,
                 timestamp = clockMs(),
                 outcome = CombatOutcome.ESCAPE,
                 levelsGained = 0,
@@ -933,6 +956,10 @@ class GameSessionViewModel internal constructor(
         )
     }
 
+    private fun markCombatResolving() {
+        _isCombatResolving.value = true
+    }
+
     fun dismissBadStuff() {
         _pendingBadStuff.value = emptyList()
     }
@@ -940,12 +967,13 @@ class GameSessionViewModel internal constructor(
     // ============== Combat Monster Search & Global Creation ==============
 
     fun searchMonsters(query: String) {
+        monsterSearchJob?.cancel()
         val trimmed = query.trim()
         if (trimmed.isBlank()) {
             _monsterSearchResults.value = emptyList()
             return
         }
-        viewModelScope.launch {
+        monsterSearchJob = viewModelScope.launch {
             try {
                 val result = remoteGateway.searchMonsters(
                     serverUrl = ServerConfig.WS_URL,
@@ -977,15 +1005,9 @@ class GameSessionViewModel internal constructor(
         levels: Int,
         badStuff: String
     ) {
-        val token = sessionStore.getAuthToken()
-        if (token == null) {
-            sessionCoordinator.tryEmitEvent(
-                GameUiEvent.ShowError(stringResolver.get(R.string.error_session_expired))
-            )
-            return
-        }
+        val token = sessionStore.getAuthToken() ?: return
         val monster = CatalogMonster(
-            name = name.trim().take(60),
+            name = name.trim().take(80),
             level = level.coerceIn(1, 20),
             modifier = modifier.coerceIn(-10, 10),
             treasures = treasures.coerceIn(0, 10),

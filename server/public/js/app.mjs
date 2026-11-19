@@ -28,8 +28,8 @@ import {
     avatarName, expansionLabel, abilitiesFor, errorText
 } from './i18n.mjs';
 import {
-    h, createQrSvg, patchScreen, fmtSigned, toast,
-    openModal, closeAllModals, confirmDialog
+    h, createQrSvg, createDice3D, patchScreen, fmtSigned, toast,
+    openModal, closeAllModals, confirmDialog, hasOpenModals
 } from './ui.mjs';
 
 const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
@@ -279,7 +279,7 @@ function refreshLogDrawerBody() {
 function openLogDrawer() {
     if (app.logDrawer) return;
     const prevFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const bodyEl = h('div', { class: 'grow' });
+    const bodyEl = h('div', { class: 'log-drawer-body' });
     let closed = false;
 
     const close = () => {
@@ -288,6 +288,9 @@ function openLogDrawer() {
         document.removeEventListener('keydown', onKey, true);
         if (backdrop.isConnected) backdrop.remove();
         app.logDrawer = null;
+        if (!hasOpenModals()) {
+            document.body.classList.remove('modal-open');
+        }
         if (prevFocus && prevFocus.isConnected) {
             try { prevFocus.focus({ preventScroll: true }); } catch { prevFocus.focus(); }
         }
@@ -326,6 +329,7 @@ function openLogDrawer() {
     }, drawer);
 
     const onKey = (e) => {
+        if (hasOpenModals()) return;
         if (e.key === 'Escape') {
             e.preventDefault();
             e.stopPropagation();
@@ -339,6 +343,7 @@ function openLogDrawer() {
     };
 
     app.logDrawer = { close, setBody };
+    document.body.classList.add('modal-open');
     document.body.appendChild(backdrop);
     document.addEventListener('keydown', onKey, true);
     queueMicrotask(() => {
@@ -352,6 +357,11 @@ function openLogDrawer() {
 
 function attachSocket(socket) {
     app.socket = socket;
+    socket.on('auth', (reply) => {
+        if (reply?.token && reply?.user) {
+            session.saveAuth(reply.token, reply.user);
+        }
+    });
     socket.on('state', (gameState) => {
         const prev = app.prevGame;
         app.game = gameState;
@@ -360,12 +370,15 @@ function attachSocket(socket) {
         render();
     });
     socket.on('welcome', (welcome) => {
+        const sameGame = Boolean(app.game?.gameId && welcome.gameState?.gameId === app.game.gameId);
         app.myPlayerId = welcome.yourPlayerId;
-        app.prevGame = null;
+        if (!sameGame) {
+            app.prevGame = null;
+            app.log = [];
+        }
         app.game = welcome.gameState;
-        app.log = [];
         persistSeat(welcome);
-        onGameStateChanged(null, welcome.gameState);
+        requestWakeLock();
     });
     socket.on('connection', ({ state, attempt }) => {
         app.conn = state;
@@ -407,7 +420,32 @@ function persistSeat(welcome) {
     });
 }
 
+let wakeLockSentinel = null;
+let pendingHostLeaveTimer = null;
+
+async function requestWakeLock() {
+    if (!app.game || document.hidden || !('wakeLock' in navigator)) return;
+    try {
+        if (!wakeLockSentinel) {
+            wakeLockSentinel = await navigator.wakeLock.request('screen');
+            wakeLockSentinel.addEventListener('release', () => { wakeLockSentinel = null; });
+        }
+    } catch { /* unsupported or permission denied */ }
+}
+
+function releaseWakeLock() {
+    if (wakeLockSentinel) {
+        wakeLockSentinel.release().catch(() => {});
+        wakeLockSentinel = null;
+    }
+}
+
 function cleanupGame() {
+    if (pendingHostLeaveTimer) {
+        clearTimeout(pendingHostLeaveTimer);
+        pendingHostLeaveTimer = null;
+    }
+    releaseWakeLock();
     app.socket?.leave();
     app.socket = null;
     app.game = null;
@@ -440,26 +478,42 @@ function onGameStateChanged(prevState, nextState) {
         app.viewBoardDuringCombat = false;
     }
 
-    // Complete pending Run Away after PLAYER_ROLL updates combat.lastDiceRoll and seq
+    // Complete pending Run Away after PLAYER_ROLL updates combat.lastDiceRoll
     if (app.pendingRunAwayFinish && nextState) {
         const pending = app.pendingRunAwayFinish;
         const roll = nextState.combat?.lastDiceRoll;
-        const rollMatched = roll && roll.purpose === 'RUN_AWAY' && roll.playerId === pending.actorId && roll.timestamp >= pending.startedAt - 2000;
-        const seqAdvanced = (nextState.seq ?? 0) > (pending.baseSeq ?? -1);
+        const rollMatched = Boolean(
+            roll &&
+            roll.purpose === 'RUN_AWAY' &&
+            roll.playerId === pending.actorId &&
+            roll.timestamp >= pending.startedAt - 2000
+        );
         if (!nextState.combat) {
             app.pendingRunAwayFinish = null;
             app.combatBusy = false;
-        } else if (rollMatched || seqAdvanced) {
+        } else if (rollMatched) {
             app.pendingRunAwayFinish = null;
+            const serverEscaped = roll.success === true;
             if (pending.isMainRunner) {
                 app.pendingOutcomeWasWin = false;
-                sendEvent(actor => events.combatEnd(actor, OUTCOMES.ESCAPE, {
-                    expectedSeq: nextState.seq,
-                    cancelled: false
-                }));
+                if (serverEscaped) {
+                    app.pendingBadStuff = null;
+                }
+                const sent = sendEvent(actor => events.combatEnd(
+                    actor,
+                    serverEscaped ? OUTCOMES.ESCAPE : OUTCOMES.LOSE,
+                    {
+                        expectedSeq: nextState.seq,
+                        cancelled: false
+                    }
+                ));
+                if (!sent) {
+                    app.combatBusy = false;
+                    app.pendingBadStuff = null;
+                }
             } else {
                 app.combatBusy = false;
-                if (!pending.escaped && app.pendingBadStuff?.monsters) {
+                if (!serverEscaped && app.pendingBadStuff?.monsters) {
                     const mList = app.pendingBadStuff.monsters;
                     app.pendingBadStuff = null;
                     showBadStuff(mList);
@@ -638,7 +692,12 @@ async function leaveCurrentGame() {
         });
         if (!del) return;
         try { sendMessage(messages.deleteGame()); } catch { /* best effort */ }
-        setTimeout(() => { cleanupGame(); nav('#/home'); }, 250);
+        if (pendingHostLeaveTimer) clearTimeout(pendingHostLeaveTimer);
+        pendingHostLeaveTimer = setTimeout(() => {
+            pendingHostLeaveTimer = null;
+            cleanupGame();
+            nav('#/home');
+        }, 250);
         return;
     }
     const go = app.game.phase === PHASES.FINISHED || await confirmDialog({
@@ -822,7 +881,7 @@ function connectionBanner() {
             h('span', {}, t('conn.reconnecting', { attempt: app.connAttempt || 1 }))
         );
     }
-    if (app.conn === ConnState.DISCONNECTED && app.game) {
+    if ((app.conn === ConnState.DISCONNECTED || app.conn === ConnState.FAILED_PERMANENTLY) && app.game) {
         return h('div', { class: 'banner banner-danger', dataset: { key: 'conn-banner' }, role: 'alert' },
             h('span', {}, t('conn.offline')),
             h('button', { class: 'btn btn-ghost', onclick: () => app.socket?.nudge() }, t('conn.retry'))
@@ -1082,10 +1141,22 @@ function openProfileModal() {
                     class: 'btn btn-ghost',
                     disabled: draft.busy,
                     onclick: () => {
+                        if (app.game || app.socket) cleanupGame();
                         session.clearAuth();
+                        app.drafts.identityName = '';
+                        app.drafts.identityAvatar = 0;
+                        app.drafts.identityGender = 'M';
+                        app.history.items = [];
+                        app.history.stats = { wins: 0, gamesPlayed: 0 };
+                        app.ranking.me = null;
                         modal.close();
                         toast(t('profile.loggedOut'), 'info');
-                        render();
+                        const { name } = parseRoute();
+                        if (name === 'game' || name === 'history') {
+                            nav('#/home');
+                        } else {
+                            render();
+                        }
                     }
                 }, t('profile.logout'))
             ),
@@ -1399,7 +1470,7 @@ function authView() {
     return h('section', { class: 'screen', dataset: { key: 'view-auth' } },
         pageHeader(t('auth.title'), { back: () => nav('#/home') }),
         h('div', { class: 'card' },
-            h('div', { class: 'segment-group', role: 'tablist' },
+            h('div', { class: 'segment-group', role: 'group', 'aria-label': t('auth.title') },
                 h('button', {
                     class: 'segment',
                     'aria-pressed': mode === 'login' ? 'true' : 'false',
@@ -1795,7 +1866,7 @@ function lobbyView() {
                                 onclick: async () => {
                                     const ok = await confirmDialog({
                                         title: t('lobby.kickTitle', { name: p.name }),
-                                        message: t('lobby.kickTitle', { name: p.name }),
+                                        message: t('lobby.kickConfirm', { name: p.name }),
                                         confirmText: t('lobby.kick'),
                                         danger: true
                                     });
@@ -1810,7 +1881,11 @@ function lobbyView() {
         h('div', { class: 'bottom-bar' },
             my && (my.lastRoll === null || my.lastRoll === undefined || my.lastRoll === 0 || tied.includes(my.playerId)) && h('button', {
                 class: 'btn btn-secondary btn-block',
-                onclick: () => sendEvent(actor => events.playerRoll(actor, 1 + Math.floor(Math.random() * 6), 'GAME_START', false))
+                onclick: () => openDiceRollerModal({
+                    title: tied.includes(my.playerId) ? t('lobby.rollTie') : t('lobby.rollStart'),
+                    autoRoll: true,
+                    onRolled: (val) => sendEvent(actor => events.playerRoll(actor, val, 'RANDOM', false))
+                })
             }, `🎲 ${tied.includes(my.playerId) ? t('lobby.rollTie') : t('lobby.rollStart')}`),
             host
                 ? h('button', {
@@ -1830,10 +1905,81 @@ function lobbyView() {
 function turnCountdownInfo() {
     const state = app.game;
     if (!state?.turnEndsAt || !app.socket) return { text: '', urgent: false };
-    const remaining = Math.max(0, Math.round((state.turnEndsAt - app.socket.serverNow()) / 1000));
+    const remaining = Math.max(0, Math.ceil((state.turnEndsAt - app.socket.serverNow()) / 1000));
     const minutes = Math.floor(remaining / 60);
     const seconds = String(remaining % 60).padStart(2, '0');
-    return { text: `⏱ ${minutes}:${seconds}`, urgent: remaining <= 15 };
+    return { text: `⏱ ${minutes}:${seconds}`, urgent: remaining <= 10 };
+}
+
+function openDiceRollerModal({ title = t('dice.title'), autoRoll = false, onRolled = null } = {}) {
+    let value = 6;
+    let rolling = false;
+    let rollSpin = 0;
+    let settled = false;
+    let rollTimer = null;
+
+    const modal = openModal({
+        title: `🎲 ${title}`,
+        dismissible: true,
+        onClose: () => {
+            if (rollTimer) clearTimeout(rollTimer);
+            rollTimer = null;
+        },
+        body: renderBody()
+    });
+
+    function triggerRoll() {
+        if (rolling) return;
+        rolling = true;
+        settled = false;
+        rollSpin += 1;
+        const finalVal = 1 + Math.floor(Math.random() * 6);
+        value = finalVal;
+        modal.setBody(renderBody());
+        rollTimer = setTimeout(() => {
+            rollTimer = null;
+            if (!modal.card.isConnected) return;
+            rolling = false;
+            settled = true;
+            modal.setBody(renderBody());
+            if (typeof onRolled === 'function') onRolled(finalVal);
+        }, 680);
+    }
+
+    function renderBody() {
+        return [
+            h('div', { class: 'die3d-wrap' },
+                createDice3D({
+                    value,
+                    rolling,
+                    rollSpin,
+                    ariaLabel: rolling ? t('dice.rolling') : t('dice.tapToRoll'),
+                    onRoll: triggerRoll
+                }),
+                h('strong', { class: 'tabular', role: 'status', 'aria-live': 'polite' },
+                    rolling
+                        ? t('dice.rolling')
+                        : settled
+                            ? `${DICE_FACES[value - 1]} ${t('dice.resultLabel', { value })}`
+                            : t('dice.tapToRoll'))
+            ),
+            h('button', {
+                class: 'btn btn-secondary btn-block',
+                disabled: rolling,
+                onclick: triggerRoll
+            }, `🎲 ${t('dice.title')}`),
+            h('button', {
+                class: 'btn btn-ghost btn-block',
+                onclick: () => modal.close()
+            }, t('common.close'))
+        ];
+    }
+
+    if (autoRoll) {
+        queueMicrotask(() => {
+            if (modal.card.isConnected) triggerRoll();
+        });
+    }
 }
 
 function statStepper(label, value, onMinus, onPlus, { minusDisabled = false, plusDisabled = false, labelId } = {}) {
@@ -1900,11 +2046,20 @@ function boardView() {
                 ? h('div', { class: 'stat-controls' },
                     statStepper(t('board.level'), p.level,
                         () => sendEvent(actor => events.decLevel(actor)),
-                        () => sendEvent(actor => events.incLevel(actor)),
+                        () => {
+                            const requiresCombat = Boolean(state.settings?.levelTenOnlyCombat) && !state.settings?.allowLevelTenOverride;
+                            const manualCap = requiresCombat ? Math.max(minLevel, maxLevel - 1) : maxLevel;
+                            if (p.level >= manualCap && p.level < maxLevel) {
+                                toast(errorText({ code: 'LEVEL_10_COMBAT_ONLY' }), 'warn');
+                                return;
+                            }
+                            sendEvent(actor => events.incLevel(actor));
+                        },
                         { minusDisabled: p.level <= minLevel, plusDisabled: p.level >= maxLevel }),
                     statStepper(t('board.gear'), p.gearBonus || 0,
                         () => sendEvent(actor => events.decGear(actor)),
-                        () => sendEvent(actor => events.incGear(actor)))
+                        () => sendEvent(actor => events.incGear(actor)),
+                        { minusDisabled: (p.gearBonus || 0) <= -999, plusDisabled: (p.gearBonus || 0) >= 999 })
                 )
                 : h('div', { class: 'row-wrap' },
                     h('span', { class: 'badge tabular' }, t('board.lvlShort', { n: p.level })),
@@ -1919,11 +2074,14 @@ function boardView() {
                     }, t('board.editHero')),
                     h('button', {
                         class: 'btn btn-ghost',
-                        onclick: () => {
-                            const roll = 1 + Math.floor(Math.random() * 6);
-                            sendEvent(actor => events.playerRoll(actor, roll, 'RANDOM', true));
-                            toast(t('board.rolledToast', { name: p.name, roll }), 'info');
-                        }
+                        onclick: () => openDiceRollerModal({
+                            title: t('board.rollDie'),
+                            autoRoll: true,
+                            onRolled: (roll) => {
+                                sendEvent(actor => events.playerRoll(actor, roll, 'RANDOM', true));
+                                toast(t('board.rolledToast', { name: p.name, roll }), 'info');
+                            }
+                        })
                     }, `🎲 ${t('board.rollDie')}`),
                     h('button', {
                         class: 'btn btn-outline-danger',
@@ -2188,13 +2346,21 @@ function combatView() {
             ? (calc.warriorTieBreak ? t('combat.winWarriorTie') : t('combat.winning'))
             : t('combat.losingGap', { gap: calc.marginToWin });
 
+    const countdown = turnCountdownInfo();
+
     return h('section', { class: 'screen', dataset: { key: 'view-combat' } },
         pageHeader(t('combat.title'), {
             back: () => { app.viewBoardDuringCombat = true; render(); },
-            right: h('button', {
-                class: 'btn btn-ghost',
-                onclick: () => { app.viewBoardDuringCombat = true; render(); }
-            }, t('combat.viewBoard'))
+            right: h('div', { class: 'row-wrap' },
+                state.turnEndsAt && h('span', {
+                    id: 'turn-countdown',
+                    class: `timer-pill tabular ${countdown.urgent ? 'is-urgent' : ''}`
+                }, countdown.text),
+                h('button', {
+                    class: 'btn btn-ghost',
+                    onclick: () => { app.viewBoardDuringCombat = true; render(); }
+                }, t('combat.viewBoard'))
+            )
         }),
         h('div', { class: 'versus-strip' },
             h('div', { class: 'versus-side' },
@@ -2426,10 +2592,14 @@ async function cancelCombat() {
     app.pendingOutcomeWasWin = false;
     app.pendingBadStuff = null;
     render();
-    sendEvent(actor => events.combatEnd(actor, OUTCOMES.ESCAPE, {
+    const sent = sendEvent(actor => events.combatEnd(actor, OUTCOMES.ESCAPE, {
         expectedSeq: app.game.seq,
         cancelled: true
     }));
+    if (!sent) {
+        app.combatBusy = false;
+        render();
+    }
 }
 
 async function resolveCombat(result) {
@@ -2542,73 +2712,144 @@ function openRunAwayModal() {
     const mainP = state.players[combat.mainPlayerId];
     const helperP = combat.helperPlayerId ? state.players[combat.helperPlayerId] : null;
     const isHelper = Boolean(helperP && app.myPlayerId === helperP.playerId);
-    const runner = isHelper ? helperP : (me() || mainP);
+    const runner = isHelper ? helperP : (mainP || me());
     if (!runner) return;
 
     const mods = runAwayModifiers(runner);
-    const bonus = runAwayBonus(runner);
+    const raceBonus = runAwayBonus(runner);
     const monsters = [...(combat.monsters || [])];
     let selectedDie = null;
+    let displayDie = 6;
+    let manualMod = 0;
+    let rolling = false;
+    let rollSpin = 0;
+    let rollTimer = null;
 
     const modal = openModal({
         title: `🏃 ${t('runaway.title')}`,
         dismissible: true,
+        onClose: () => {
+            if (rollTimer) clearTimeout(rollTimer);
+            rollTimer = null;
+        },
         body: renderStep()
     });
 
+    function triggerRoll() {
+        if (rolling || app.combatBusy) return;
+        rolling = true;
+        rollSpin += 1;
+        const result = 1 + Math.floor(Math.random() * 6);
+        displayDie = result;
+        selectedDie = null;
+        modal.setBody(renderStep());
+        rollTimer = setTimeout(() => {
+            rollTimer = null;
+            if (!modal.card.isConnected) return;
+            rolling = false;
+            selectedDie = result;
+            modal.setBody(renderStep());
+        }, 680);
+    }
+
     function renderStep() {
-        const modText = mods.map(([race, amt]) => `${fmtSigned(amt)} ${raceLabel(race)}`).join(' · ');
-        const total = selectedDie !== null ? selectedDie + bonus : null;
+        const modParts = mods.map(([race, amt]) => `${fmtSigned(amt)} ${raceLabel(race)}`);
+        if (manualMod !== 0) {
+            modParts.push(`${fmtSigned(manualMod)} ${t('runaway.manualModShort')}`);
+        }
+        const modText = modParts.join(' · ');
+        const total = selectedDie !== null ? selectedDie + raceBonus + manualMod : null;
         const escaped = total !== null ? total >= RUN_AWAY_THRESHOLD : false;
+        const dieOutcome = selectedDie === null ? null : (escaped ? 'win' : 'lose');
 
         return [
             h('div', { class: 'inset-band' },
                 h('strong', {}, t('runaway.runningAs', { name: runner.name })),
                 h('span', { class: 'muted-text' },
                     t('runaway.thresholdHint', { threshold: RUN_AWAY_THRESHOLD })),
-                modText && h('span', { class: 'badge' }, modText)
+                mods.length > 0 && h('span', { class: 'badge' },
+                    mods.map(([race, amt]) => `${fmtSigned(amt)} ${raceLabel(race)}`).join(' · '))
             ),
-            h('button', {
-                class: 'btn btn-secondary btn-block',
-                disabled: app.combatBusy,
-                onclick: () => {
-                    selectedDie = 1 + Math.floor(Math.random() * 6);
-                    modal.setBody(renderStep());
-                }
-            }, `🎲 ${t('runaway.rollDigital')}`),
+            h('div', { class: 'die3d-wrap' },
+                createDice3D({
+                    value: displayDie,
+                    rolling,
+                    rollSpin,
+                    outcome: dieOutcome,
+                    disabled: app.combatBusy,
+                    ariaLabel: rolling ? t('dice.rolling') : t('runaway.rollDigital'),
+                    onRoll: triggerRoll
+                }),
+                h('button', {
+                    class: 'btn btn-secondary btn-block',
+                    disabled: app.combatBusy || rolling,
+                    onclick: triggerRoll
+                }, rolling ? t('dice.rolling') : `🎲 ${t('runaway.rollDigital')}`)
+            ),
             h('div', { class: 'field' },
                 h('span', { class: 'field-label' }, t('runaway.orPickPhysical')),
                 h('div', { class: 'dice-grid', role: 'group', 'aria-label': t('runaway.orPickPhysical') },
                     [1, 2, 3, 4, 5, 6].map(val => h('button', {
                         class: 'dice-pick',
                         'aria-pressed': selectedDie === val ? 'true' : 'false',
-                        disabled: app.combatBusy,
+                        disabled: app.combatBusy || rolling,
                         onclick: () => {
+                            displayDie = val;
                             selectedDie = val;
                             modal.setBody(renderStep());
                         }
                     }, String(val)))
                 )
             ),
-            selectedDie !== null && h('div', { class: 'inset-band' },
+            h('div', { class: 'field' },
+                h('div', { class: 'runaway-mod-row' },
+                    h('div', { class: 'stack-sm' },
+                        h('span', { class: 'field-label' }, t('runaway.manualModifier')),
+                        h('span', { class: 'hint-text' }, t('runaway.manualModifierHint'))
+                    ),
+                    h('div', { class: 'runaway-mod-controls' },
+                        h('button', {
+                            class: 'icon-btn',
+                            disabled: app.combatBusy || manualMod <= -10,
+                            'aria-label': `${t('runaway.manualModifier')} −1`,
+                            onclick: () => {
+                                manualMod = Math.max(-10, manualMod - 1);
+                                modal.setBody(renderStep());
+                            }
+                        }, '−'),
+                        h('span', { class: 'runaway-mod-value tabular', role: 'status', 'aria-live': 'polite' },
+                            fmtSigned(manualMod)),
+                        h('button', {
+                            class: 'icon-btn',
+                            disabled: app.combatBusy || manualMod >= 10,
+                            'aria-label': `${t('runaway.manualModifier')} +1`,
+                            onclick: () => {
+                                manualMod = Math.min(10, manualMod + 1);
+                                modal.setBody(renderStep());
+                            }
+                        }, '+')
+                    )
+                )
+            ),
+            selectedDie !== null && !rolling && h('div', { class: 'inset-band' },
                 h('strong', { class: 'tabular' },
                     `${DICE_FACES[selectedDie - 1]} ${t('runaway.total', { total })}`),
-                mods.length > 0 && h('span', { class: 'muted-text tabular' },
+                modText && h('span', { class: 'muted-text tabular' },
                     t('runaway.dieMod', { die: selectedDie, mods: modText })),
                 h('span', { class: escaped ? 'ok-text' : 'danger-text' },
                     escaped
                         ? t('runaway.escaped', { total })
                         : t('runaway.caught', { total, threshold: RUN_AWAY_THRESHOLD }))
             ),
-            selectedDie !== null && h('button', {
+            selectedDie !== null && !rolling && h('button', {
                 class: `btn ${escaped ? 'btn-ok' : 'btn-danger'} btn-block`,
                 disabled: app.combatBusy,
-                onclick: () => confirmRunAway(selectedDie, escaped)
+                onclick: () => confirmRunAway(selectedDie, escaped, manualMod)
             }, escaped ? `🏃 ${t('runaway.confirmEscape')}` : `💀 ${t('runaway.confirmCaught')}`)
         ];
     }
 
-    function confirmRunAway(die, escaped) {
+    function confirmRunAway(die, escaped, modifier) {
         const curState = app.game;
         if (!curState?.combat || app.combatBusy) return;
 
@@ -2626,7 +2867,7 @@ function openRunAwayModal() {
         modal.close();
         render();
 
-        const sent = sendEvent(actor => events.playerRoll(actor, die, 'RUN_AWAY', escaped));
+        const sent = sendEvent(actor => events.playerRoll(actor, die, 'RUN_AWAY', escaped, modifier));
         if (!sent) {
             app.combatBusy = false;
             app.pendingRunAwayFinish = null;
@@ -2642,10 +2883,24 @@ function openAddMonsterModal() {
     let error = null;
     let results = [];
     let debounce = null;
+    let searchSeq = 0;
+    const manual = {
+        name: '',
+        level: '1',
+        mod: '0',
+        treasures: '1',
+        levels: '1',
+        isUndead: false,
+        badStuff: ''
+    };
 
     const modal = openModal({
         title: t('monsterModal.title'),
         dismissible: true,
+        onClose: () => {
+            clearTimeout(debounce);
+            debounce = null;
+        },
         body: renderNodes()
     });
 
@@ -2656,6 +2911,8 @@ function openAddMonsterModal() {
                 id: 'm-search',
                 dataset: { focusKey: 'm-search' },
                 type: 'search',
+                maxlength: '50',
+                'aria-label': t('monsterModal.searchPlaceholder'),
                 placeholder: t('monsterModal.searchPlaceholder'),
                 'data-autofocus': 'true',
                 value: query,
@@ -2708,28 +2965,72 @@ function openAddMonsterModal() {
                 h('summary', {}, t('monsterModal.manualSummary')),
                 h('label', { class: 'field' },
                     h('span', { class: 'field-label' }, t('monsterModal.name')),
-                    h('input', { class: 'input', id: 'nm-name', dataset: { focusKey: 'nm-name' }, maxlength: '80' })
+                    h('input', {
+                        class: 'input',
+                        id: 'nm-name',
+                        dataset: { focusKey: 'nm-name' },
+                        maxlength: '80',
+                        value: manual.name,
+                        oninput: (e) => { manual.name = e.target.value; }
+                    })
                 ),
                 h('div', { class: 'grid-2' },
                     h('label', { class: 'field' },
                         h('span', { class: 'field-label' }, t('monsterModal.levelRange')),
-                        h('input', { class: 'input', id: 'nm-level', type: 'number', min: '1', max: '20', value: '1' })
+                        h('input', {
+                            class: 'input',
+                            id: 'nm-level',
+                            type: 'number',
+                            min: '1',
+                            max: '20',
+                            value: manual.level,
+                            oninput: (e) => { manual.level = e.target.value; }
+                        })
                     ),
                     h('label', { class: 'field' },
                         h('span', { class: 'field-label' }, t('monsterModal.modRange')),
-                        h('input', { class: 'input', id: 'nm-mod', type: 'number', min: '-10', max: '10', value: '0' })
+                        h('input', {
+                            class: 'input',
+                            id: 'nm-mod',
+                            type: 'number',
+                            min: '-10',
+                            max: '10',
+                            value: manual.mod,
+                            oninput: (e) => { manual.mod = e.target.value; }
+                        })
                     ),
                     h('label', { class: 'field' },
                         h('span', { class: 'field-label' }, t('monsterModal.treasures')),
-                        h('input', { class: 'input', id: 'nm-treasures', type: 'number', min: '0', max: '10', value: '1' })
+                        h('input', {
+                            class: 'input',
+                            id: 'nm-treasures',
+                            type: 'number',
+                            min: '0',
+                            max: '10',
+                            value: manual.treasures,
+                            oninput: (e) => { manual.treasures = e.target.value; }
+                        })
                     ),
                     h('label', { class: 'field' },
                         h('span', { class: 'field-label' }, t('monsterModal.levelsReward')),
-                        h('input', { class: 'input', id: 'nm-levels', type: 'number', min: '1', max: '5', value: '1' })
+                        h('input', {
+                            class: 'input',
+                            id: 'nm-levels',
+                            type: 'number',
+                            min: '1',
+                            max: '5',
+                            value: manual.levels,
+                            oninput: (e) => { manual.levels = e.target.value; }
+                        })
                     )
                 ),
                 h('label', { class: 'checkbox-row' },
-                    h('input', { type: 'checkbox', id: 'nm-undead' }),
+                    h('input', {
+                        type: 'checkbox',
+                        id: 'nm-undead',
+                        checked: manual.isUndead,
+                        onchange: (e) => { manual.isUndead = e.target.checked; }
+                    }),
                     h('span', {}, `🧟 ${t('monsterModal.undead')}`)
                 ),
                 h('label', { class: 'field' },
@@ -2738,25 +3039,28 @@ function openAddMonsterModal() {
                         class: 'input',
                         id: 'nm-badstuff',
                         maxlength: '200',
-                        placeholder: t('monsterModal.badStuffPlaceholder')
+                        placeholder: t('monsterModal.badStuffPlaceholder'),
+                        value: manual.badStuff,
+                        oninput: (e) => { manual.badStuff = e.target.value; }
                     })
                 ),
                 h('button', {
                     class: 'btn btn-primary btn-block',
                     onclick: () => {
-                        const name = document.getElementById('nm-name')?.value.trim() || '';
+                        const name = manual.name.trim();
                         if (!name) {
                             toast(t('monsterModal.nameRequired'), 'err');
                             return;
                         }
+                        const parsedTreasures = manual.treasures.trim() === '' ? 1 : Number(manual.treasures);
                         addMonsterToCombat({
                             name,
-                            baseLevel: Number(document.getElementById('nm-level')?.value) || 1,
-                            flatModifier: Number(document.getElementById('nm-mod')?.value) || 0,
-                            treasures: Number(document.getElementById('nm-treasures')?.value ?? 1),
-                            levels: Number(document.getElementById('nm-levels')?.value) || 1,
-                            isUndead: Boolean(document.getElementById('nm-undead')?.checked),
-                            badStuff: document.getElementById('nm-badstuff')?.value.trim() || ''
+                            baseLevel: Number(manual.level) || 1,
+                            flatModifier: Number(manual.mod) || 0,
+                            treasures: Number.isFinite(parsedTreasures) ? parsedTreasures : 1,
+                            levels: Number(manual.levels) || 1,
+                            isUndead: Boolean(manual.isUndead),
+                            badStuff: manual.badStuff.trim()
                         }, { contribute: true });
                         modal.close();
                     }
@@ -2766,6 +3070,7 @@ function openAddMonsterModal() {
     }
 
     async function runSearch() {
+        const seq = ++searchSeq;
         const trimmed = query.trim();
         loading = true;
         error = null;
@@ -2773,7 +3078,7 @@ function openAddMonsterModal() {
         try {
             const qParam = trimmed.length === 0 ? '__ALL__' : (trimmed.length === 1 ? '__ALL__' : trimmed);
             const reply = await oneOffRequest(WS_URL, messages.catalogSearch(qParam, { limit: trimmed.length === 1 ? 50 : 20 }));
-            if (!modal.card.isConnected) return;
+            if (!modal.card.isConnected || seq !== searchSeq) return;
             const rows = reply.results || [];
             results = trimmed.length === 1
                 ? rows.filter(r => r.name.toLowerCase().includes(trimmed.toLowerCase()))
@@ -2781,7 +3086,7 @@ function openAddMonsterModal() {
             loading = false;
             modal.setBody(renderNodes());
         } catch (err) {
-            if (!modal.card.isConnected) return;
+            if (!modal.card.isConnected || seq !== searchSeq) return;
             error = errorText(err) || t('monsterModal.searchError');
             loading = false;
             modal.setBody(renderNodes());
@@ -2890,7 +3195,9 @@ async function loadCatalogPage({ append = false } = {}) {
     const gen = app.routeGen;
     const signal = app.routeAbort.signal;
     const cat = app.catalog;
-    const nextOffset = append ? cat.items.length : 0;
+    const seq = (cat.searchSeq || 0) + 1;
+    cat.searchSeq = seq;
+    const nextOffset = append ? (cat.rawOffset || 0) : 0;
 
     if (append) cat.loadingMore = true;
     else cat.loading = true;
@@ -2908,7 +3215,7 @@ async function loadCatalogPage({ append = false } = {}) {
             limit: reqLimit,
             offset: nextOffset
         }));
-        if (!isCurrentRoute(gen, signal)) return;
+        if (!isCurrentRoute(gen, signal) || cat.searchSeq !== seq) return;
 
         const raw = reply.results || [];
         const filtered = trimmed.length === 1
@@ -2917,12 +3224,13 @@ async function loadCatalogPage({ append = false } = {}) {
 
         cat.items = append ? [...cat.items, ...filtered] : filtered;
         cat.offset = nextOffset;
+        cat.rawOffset = nextOffset + raw.length;
         cat.hasMore = raw.length >= reqLimit;
         cat.loading = false;
         cat.loadingMore = false;
         render();
     } catch (err) {
-        if (!isCurrentRoute(gen, signal)) return;
+        if (!isCurrentRoute(gen, signal) || cat.searchSeq !== seq) return;
         cat.error = errorText(err) || t('catalog.error');
         cat.loading = false;
         cat.loadingMore = false;
@@ -3097,6 +3405,8 @@ function catalogView() {
                     id: 'cat-q',
                     dataset: { focusKey: 'cat-q' },
                     type: 'search',
+                    maxlength: '50',
+                    'aria-label': t('catalog.searchPlaceholder'),
                     placeholder: t('catalog.searchPlaceholder'),
                     value: cat.query,
                     oninput: (e) => {
@@ -3360,7 +3670,7 @@ function historyView() {
                         hs.items.length === 0
                             ? h('p', { class: 'muted-text' }, t('history.empty'))
                             : h('div', { class: 'list-divide' }, hs.items.map((game, idx) =>
-                                h('div', { class: 'flat-row', dataset: { key: `hist-${game.gameId || idx}` } },
+                                h('div', { class: 'flat-row', dataset: { key: `hist-${game.id || game.gameId || idx}` } },
                                     h('div', { class: 'row grow' },
                                         h('span', { 'aria-hidden': 'true' }, game.didIWin ? '🏆' : '⚔️'),
                                         h('div', { class: 'stack-sm' },
@@ -3370,7 +3680,7 @@ function historyView() {
                                                     ? t('history.wonBy', { name: game.winnerName })
                                                     : t('history.noWinner'))),
                                             h('span', { class: 'muted-text tabular' },
-                                                `${new Date(game.endedAt).toLocaleDateString(getLang())} · ${t('history.playersCount', { count: game.playerCount })}`)
+                                                `${game.endedAt ? new Date(game.endedAt).toLocaleDateString(getLang()) : '—'} · ${t('history.playersCount', { count: game.playerCount })}`)
                                         )
                                     )
                                 )
@@ -3455,6 +3765,7 @@ function render() {
 }
 
 setInterval(() => {
+    if (document.hidden || !app.game?.turnEndsAt) return;
     const el = document.getElementById('turn-countdown');
     if (!el) return;
     const { text, urgent } = turnCountdownInfo();
@@ -3463,12 +3774,17 @@ setInterval(() => {
 }, 500);
 
 document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) app.socket?.nudge();
+    if (!document.hidden) {
+        app.socket?.nudge();
+        requestWakeLock();
+    }
 });
 window.addEventListener('pageshow', () => app.socket?.nudge());
 window.addEventListener('online', () => app.socket?.nudge());
 
 window.addEventListener('hashchange', () => {
+    clearTimeout(app.catalog.debounceTimer);
+    app.catalog.debounceTimer = null;
     bumpRouteToken();
     closeAllModals();
     app.winnerPromptOpen = false;

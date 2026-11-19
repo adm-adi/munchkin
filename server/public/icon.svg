@@ -1,9 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-    <rect width="512" height="512" rx="112" fill="#131020"/>
-    <rect x="96" y="96" width="320" height="320" rx="64" fill="#f0b429"/>
-    <circle cx="176" cy="176" r="34" fill="#131020"/>
-    <circle cx="336" cy="176" r="34" fill="#131020"/>
-    <circle cx="256" cy="256" r="34" fill="#131020"/>
-    <circle cx="176" cy="336" r="34" fill="#131020"/>
-    <circle cx="336" cy="336" r="34" fill="#131020"/>
+    <defs>
+        <linearGradient id="dieGold" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#E8B024"/>
+            <stop offset="55%" stop-color="#D4960A"/>
+            <stop offset="100%" stop-color="#9A6804"/>
+        </linearGradient>
+    </defs>
+    <rect width="512" height="512" rx="112" fill="#0F0A08"/>
+    <rect x="28" y="28" width="456" height="456" rx="92" fill="none" stroke="#CC2020" stroke-width="14"/>
+    <rect x="96" y="96" width="320" height="320" rx="64" fill="url(#dieGold)" stroke="#FAF7F0" stroke-opacity="0.22" stroke-width="8"/>
+    <circle cx="176" cy="176" r="32" fill="#1A110D"/>
+    <circle cx="336" cy="176" r="32" fill="#1A110D"/>
+    <circle cx="256" cy="256" r="34" fill="#CC2020"/>
+    <circle cx="176" cy="336" r="32" fill="#1A110D"/>
+    <circle cx="336" cy="336" r="32" fill="#1A110D"/>
 </svg>

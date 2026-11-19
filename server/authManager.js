@@ -6,7 +6,7 @@ const MIN_PASSWORD_LENGTH = 8;
 const MAX_PASSWORD_BYTES = 72;
 const MAX_RATE_LIMIT_ENTRIES = 10_000;
 
-function createAuthManager({ db, logger, sendError, safeSend, jwtSecret, jwtExpirySeconds }) {
+function createAuthManager({ db, logger, sendError, safeSend, jwtSecret, jwtExpirySeconds, onAccountDeleted = undefined }) {
     if (typeof jwtSecret !== 'string' || jwtSecret.length < MIN_JWT_SECRET_LENGTH) {
         throw new Error(`JWT_SECRET must be at least ${MIN_JWT_SECRET_LENGTH} characters long`);
     }
@@ -20,6 +20,7 @@ function createAuthManager({ db, logger, sendError, safeSend, jwtSecret, jwtExpi
         };
 
     const authRateLimits = new Map(); // IP -> { attempts, lastAttempt }
+    const inFlightAuthChecks = new Map(); // IP -> count
     const RATE_LIMIT_MAX_ATTEMPTS = 5;
     const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 
@@ -163,16 +164,26 @@ function createAuthManager({ db, logger, sendError, safeSend, jwtSecret, jwtExpi
 
     function isRateLimited(ip) {
         const record = authRateLimits.get(ip);
-        if (!record) {
-            return false;
+        let attempts = 0;
+        if (record) {
+            if (Date.now() - record.lastAttempt > RATE_LIMIT_WINDOW_MS) {
+                authRateLimits.delete(ip);
+            } else {
+                attempts = record.attempts;
+            }
         }
+        const pending = inFlightAuthChecks.get(ip) || 0;
+        return (attempts + pending) >= RATE_LIMIT_MAX_ATTEMPTS;
+    }
 
-        if (Date.now() - record.lastAttempt > RATE_LIMIT_WINDOW_MS) {
-            authRateLimits.delete(ip);
-            return false;
-        }
+    function beginAuthCheck(ip) {
+        inFlightAuthChecks.set(ip, (inFlightAuthChecks.get(ip) || 0) + 1);
+    }
 
-        return record.attempts >= RATE_LIMIT_MAX_ATTEMPTS;
+    function endAuthCheck(ip) {
+        const next = (inFlightAuthChecks.get(ip) || 1) - 1;
+        if (next <= 0) inFlightAuthChecks.delete(ip);
+        else inFlightAuthChecks.set(ip, next);
     }
 
     function recordAuthAttempt(ip, success) {
@@ -222,7 +233,7 @@ function createAuthManager({ db, logger, sendError, safeSend, jwtSecret, jwtExpi
         };
     }
 
-    function handleRegister(ws, message) {
+    async function handleRegister(ws, message) {
         let { username, email, password, avatarId, gender } = message;
 
         const clientIp = ws.clientIp || 'unknown';
@@ -236,6 +247,7 @@ function createAuthManager({ db, logger, sendError, safeSend, jwtSecret, jwtExpi
             sendError(ws, 'INVALID_DATA', 'Nombre de usuario inválido');
             return;
         }
+        username = username.trim();
 
         const passwordErr = validatePasswordPolicy(password, username);
         if (passwordErr) {
@@ -246,40 +258,41 @@ function createAuthManager({ db, logger, sendError, safeSend, jwtSecret, jwtExpi
         if (!email) {
             const sanitizedUsername = username.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20) || 'user';
             email = `${sanitizedUsername}.${crypto.randomUUID().slice(0, 8)}@munchkin.local`;
-        } else if (!isValidInput(email, 100) || !isPlausibleEmail(email)) {
+        } else if (!isValidInput(email, 100) || !isPlausibleEmail(email.trim())) {
             sendError(ws, 'INVALID_DATA', 'Email inválido');
             return;
+        } else {
+            email = email.trim().toLowerCase();
         }
 
         const safeAvatarId = Math.max(0, Math.min(100, Math.round(Number(avatarId) || 0)));
         const safeGender = normalizeAccountGender(gender);
         recordRegisterAttempt(clientIp);
 
-        db.createUser(username, email, password, safeAvatarId, safeGender)
-            .then(user => {
-                logger.info(`User registered: ${user.username} (${user.id})`);
-                const token = signToken({
-                    id: user.id,
-                    username: user.username,
-                    email: user.email,
-                    tv: user.token_version || 0
-                });
-                ws.userId = user.id;
-                sendJson(ws, buildAuthSuccess(user, token));
-            })
-            .catch(err => {
-                logger.error('Register failed:', err.message);
-                if (err.message === 'EMAIL_EXISTS') {
-                    sendError(ws, 'EMAIL_EXISTS', 'El email ya esta registrado');
-                } else if (err.message === 'USERNAME_EXISTS') {
-                    sendError(ws, 'USERNAME_EXISTS', 'Ese nombre de usuario ya está en uso');
-                } else {
-                    sendError(ws, 'REGISTER_FAILED', 'Error al registrar usuario');
-                }
+        try {
+            const user = await db.createUser(username, email, password, safeAvatarId, safeGender);
+            logger.info(`User registered: ${user.username} (${user.id})`);
+            const token = signToken({
+                id: user.id,
+                username: user.username,
+                email: user.email,
+                tv: user.token_version || 0
             });
+            ws.userId = user.id;
+            sendJson(ws, buildAuthSuccess(user, token));
+        } catch (err) {
+            logger.error('Register failed:', err.message);
+            if (err.message === 'EMAIL_EXISTS') {
+                sendError(ws, 'EMAIL_EXISTS', 'El email ya esta registrado');
+            } else if (err.message === 'USERNAME_EXISTS') {
+                sendError(ws, 'USERNAME_EXISTS', 'Ese nombre de usuario ya está en uso');
+            } else {
+                sendError(ws, 'REGISTER_FAILED', 'Error al registrar usuario');
+            }
+        }
     }
 
-    function handleLogin(ws, message) {
+    async function handleLogin(ws, message) {
         const clientIp = ws.clientIp || 'unknown';
         if (isRateLimited(clientIp)) {
             sendError(ws, 'RATE_LIMITED', 'Demasiados intentos. Espera 15 minutos.');
@@ -287,36 +300,43 @@ function createAuthManager({ db, logger, sendError, safeSend, jwtSecret, jwtExpi
         }
 
         const { email, password } = message;
-        if (!isValidInput(email, 100) || !isValidInput(password, 100)) {
+        if (
+            !isValidInput(email, 100) ||
+            !isValidInput(password, 100) ||
+            Buffer.byteLength(password, 'utf8') > MAX_PASSWORD_BYTES
+        ) {
             sendError(ws, 'INVALID_DATA', 'Invalid input format');
             return;
         }
 
-        db.verifyUser(email, password)
-            .then(user => {
-                if (!user) {
-                    recordAuthAttempt(clientIp, false);
-                    logger.warn(`[IP: ${clientIp}] Login failed`);
-                    sendError(ws, 'AUTH_FAILED', 'Email o contrasena incorrectos');
-                    return;
-                }
+        const normalizedIdentifier = email.trim().includes('@') ? email.trim().toLowerCase() : email.trim();
+        beginAuthCheck(clientIp);
+        try {
+            const user = await db.verifyUser(normalizedIdentifier, password);
+            if (!user) {
+                recordAuthAttempt(clientIp, false);
+                logger.warn(`[IP: ${clientIp}] Login failed`);
+                sendError(ws, 'AUTH_FAILED', 'Email o contrasena incorrectos');
+                return;
+            }
 
-                recordAuthAttempt(clientIp, true);
-                logger.info(`User logged in: ${user.username}`);
+            recordAuthAttempt(clientIp, true);
+            logger.info(`User logged in: ${user.username}`);
 
-                const token = signToken({
-                    id: user.id,
-                    username: user.username,
-                    email: user.email,
-                    tv: user.token_version || 0
-                });
-                ws.userId = user.id;
-                sendJson(ws, buildAuthSuccess(user, token));
-            })
-            .catch(err => {
-                logger.error('Login error:', err);
-                sendError(ws, 'LOGIN_ERROR', 'Error interno al iniciar sesion');
+            const token = signToken({
+                id: user.id,
+                username: user.username,
+                email: user.email,
+                tv: user.token_version || 0
             });
+            ws.userId = user.id;
+            sendJson(ws, buildAuthSuccess(user, token));
+        } catch (err) {
+            logger.error('Login error:', err);
+            sendError(ws, 'LOGIN_ERROR', 'Error interno al iniciar sesion');
+        } finally {
+            endAuthCheck(clientIp);
+        }
     }
 
     async function handleLoginWithToken(ws, message) {
@@ -360,7 +380,8 @@ function createAuthManager({ db, logger, sendError, safeSend, jwtSecret, jwtExpi
     }
 
     async function handleUpdateProfile(ws, message) {
-        const { userId, username, password, currentPassword, avatarId, gender } = message;
+        let { userId, username, password, currentPassword, avatarId, gender } = message;
+        const clientIp = ws.clientIp || 'unknown';
 
         if (!ws.userId || ws.userId !== userId) {
             logger.warn(`Unauthorized profile update attempt. Session: ${ws.userId}, Target: ${userId}`);
@@ -368,19 +389,30 @@ function createAuthManager({ db, logger, sendError, safeSend, jwtSecret, jwtExpi
             return;
         }
 
-        if (username !== undefined && username !== null && (!isValidInput(username, 20) || !username.trim())) {
-            sendError(ws, 'INVALID_DATA', 'Nombre de usuario inválido');
-            return;
+        if (username !== undefined && username !== null) {
+            if (!isValidInput(username, 20) || !username.trim()) {
+                sendError(ws, 'INVALID_DATA', 'Nombre de usuario inválido');
+                return;
+            }
+            username = username.trim();
         }
 
         const hasNewPassword = typeof password === 'string' && password.length > 0;
         if (hasNewPassword) {
+            if (isRateLimited(clientIp)) {
+                sendError(ws, 'RATE_LIMITED', 'Demasiados intentos. Espera 15 minutos.');
+                return;
+            }
             const policyErr = validatePasswordPolicy(password, username || '');
             if (policyErr) {
                 sendError(ws, 'INVALID_DATA', policyErr);
                 return;
             }
-            if (typeof currentPassword !== 'string' || currentPassword.length === 0) {
+            if (
+                typeof currentPassword !== 'string' ||
+                currentPassword.length === 0 ||
+                Buffer.byteLength(currentPassword, 'utf8') > MAX_PASSWORD_BYTES
+            ) {
                 sendError(ws, 'INVALID_DATA', 'Se requiere la contraseña actual');
                 return;
             }
@@ -412,6 +444,7 @@ function createAuthManager({ db, logger, sendError, safeSend, jwtSecret, jwtExpi
             return;
         }
 
+        if (hasNewPassword) beginAuthCheck(clientIp);
         try {
             if (hasNewPassword) {
                 const existingUser = await db.getUserById(userId);
@@ -427,20 +460,21 @@ function createAuthManager({ db, logger, sendError, safeSend, jwtSecret, jwtExpi
                 }
                 const matches = await bcrypt.compare(currentPassword, existingUser.password_hash);
                 if (!matches) {
+                    recordAuthAttempt(clientIp, false);
                     sendError(ws, 'AUTH_FAILED', 'La contraseña actual es incorrecta');
                     return;
                 }
+                recordAuthAttempt(clientIp, true);
             }
 
             const user = await db.updateUser(userId, username, hasNewPassword ? password : null, safeAvatarId, safeGender);
             let freshToken = null;
             if (hasNewPassword) {
-                const newTv = await db.incrementTokenVersion(userId);
                 freshToken = signToken({
                     id: user.id,
                     username: user.username,
                     email: user.email,
-                    tv: newTv
+                    tv: user.token_version || 0
                 });
             }
 
@@ -466,23 +500,36 @@ function createAuthManager({ db, logger, sendError, safeSend, jwtSecret, jwtExpi
             } else {
                 sendError(ws, 'UPDATE_FAILED', 'Error al actualizar perfil');
             }
+        } finally {
+            if (hasNewPassword) endAuthCheck(clientIp);
         }
     }
 
     async function handleDeleteAccount(ws, message) {
+        const clientIp = ws.clientIp || 'unknown';
         if (!ws.userId) {
             sendError(ws, 'UNAUTHORIZED', 'Authentication required');
             return;
         }
+        if (isRateLimited(clientIp)) {
+            sendError(ws, 'RATE_LIMITED', 'Demasiados intentos. Espera 15 minutos.');
+            return;
+        }
 
         const { password } = message;
-        if (typeof password !== 'string' || password.length === 0) {
+        if (
+            typeof password !== 'string' ||
+            password.length === 0 ||
+            Buffer.byteLength(password, 'utf8') > MAX_PASSWORD_BYTES
+        ) {
             sendError(ws, 'INVALID_DATA', 'Se requiere la contraseña');
             return;
         }
 
+        const targetUserId = ws.userId;
+        beginAuthCheck(clientIp);
         try {
-            const existingUser = await db.getUserById(ws.userId);
+            const existingUser = await db.getUserById(targetUserId);
             if (!existingUser) {
                 sendError(ws, 'USER_NOT_FOUND', 'Usuario no encontrado');
                 return;
@@ -490,22 +537,29 @@ function createAuthManager({ db, logger, sendError, safeSend, jwtSecret, jwtExpi
 
             const matches = await bcrypt.compare(password, existingUser.password_hash);
             if (!matches) {
+                recordAuthAttempt(clientIp, false);
                 sendError(ws, 'AUTH_FAILED', 'Contraseña incorrecta');
                 return;
             }
+            recordAuthAttempt(clientIp, true);
 
-            const deleted = await db.deleteAccount(ws.userId);
+            const deleted = await db.deleteAccount(targetUserId);
             if (!deleted) {
                 sendError(ws, 'USER_NOT_FOUND', 'Usuario no encontrado');
                 return;
             }
 
-            logger.info(`Account deleted: ${ws.userId}`);
+            logger.info(`Account deleted: ${targetUserId}`);
             ws.userId = null;
+            if (typeof onAccountDeleted === 'function') {
+                onAccountDeleted(targetUserId);
+            }
             sendJson(ws, { type: 'ACCOUNT_DELETED' });
         } catch (err) {
             logger.error('Delete account error:', err);
             sendError(ws, 'DELETE_FAILED', 'Error al eliminar la cuenta');
+        } finally {
+            endAuthCheck(clientIp);
         }
     }
 

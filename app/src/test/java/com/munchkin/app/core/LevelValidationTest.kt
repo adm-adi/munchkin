@@ -136,11 +136,17 @@ class LevelValidationTest {
 
     @Test
     fun `gear and combat modifiers enforce GameEngine bounds`() {
-        val decClamped = GameEngine.reduce(
+        val decNegative = GameEngine.reduce(
             gameWith(level = 3, gear = 2),
             DecGear("e1", p1Id, 1L, p1Id, amount = 20)
         )
-        assertEquals(0, decClamped.players[p1Id]!!.gearBonus)
+        assertEquals(-18, decNegative.players[p1Id]!!.gearBonus)
+
+        val decClampedFloor = GameEngine.reduce(
+            gameWith(level = 3, gear = -990),
+            DecGear("e1b", p1Id, 1L, p1Id, amount = 50)
+        )
+        assertEquals(GameEngine.GEAR_MIN, decClampedFloor.players[p1Id]!!.gearBonus)
 
         val incStepCapped = GameEngine.reduce(
             gameWith(level = 3, gear = 5),

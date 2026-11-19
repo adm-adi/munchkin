@@ -381,6 +381,7 @@ async function updateUser(userId, newUsername, newPassword, newAvatarId = null, 
     if (newPassword) {
         assignments.push("password_hash = ?");
         params.push(await hashPassword(newPassword));
+        assignments.push("token_version = COALESCE(token_version, 0) + 1");
     }
 
     if (newAvatarId !== null) {
@@ -659,8 +660,14 @@ function recordGame(gameId, winnerId, startTime, endTime, participants, joinCode
         await run("BEGIN IMMEDIATE TRANSACTION");
         try {
             await run(
-                `INSERT OR REPLACE INTO games (id, join_code, host_id, started_at, ended_at, winner_id)
-                 VALUES (?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO games (id, join_code, host_id, started_at, ended_at, winner_id)
+                 VALUES (?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(id) DO UPDATE SET
+                     join_code = excluded.join_code,
+                     host_id = excluded.host_id,
+                     started_at = excluded.started_at,
+                     ended_at = excluded.ended_at,
+                     winner_id = excluded.winner_id`,
                 [gameId, joinCode, hostId, startTime, endTime, winnerId]
             );
 
@@ -772,6 +779,9 @@ function getUserStats(userId) {
  * Called whenever game state changes significantly.
  */
 function saveActiveGame(game) {
+    if (!game || game.ended || game.phase === 'FINISHED') {
+        return Promise.resolve(false);
+    }
     return withWriteLock(() => new Promise((resolve, reject) => {
         // Serialize players (without ws connections or client IPs)
         const playersData = {};
@@ -858,9 +868,9 @@ function saveActiveGame(game) {
  */
 function loadActiveGames() {
     return new Promise((resolve, reject) => {
-        // Only load games less than 24 hours old
+        // Only load non-finished games less than 24 hours old
         const maxAge = Date.now() - (24 * 60 * 60 * 1000);
-        const sql = `SELECT * FROM active_games WHERE last_activity_at > ?`;
+        const sql = `SELECT * FROM active_games WHERE last_activity_at > ? AND phase != 'FINISHED'`;
 
         db.all(sql, [maxAge], (err, rows) => {
             if (err) {

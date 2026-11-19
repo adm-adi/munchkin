@@ -168,6 +168,9 @@ export class GameSocket {
             if (authToken) {
                 ws.send(JSON.stringify(messages.loginWithToken(authToken)));
                 const reply = await this._awaitReply([MSG.AUTH_SUCCESS]);
+                if (reply?.token && this._last) {
+                    this._last.authToken = reply.token;
+                }
                 this._emit('auth', reply);
             }
 
@@ -205,7 +208,7 @@ export class GameSocket {
             const onOpen = () => { cleanup(); resolve(); };
             const onError = () => {
                 cleanup();
-                reject(new Error('No se pudo conectar con el servidor'));
+                reject(new ServerError('CONNECTION_LOST', 'Connection to server lost'));
             };
             const timer = setTimeout(() => {
                 cleanup();
@@ -310,6 +313,7 @@ export class GameSocket {
                     this._emit('state', this.gameState);
                     break;
                 case MSG.ERROR:
+                    this._resyncInFlight = false;
                     this._emit('error', new ServerError(msg.code, msg.message));
                     break;
                 case MSG.PONG: {
@@ -349,8 +353,13 @@ export class GameSocket {
             this._setConnState(ConnState.DISCONNECTED);
             return;
         }
-        // Mid-handshake closes are settled by the handshake's own error path.
-        if (this._pending) return;
+        if (this._pending) {
+            const { reject, timer } = this._pending;
+            clearTimeout(timer);
+            this._pending = null;
+            reject(new ServerError('CONNECTION_LOST', 'Connection closed'));
+            return;
+        }
         this._startReconnectLoop();
     }
 
@@ -412,7 +421,11 @@ export class GameSocket {
             const wake = this._reconnectWake;
             this._reconnectWake = null;
             wake();
-        } else if (this.connState === ConnState.FAILED_PERMANENTLY) {
+        } else if (
+            (this.connState === ConnState.FAILED_PERMANENTLY || this.connState === ConnState.DISCONNECTED) &&
+            this._last?.joinCode &&
+            !this._shuttingDown
+        ) {
             this._startReconnectLoop();
         } else if (this.isConnected()) {
             // A stale socket fails the send or times out on PONG → reconnect.
@@ -466,7 +479,7 @@ export class GameSocket {
     }
 
     sendMessage(msg) {
-        if (!this.ws) throw new Error('No conectado');
+        if (!this.ws) throw new ServerError('CONNECTION_LOST', 'Not connected');
         this.ws.send(JSON.stringify(msg));
     }
 
@@ -510,7 +523,7 @@ function openSocket(url, WebSocketImpl) {
         const onOpen = () => { cleanup(); resolve(ws); };
         const onError = () => {
             cleanup();
-            reject(new Error('No se pudo conectar con el servidor'));
+            reject(new ServerError('CONNECTION_LOST', 'Connection to server lost'));
         };
         const timer = setTimeout(() => {
             cleanup();
@@ -541,11 +554,11 @@ function nextMessage(ws) {
         };
         const onClose = () => {
             cleanup();
-            reject(new Error('Conexión cerrada'));
+            reject(new ServerError('CONNECTION_LOST', 'Connection closed'));
         };
         const onError = () => {
             cleanup();
-            reject(new Error('Error de conexión con el servidor'));
+            reject(new ServerError('CONNECTION_LOST', 'Connection to server lost'));
         };
         const timer = setTimeout(() => {
             cleanup();

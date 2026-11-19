@@ -111,10 +111,15 @@ class GameClient : Closeable {
     private val nudgeChannel = Channel<Unit>(Channel.CONFLATED)
     private val pingTriggerChannel = Channel<Unit>(Channel.CONFLATED)
 
+    @Volatile
     private var lastUrl: String? = null
+    @Volatile
     private var lastJoinCode: String? = null
+    @Volatile
     private var lastPlayerMeta: PlayerMeta? = null
+    @Volatile
     private var lastReconnectToken: String? = null
+    @Volatile
     private var lastAuthToken: String? = null
 
     private var lastSeq: Long = 0L
@@ -315,9 +320,9 @@ class GameClient : Closeable {
                         DLog.e(TAG, "Connection error: ${e.message}")
                         if (!resultDeferred.isCompleted) {
                             resultDeferred.complete(Result.failure(e))
-                        }
-                        if (!isShuttingDown) {
-                            _connectionState.value = ConnectionState.DISCONNECTED
+                            if (!isShuttingDown) {
+                                _connectionState.value = ConnectionState.DISCONNECTED
+                            }
                         }
                     } finally {
                         if (!resultDeferred.isCompleted) {
@@ -477,9 +482,9 @@ class GameClient : Closeable {
                     Log.e(TAG, "WebSocket exception: ${e.message}", e)
                     if (!resultDeferred.isCompleted) {
                         resultDeferred.complete(Result.failure(e))
-                    }
-                    if (!isReconnect && !isShuttingDown) {
-                        _connectionState.value = ConnectionState.DISCONNECTED
+                        if (!isReconnect && !isShuttingDown) {
+                            _connectionState.value = ConnectionState.DISCONNECTED
+                        }
                     }
                 } finally {
                     if (!resultDeferred.isCompleted) {
@@ -749,9 +754,11 @@ class GameClient : Closeable {
                 DLog.w(TAG, "Ignoring stale or duplicate event seq=$seq (lastSeq=$lastSeq)")
                 return
             }
+            var seqGapDetected = false
             if (lastSeq > 0L && seq > lastSeq + 1L) {
-                DLog.w(TAG, "Sequence mismatch: expected=${lastSeq + 1}, received=$seq")
-                Log.w(TAG, "Sequence mismatch: expected=${lastSeq + 1}, received=$seq")
+                DLog.w(TAG, "Sequence mismatch: expected=${lastSeq + 1}, received=$seq; requesting resync")
+                Log.w(TAG, "Sequence mismatch: expected=${lastSeq + 1}, received=$seq; requesting resync")
+                seqGapDetected = true
             }
             lastSeq = seq
 
@@ -761,6 +768,31 @@ class GameClient : Closeable {
             }
             engine.applyRemoteEvent(event)
             _gameState.value = engine.gameState.value
+            if (seqGapDetected) {
+                requestSnapshotResync()
+            }
+        }
+    }
+
+    private fun requestSnapshotResync() {
+        val currentSession = session ?: return
+        val code = lastJoinCode ?: return
+        val meta = lastPlayerMeta ?: return
+        val token = lastReconnectToken ?: _reconnectToken.value
+        ensureScope().launch {
+            try {
+                val hello = HelloMessage(
+                    gameId = _gameState.value?.gameId?.value ?: "",
+                    joinCode = code,
+                    playerMeta = meta,
+                    reconnectToken = token
+                )
+                currentSession.send(json.encodeToString<WsMessage>(hello))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Snapshot resync HELLO failed: ${e.message}")
+            }
         }
     }
 

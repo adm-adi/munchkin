@@ -37,7 +37,8 @@ data class PlayerRoll(
     override val targetPlayerId: PlayerId?,
     val result: Int,
     val purpose: DiceRollPurpose = DiceRollPurpose.RANDOM,
-    val success: Boolean = false
+    val success: Boolean = false,
+    val modifier: Int = 0
 ) : GameEvent()
 
 @Serializable
@@ -205,7 +206,8 @@ data class CombatStart(
     override val actorId: PlayerId,
     override val timestamp: Long,
     override val targetPlayerId: PlayerId? = null,
-    val mainPlayerId: PlayerId
+    val mainPlayerId: PlayerId,
+    val monsters: List<MonsterInstance> = emptyList()
 ) : GameEvent()
 
 @Serializable
@@ -309,7 +311,9 @@ data class CombatSetModifier(
 enum class DiceRollPurpose {
     COMBAT,         // Combat roll
     RUN_AWAY,       // Escaping combat
-    RANDOM          // Generic roll
+    CURSE,          // Curse resolution roll
+    RANDOM,         // Generic roll
+    TIE_BREAKER     // Tie-breaker roll
 }
 
 @Immutable
@@ -320,5 +324,6 @@ data class DiceRollInfo(
     val result: Int,
     val success: Boolean = false,
     val timestamp: Long = System.currentTimeMillis(),
-    val purpose: DiceRollPurpose = DiceRollPurpose.RANDOM
+    val purpose: DiceRollPurpose = DiceRollPurpose.RANDOM,
+    val modifier: Int = 0
 )

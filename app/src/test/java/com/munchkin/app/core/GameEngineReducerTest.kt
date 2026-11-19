@@ -50,11 +50,16 @@ class GameEngineReducerTest {
     fun `reduce is pure and enforces server clamps for gear avatar name and tempCombatBonus`() {
         val initial = baseState()
 
+        // Official Munchkin rules allow negative gear/combat strength down to GEAR_MIN (-999).
         val afterDecGear = GameEngine.reduce(initial, DecGear("e1", p1Id, 1L, p1Id, amount = 10))
-        assertEquals(0, afterDecGear.players[p1Id]!!.gearBonus)
+        assertEquals(-10, afterDecGear.players[p1Id]!!.gearBonus)
         assertEquals(0, initial.players[p1Id]!!.gearBonus)
 
-        val afterHugeInc = GameEngine.reduce(afterDecGear, IncGear("e2", p1Id, 2L, p1Id, amount = 500))
+        val afterFloorClamp = GameEngine.reduce(afterDecGear, SetGear("e1b", p1Id, 1L, p1Id, gear = -5000))
+        assertEquals(GameEngine.GEAR_MIN, afterFloorClamp.players[p1Id]!!.gearBonus)
+
+        val afterResetZero = GameEngine.reduce(afterFloorClamp, SetGear("e1c", p1Id, 1L, p1Id, gear = 0))
+        val afterHugeInc = GameEngine.reduce(afterResetZero, IncGear("e2", p1Id, 2L, p1Id, amount = 500))
         // Step is capped at STEP_LIMIT = 100
         assertEquals(100, afterHugeInc.players[p1Id]!!.gearBonus)
 
@@ -83,7 +88,7 @@ class GameEngineReducerTest {
     @Test
     fun `PLAYER_ROLL clamps result 1 to 6 and recomputes RUN_AWAY success`() {
         val state = baseState(
-            combat = CombatState(mainPlayerId = p2Id)
+            combat = CombatState(mainPlayerId = p2Id, helperPlayerId = p3Id)
         )
 
         // p2 is ELF (+1): 4 + 1 >= 5 -> true even if client passed success = false
@@ -101,6 +106,22 @@ class GameEngineReducerTest {
             PlayerRoll("e2", p3Id, 11L, null, result = 5, purpose = DiceRollPurpose.RUN_AWAY, success = true)
         )
         assertFalse(halflingRoll.combat!!.lastDiceRoll!!.success)
+
+        // Manual card modifier (+2): HALFLING (-1) rolling 4 - 1 + 2 = 5 -> true
+        val halflingBuffed = GameEngine.reduce(
+            state,
+            PlayerRoll("e2b", p3Id, 11L, null, result = 4, purpose = DiceRollPurpose.RUN_AWAY, success = true, modifier = 2)
+        )
+        assertEquals(2, halflingBuffed.combat!!.lastDiceRoll!!.modifier)
+        assertTrue(halflingBuffed.combat!!.lastDiceRoll!!.success)
+
+        // Manual curse modifier (-2): ELF (+1) rolling 5 + 1 - 2 = 4 -> false
+        val elfCursed = GameEngine.reduce(
+            state,
+            PlayerRoll("e2c", p2Id, 11L, null, result = 5, purpose = DiceRollPurpose.RUN_AWAY, success = false, modifier = -2)
+        )
+        assertEquals(-2, elfCursed.combat!!.lastDiceRoll!!.modifier)
+        assertFalse(elfCursed.combat!!.lastDiceRoll!!.success)
 
         // Out-of-range roll clamped to 6
         val highRoll = GameEngine.reduce(

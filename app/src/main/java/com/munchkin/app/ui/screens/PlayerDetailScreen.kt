@@ -66,7 +66,7 @@ fun PlayerDetailScreen(
                     },
                     modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = NeonError,
+                        containerColor = DungeonDangerFill,
                         contentColor = NeonWhite
                     )
                 ) {
@@ -139,12 +139,14 @@ fun PlayerDetailScreen(
             
             Spacer(modifier = Modifier.height(32.dp))
             
-            // Gear counter
+            // Gear counter (official Munchkin rules allow negative combat modifiers)
             CounterButton(
                 value = player.gearBonus,
                 label = stringResource(R.string.gear),
                 onIncrement = { onModifyGear(1) },
                 onDecrement = { onModifyGear(-1) },
+                minValue = -999,
+                maxValue = 999,
                 showSign = true,
                 enabled = !isReadOnly
             )

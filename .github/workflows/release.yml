@@ -35,6 +35,17 @@ jobs:
           cache: 'npm'
           cache-dependency-path: server/package-lock.json
 
+      - name: Verify synchronized versions and tag parity
+        run: |
+          set -euo pipefail
+          python3 scripts/bump_version.py --check
+          TAG_VER="${GITHUB_REF_NAME#v}"
+          PKG_VER="$(node -p "require('./server/package.json').version")"
+          if [ "$TAG_VER" != "$PKG_VER" ]; then
+            echo "::error::Tag version ($TAG_VER) does not match package/app version ($PKG_VER)" >&2
+            exit 1
+          fi
+
       - name: Server audit & tests
         working-directory: server
         run: |

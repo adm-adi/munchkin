@@ -69,10 +69,12 @@ function encodePng(width, height, rgba) {
     ]);
 }
 
-// ---- Icon design (coordinates in 512-space, like icon.svg) ----
+// ---- Icon design (Dungeon Edition tokens in 512-space, matching icon.svg) ----
 
-const BG = [0x13, 0x10, 0x20];
-const GOLD = [0xf0, 0xb4, 0x29];
+const BG = [0x0f, 0x0a, 0x08];       // #0F0A08 obsidian canvas
+const SURFACE = [0x1a, 0x11, 0x0d];  // #1A110D pip ink
+const CRIMSON = [0xcc, 0x20, 0x20];  // #CC2020 torch crimson
+const GOLD = [0xd4, 0x96, 0x0a];     // #D4960A dungeon gold
 
 function insideRoundedRect(x, y, left, top, width, height, radius) {
     const right = left + width;
@@ -85,15 +87,19 @@ function insideRoundedRect(x, y, left, top, width, height, radius) {
         (y >= top + radius && y <= bottom - radius);
 }
 
-const PIPS = [[176, 176], [336, 176], [256, 256], [176, 336], [336, 336]];
+const CORNER_PIPS = [[176, 176], [336, 176], [176, 336], [336, 336]];
 
 function colorAt(x, y) {
-    // Returns [r, g, b, a] for a point in 512-space.
-    if (!insideRoundedRect(x, y, 0, 0, 512, 512, 112)) return [0, 0, 0, 0];
-    for (const [px, py] of PIPS) {
-        if ((x - px) ** 2 + (y - py) ** 2 <= 34 ** 2) return [...BG, 255];
+    // Returns [r, g, b, a] for a point in 512-space (solid obsidian background for maskable safety).
+    if (!insideRoundedRect(x, y, 0, 0, 512, 512, 112)) return [...BG, 255];
+    if ((x - 256) ** 2 + (y - 256) ** 2 <= 34 ** 2) return [...CRIMSON, 255];
+    for (const [px, py] of CORNER_PIPS) {
+        if ((x - px) ** 2 + (y - py) ** 2 <= 32 ** 2) return [...SURFACE, 255];
     }
     if (insideRoundedRect(x, y, 96, 96, 320, 320, 64)) return [...GOLD, 255];
+    const inOuterFrame = insideRoundedRect(x, y, 21, 21, 470, 470, 96);
+    const inInnerFrame = insideRoundedRect(x, y, 35, 35, 442, 442, 86);
+    if (inOuterFrame && !inInnerFrame) return [...CRIMSON, 255];
     return [...BG, 255];
 }
 
@@ -123,7 +129,7 @@ function renderIcon(size) {
     return encodePng(size, size, rgba);
 }
 
-for (const size of [180, 512]) {
+for (const size of [180, 192, 512]) {
     const outPath = path.join(__dirname, '..', 'public', `icon-${size}.png`);
     fs.writeFileSync(outPath, renderIcon(size));
     console.log(`✅ ${outPath} (${fs.statSync(outPath).size} bytes)`);

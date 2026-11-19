@@ -193,7 +193,11 @@ class MainActivity : ComponentActivity() {
                     val observer = LifecycleEventObserver { _, event ->
                         when (event) {
                             Lifecycle.Event.ON_START -> gameSessionViewModel.nudgeConnection()
-                            Lifecycle.Event.ON_RESUME -> gameSessionViewModel.checkReconnection()
+                            Lifecycle.Event.ON_RESUME -> {
+                                val route = navController.currentBackStackEntry?.destination?.route
+                                val onGameplayRoute = route in GAMEPLAY_KEEP_SCREEN_ON_ROUTES || route == Routes.PLAYER_DETAIL
+                                gameSessionViewModel.checkReconnection(allowColdResume = onGameplayRoute)
+                            }
                             else -> Unit
                         }
                     }
@@ -348,11 +352,9 @@ class MainActivity : ComponentActivity() {
                                         },
                                         onLogout = { authViewModel.logout() },
                                         onLeaderboardClick = {
-                                            authViewModel.loadLeaderboard()
                                             navController.navigate(Routes.LEADERBOARD) { launchSingleTop = true }
                                         },
                                         onHistoryClick = {
-                                            authViewModel.loadHistory()
                                             navController.navigate(Routes.HISTORY) { launchSingleTop = true }
                                         },
                                         onProfileClick = {
@@ -559,8 +561,8 @@ class MainActivity : ComponentActivity() {
                                             onModifyModifier = { target, delta ->
                                                 gameSessionViewModel.modifyCombatModifier(target, delta)
                                             },
-                                            onRollCombatDice = { purpose, result, success ->
-                                                gameSessionViewModel.rollForCombat(purpose, result, success)
+                                            onRollCombatDice = { purpose, result, success, modifier ->
+                                                gameSessionViewModel.rollForCombat(purpose, result, success, modifier)
                                             },
                                             onEndCombat = { gameSessionViewModel.endCombat() },
                                             onCancelCombat = { gameSessionViewModel.cancelCombat() },
@@ -710,7 +712,9 @@ class MainActivity : ComponentActivity() {
                             onApplyDeath = { gameSessionViewModel.applyDeath() }
                         )
 
-                        DebugLogViewer(showTrigger = BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
+                            DebugLogViewer(showTrigger = true)
+                        }
                     }
                 }
             }

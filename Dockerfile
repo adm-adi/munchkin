@@ -19,6 +19,6 @@ ENV NODE_ENV=production \
 EXPOSE 8765
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD ["node", "-e", "fetch(`http://127.0.0.1:${process.env.PORT || 8765}/health`).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+  CMD ["node", "-e", "const fs=require('fs'),https=require('https'),http=require('http');const tls=fs.existsSync(process.env.MUNCHKIN_TLS_KEY||'key.pem')&&fs.existsSync(process.env.MUNCHKIN_TLS_CERT||'cert.pem');const mod=tls?https:http;const req=mod.request({host:'127.0.0.1',port:process.env.PORT||8765,path:'/health',rejectUnauthorized:false},res=>process.exit(res.statusCode===200?0:1));req.on('error',()=>process.exit(1));req.end();"]
 
 CMD ["node", "server.js"]

@@ -304,7 +304,7 @@ fun HomeScreen(
                     onClick = onCreateGame,
                     modifier = Modifier.fillMaxWidth(),
                     icon = Icons.Default.Add,
-                    gradientColors = listOf(NeonPrimary, NeonSecondary)
+                    gradientColors = GradientNeonPurple
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))

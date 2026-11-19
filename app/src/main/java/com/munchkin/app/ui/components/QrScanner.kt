@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -113,6 +114,9 @@ fun QrScanner(
     ) {
         if (cameraPermission.status.isGranted) {
             val hasScanned = remember { AtomicBoolean(false) }
+            val disposed = remember { AtomicBoolean(false) }
+            val latestOnQrCodeScanned by rememberUpdatedState(onQrCodeScanned)
+            val latestOnError by rememberUpdatedState(onError)
             val scanner = remember {
                 val options = BarcodeScannerOptions.Builder()
                     .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
@@ -128,6 +132,7 @@ fun QrScanner(
 
             DisposableEffect(Unit) {
                 onDispose {
+                    disposed.set(true)
                     try {
                         cameraProvider?.unbindAll()
                     } catch (e: Exception) {
@@ -151,6 +156,10 @@ fun QrScanner(
                 cameraProviderFuture.addListener({
                     try {
                         val provider = cameraProviderFuture.get()
+                        if (disposed.get() || analyzerExecutor.isShutdown) {
+                            provider.unbindAll()
+                            return@addListener
+                        }
                         cameraProvider = provider
 
                         val preview = Preview.Builder().build().also {
@@ -162,7 +171,7 @@ fun QrScanner(
                             .build()
                             .also { analysis ->
                                 analysis.setAnalyzer(analyzerExecutor) { imageProxy ->
-                                    if (hasScanned.get()) {
+                                    if (disposed.get() || hasScanned.get()) {
                                         imageProxy.close()
                                         return@setAnalyzer
                                     }
@@ -170,9 +179,11 @@ fun QrScanner(
                                         imageProxy = imageProxy,
                                         scanner = scanner,
                                         onQrFound = { qrContent ->
-                                            if (hasScanned.compareAndSet(false, true)) {
+                                            if (!disposed.get() && hasScanned.compareAndSet(false, true)) {
                                                 mainExecutor.execute {
-                                                    onQrCodeScanned(qrContent)
+                                                    if (!disposed.get()) {
+                                                        latestOnQrCodeScanned(qrContent)
+                                                    }
                                                 }
                                             }
                                         },
@@ -191,10 +202,13 @@ fun QrScanner(
                             imageAnalyzer
                         )
                     } catch (e: Exception) {
+                        if (disposed.get()) return@addListener
                         Log.e(TAG, "Camera initialization failed", e)
                         val msg = e.localizedMessage?.takeIf { it.isNotBlank() } ?: defaultErrorText
                         cameraError = msg
-                        mainExecutor.execute { onError(msg) }
+                        mainExecutor.execute {
+                            if (!disposed.get()) latestOnError(msg)
+                        }
                     }
                 }, mainExecutor)
             }

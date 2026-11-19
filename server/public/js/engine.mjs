@@ -9,7 +9,7 @@ const VALID_CLASSES = new Set(['NONE', 'WARRIOR', 'WIZARD', 'THIEF', 'CLERIC']);
 const VALID_RACES = new Set(['HUMAN', 'ELF', 'DWARF', 'HALFLING']);
 const VALID_GENDERS = new Set(['M', 'F', 'NA']);
 
-const GEAR_MIN = 0;
+const GEAR_MIN = -999;
 const GEAR_MAX = 999;
 const TEMP_COMBAT_BONUS_MIN = -100;
 const TEMP_COMBAT_BONUS_MAX = 100;
@@ -209,18 +209,35 @@ export function applyEvent(prevState, event) {
             state.players[event.actorId] = updatedActor;
 
             const inCombatRoll = state.combat &&
-                (event.purpose === 'COMBAT' || event.purpose === 'RUN_AWAY');
+                (event.purpose === 'COMBAT' || event.purpose === 'RUN_AWAY') &&
+                (
+                    event.actorId === state.combat.mainPlayerId ||
+                    event.actorId === state.combat.helperPlayerId ||
+                    event.actorId === state.hostId
+                );
             if (inCombatRoll) {
-                const runBonus = (hasRace(updatedActor, 'ELF') ? 1 : 0) +
-                    (hasRace(updatedActor, 'HALFLING') ? -1 : 0);
+                const runner = (
+                    event.purpose === 'RUN_AWAY' &&
+                    event.actorId !== state.combat.mainPlayerId &&
+                    event.actorId !== state.combat.helperPlayerId &&
+                    event.actorId === state.hostId
+                )
+                    ? (state.players[state.combat.mainPlayerId] || updatedActor)
+                    : updatedActor;
+                const runBonus = (hasRace(runner, 'ELF') ? 1 : 0) +
+                    (hasRace(runner, 'HALFLING') ? -1 : 0);
+                const modifier = event.purpose === 'RUN_AWAY'
+                    ? clampInt(event.modifier ?? 0, -10, 10, 0)
+                    : 0;
                 const success = event.purpose === 'RUN_AWAY'
-                    ? (rollResult + runBonus) >= RUN_AWAY_THRESHOLD
+                    ? (rollResult + runBonus + modifier) >= RUN_AWAY_THRESHOLD
                     : event.success === true;
                 state.combat = cloneCombat(state.combat);
                 state.combat.lastDiceRoll = {
                     playerId: event.actorId,
-                    playerName: updatedActor.name || 'Unknown',
+                    playerName: runner.name || updatedActor.name || 'Unknown',
                     result: rollResult,
+                    modifier,
                     success,
                     timestamp: event.timestamp || Date.now(),
                     purpose: event.purpose

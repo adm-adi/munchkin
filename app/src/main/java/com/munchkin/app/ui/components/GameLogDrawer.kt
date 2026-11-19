@@ -75,12 +75,11 @@ fun GameLogDrawer(
                     modifier = Modifier.padding(top = 12.dp)
                 )
             } else {
-                val reversedEntries = remember(logEntries) { logEntries.reversed() }
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(
-                        items = reversedEntries,
+                        items = logEntries,
                         key = { it.id }
                     ) { entry ->
                         LogEntryItem(entry = entry)

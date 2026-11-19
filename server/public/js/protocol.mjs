@@ -16,6 +16,7 @@ export const MSG = {
     HELLO: 'HELLO',
     EVENT_REQUEST: 'EVENT_REQUEST',
     PING: 'PING',
+    LIST_GAMES: 'LIST_GAMES',
     REGISTER: 'REGISTER',
     LOGIN: 'LOGIN',
     LOGIN_WITH_TOKEN: 'LOGIN_WITH_TOKEN',
@@ -41,6 +42,7 @@ export const MSG = {
     PLAYER_STATUS: 'PLAYER_STATUS',
     ERROR: 'ERROR',
     PONG: 'PONG',
+    GAMES_LIST: 'GAMES_LIST',
     AUTH_SUCCESS: 'AUTH_SUCCESS',
     PROFILE_UPDATED: 'PROFILE_UPDATED',
     ACCOUNT_DELETED: 'ACCOUNT_DELETED',
@@ -109,6 +111,9 @@ export const messages = {
     },
     ping() {
         return { type: MSG.PING, timestamp: Date.now() };
+    },
+    listGames() {
+        return { type: MSG.LIST_GAMES };
     },
     register({ username, email, password, avatarId = 0, gender = 'M' }) {
         return { type: MSG.REGISTER, username, email, password, avatarId, gender };
@@ -206,8 +211,8 @@ export const events = {
     endTurn(actorId) {
         return base('END_TURN', actorId);
     },
-    playerRoll(actorId, result, purpose = 'RANDOM', success = false) {
-        return { ...base('PLAYER_ROLL', actorId, actorId), result, purpose, success };
+    playerRoll(actorId, result, purpose = 'RANDOM', success = false, modifier = 0) {
+        return { ...base('PLAYER_ROLL', actorId, actorId), result, purpose, success, modifier };
     },
     incLevel(actorId, amount = 1) {
         return { ...base('INC_LEVEL', actorId, actorId), amount, reason: null };
@@ -215,11 +220,17 @@ export const events = {
     decLevel(actorId, amount = 1) {
         return { ...base('DEC_LEVEL', actorId, actorId), amount };
     },
+    setLevel(actorId, level) {
+        return { ...base('SET_LEVEL', actorId, actorId), level };
+    },
     incGear(actorId, amount = 1) {
         return { ...base('INC_GEAR', actorId, actorId), amount };
     },
     decGear(actorId, amount = 1) {
         return { ...base('DEC_GEAR', actorId, actorId), amount };
+    },
+    setGear(actorId, gear) {
+        return { ...base('SET_GEAR', actorId, actorId), gear };
     },
     setName(actorId, name) {
         return { ...base('SET_NAME', actorId, actorId), name };

@@ -487,18 +487,18 @@ fun PlayerAvatarNode(
     val color = getAvatarColor(player.avatarId)
     val drawableId = AvatarResources.getAvatarDrawable(player.avatarId, player.gender == Gender.F)
 
-    val glowAlpha = if (isTurn) {
+    val glowAlphaState = if (isTurn) {
         val transition = rememberInfiniteTransition(label = "turnGlow")
         transition.animateFloat(
-            initialValue = 0.3f,
-            targetValue = 0.85f,
+            initialValue = 0.28f,
+            targetValue = 0.72f,
             animationSpec = infiniteRepeatable(
                 tween(1000, easing = FastOutSlowInEasing),
                 RepeatMode.Reverse
             ),
             label = "glowAlpha"
-        ).value
-    } else 0f
+        )
+    } else null
 
     val borderColor = when {
         isTurn -> NeonWarning
@@ -519,26 +519,23 @@ fun PlayerAvatarNode(
             modifier = Modifier
                 .size(avatarSize)
                 .then(
-                    if (isTurn) Modifier.drawBehind {
-                        drawIntoCanvas { canvas ->
-                            val paint = Paint().also { p ->
-                                p.asFrameworkPaint().apply {
-                                    isAntiAlias = true
-                                    this.color = android.graphics.Color.TRANSPARENT
-                                    setShadowLayer(
-                                        14.dp.toPx(),
-                                        0f,
-                                        0f,
-                                        NeonWarning.copy(alpha = glowAlpha).toArgb()
-                                    )
-                                }
-                            }
-                            canvas.drawCircle(
-                                androidx.compose.ui.geometry.Offset(size.width / 2, size.height / 2),
-                                size.width / 2,
-                                paint
-                            )
-                        }
+                    if (isTurn && glowAlphaState != null) Modifier.drawBehind {
+                        val alpha = glowAlphaState.value
+                        val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
+                        val baseRadius = size.width / 2f
+                        drawCircle(
+                            brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                                colors = listOf(
+                                    NeonWarning.copy(alpha = alpha * 0.65f),
+                                    NeonWarning.copy(alpha = alpha * 0.2f),
+                                    Color.Transparent
+                                ),
+                                center = center,
+                                radius = baseRadius + 14.dp.toPx()
+                            ),
+                            radius = baseRadius + 14.dp.toPx(),
+                            center = center
+                        )
                     } else Modifier
                 )
                 .clip(CircleShape)

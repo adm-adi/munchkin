@@ -65,7 +65,7 @@ fun TutorialScreen(
             title = stringResource(R.string.tutorial_sync_title),
             description = stringResource(R.string.tutorial_sync_desc),
             color = NeonCyan,
-            onColor = NeonWhite
+            onColor = NeonBackground
         ),
         TutorialPage(
             icon = Icons.Default.Casino,

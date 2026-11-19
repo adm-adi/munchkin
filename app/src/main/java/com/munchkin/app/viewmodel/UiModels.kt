@@ -64,15 +64,15 @@ private fun mapErrorCode(code: ErrorCode, rawMessage: String?, strings: StringRe
         ErrorCode.GAME_NOT_FOUND -> strings.get(R.string.error_not_found)
         ErrorCode.GAME_FULL -> strings.get(R.string.error_game_full)
         ErrorCode.GAME_ALREADY_STARTED -> strings.get(R.string.error_game_started)
-        ErrorCode.PLAYER_NOT_FOUND -> strings.get(R.string.error_player_not_found)
+        ErrorCode.PLAYER_NOT_FOUND, ErrorCode.USER_NOT_FOUND -> strings.get(R.string.error_player_not_found)
         ErrorCode.UNAUTHORIZED -> strings.get(R.string.error_unauthorized_join)
         ErrorCode.VALIDATION_FAILED, ErrorCode.INVALID_DATA -> strings.get(R.string.error_invalid_data)
-        ErrorCode.RATE_LIMITED -> strings.get(R.string.error_rate_limited)
+        ErrorCode.RATE_LIMITED, ErrorCode.SERVER_BUSY -> strings.get(R.string.error_rate_limited)
         ErrorCode.FORBIDDEN -> strings.get(R.string.error_forbidden)
         ErrorCode.PERMISSION_DENIED -> strings.get(R.string.error_permission_denied)
         ErrorCode.EMAIL_EXISTS -> strings.get(R.string.error_email_exists)
         ErrorCode.USERNAME_EXISTS -> strings.get(R.string.error_username_exists)
-        ErrorCode.UPDATE_FAILED -> strings.get(R.string.error_profile_update)
+        ErrorCode.UPDATE_FAILED, ErrorCode.DELETE_FAILED -> strings.get(R.string.error_profile_update)
         ErrorCode.AUTH_FAILED, ErrorCode.LOGIN_ERROR, ErrorCode.REGISTER_FAILED ->
             rawMessage?.takeIf { it.isNotBlank() && !it.startsWith("Auth", ignoreCase = true) }
                 ?: strings.get(R.string.error_auth_failed)

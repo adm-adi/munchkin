@@ -5,8 +5,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 
 private val JOIN_CODE_REGEX = Regex("^[A-Z0-9]{6,8}$")
-private val JOIN_PATH_REGEX = Regex("/join/([^/?#&\\s]+)")
-private val JOIN_QUERY_REGEX = Regex("(?:^|[?&])join=([^&#\\s]+)")
+private val JOIN_PATH_REGEX = Regex("/join/([^/?#&\\s]+)", RegexOption.IGNORE_CASE)
+private val JOIN_QUERY_REGEX = Regex("(?:^|[?&])join=([^&#\\s]+)", RegexOption.IGNORE_CASE)
 
 /**
  * Extracts and validates a 6-8 character alphanumeric Munchkin room join code

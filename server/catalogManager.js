@@ -12,7 +12,36 @@ function createCatalogManager({ db, sendError, safeSend, logger }) {
     const catalogAddRateLimits = new Map();
     const CATALOG_ADD_MAX_PER_MINUTE = 10;
     const CATALOG_ADD_WINDOW_MS = 60 * 1000;
+    const catalogSearchRateLimits = new Map();
+    const CATALOG_SEARCH_MAX_PER_MINUTE = 60;
+    const CATALOG_SEARCH_WINDOW_MS = 60 * 1000;
     const MAX_RATE_LIMIT_ENTRIES = 10_000;
+
+    function isCatalogSearchRateLimited(ip) {
+        const record = catalogSearchRateLimits.get(ip);
+        if (!record) return false;
+        if (Date.now() - record.windowStart > CATALOG_SEARCH_WINDOW_MS) {
+            catalogSearchRateLimits.delete(ip);
+            return false;
+        }
+        return record.count >= CATALOG_SEARCH_MAX_PER_MINUTE;
+    }
+
+    function recordCatalogSearch(ip) {
+        const now = Date.now();
+        const record = catalogSearchRateLimits.get(ip);
+        const updated = (!record || now - record.windowStart > CATALOG_SEARCH_WINDOW_MS)
+            ? { count: 1, windowStart: now }
+            : { count: record.count + 1, windowStart: record.windowStart };
+
+        catalogSearchRateLimits.delete(ip);
+        catalogSearchRateLimits.set(ip, updated);
+        while (catalogSearchRateLimits.size > MAX_RATE_LIMIT_ENTRIES) {
+            const oldestKey = catalogSearchRateLimits.keys().next().value;
+            if (oldestKey === undefined) break;
+            catalogSearchRateLimits.delete(oldestKey);
+        }
+    }
 
     function isCatalogAddRateLimited(userId) {
         const record = catalogAddRateLimits.get(userId);
@@ -41,6 +70,13 @@ function createCatalogManager({ db, sendError, safeSend, logger }) {
     }
 
     function handleCatalogSearch(ws, message) {
+        const clientIp = ws.clientIp || 'unknown';
+        if (isCatalogSearchRateLimited(clientIp)) {
+            sendError(ws, 'RATE_LIMITED', 'Demasiadas búsquedas. Espera un momento.');
+            return;
+        }
+        recordCatalogSearch(clientIp);
+
         const { query, expansion, limit, offset } = message;
 
         if (typeof query !== 'string') {

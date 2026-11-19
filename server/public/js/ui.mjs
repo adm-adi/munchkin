@@ -40,6 +40,9 @@ export function h(tag, props = null, ...children) {
         el.type = 'button';
     }
 
+    let deferredValue = null;
+    let deferredSelected = null;
+
     for (const [k, v] of Object.entries(p)) {
         if (v === undefined || v === null || v === false) continue;
         if (k === 'style') {
@@ -55,7 +58,7 @@ export function h(tag, props = null, ...children) {
         } else if (k.startsWith('on') && typeof v === 'function') {
             bindEvent(el, k.slice(2).toLowerCase(), v);
         } else if (k === 'value') {
-            el.value = String(v);
+            deferredValue = String(v);
             el.__hasValueProp = true;
         } else if (k === 'checked') {
             el.checked = Boolean(v);
@@ -66,7 +69,7 @@ export function h(tag, props = null, ...children) {
         } else if (k === 'required') {
             el.required = Boolean(v);
         } else if (k === 'selected') {
-            el.selected = Boolean(v);
+            deferredSelected = Boolean(v);
         } else if (k === 'open') {
             el.open = Boolean(v);
         } else if (v === true) {
@@ -77,6 +80,12 @@ export function h(tag, props = null, ...children) {
     }
 
     appendChildren(el, children);
+    if (deferredSelected !== null) {
+        el.selected = deferredSelected;
+    }
+    if (deferredValue !== null) {
+        el.value = deferredValue;
+    }
     return el;
 }
 
@@ -206,6 +215,9 @@ function patchNode(cur, nxt, activeEl) {
     }
     syncElementPropsAndAttrs(cur, nxt, activeEl);
     patchChildren(cur, Array.from(nxt.childNodes), activeEl);
+    if (cur instanceof HTMLSelectElement && cur !== activeEl && cur.value !== nxt.value) {
+        cur.value = nxt.value;
+    }
     return cur;
 }
 
@@ -217,6 +229,12 @@ function patchChildren(parent, nextList, activeEl) {
         if (k) keyedOld.set(k, oldNode);
     }
 
+    const nextKeys = new Set();
+    for (const nextNode of nextList) {
+        const nk = nodeKey(nextNode);
+        if (nk) nextKeys.add(nk);
+    }
+
     let cursor = parent.firstChild;
     const consumed = new Set();
 
@@ -224,17 +242,25 @@ function patchChildren(parent, nextList, activeEl) {
         const nk = nodeKey(nextNode);
         if (nk && keyedOld.has(nk)) {
             const match = keyedOld.get(nk);
-            consumed.add(match);
-            if (match !== cursor) {
-                parent.insertBefore(match, cursor);
-            } else {
-                cursor = cursor.nextSibling;
+            if (match.nodeType === nextNode.nodeType && match.tagName === nextNode.tagName) {
+                consumed.add(match);
+                if (match !== cursor) {
+                    parent.insertBefore(match, cursor);
+                } else {
+                    cursor = cursor.nextSibling;
+                }
+                patchNode(match, nextNode, activeEl);
+                continue;
             }
-            patchNode(match, nextNode, activeEl);
-            continue;
         }
 
         while (cursor && (consumed.has(cursor) || nodeKey(cursor) !== null)) {
+            const curKey = nodeKey(cursor);
+            if (curKey && nextKeys.has(curKey)) {
+                // Keep this keyed node in the DOM until its turn arrives so focus/scroll are preserved.
+                cursor = cursor.nextSibling;
+                continue;
+            }
             const toRemove = cursor;
             cursor = cursor.nextSibling;
             if (!consumed.has(toRemove)) parent.removeChild(toRemove);
@@ -250,10 +276,10 @@ function patchChildren(parent, nextList, activeEl) {
         }
     }
 
-    while (cursor) {
-        const nextSibling = cursor.nextSibling;
-        if (!consumed.has(cursor)) parent.removeChild(cursor);
-        cursor = nextSibling;
+    for (const child of Array.from(parent.childNodes)) {
+        if (!consumed.has(child) && !nextList.includes(child)) {
+            parent.removeChild(child);
+        }
     }
 }
 
@@ -348,7 +374,7 @@ function ensureToastBox() {
             id: 'toasts',
             role: 'status',
             'aria-live': 'polite',
-            'aria-atomic': 'true'
+            'aria-atomic': 'false'
         });
         document.body.appendChild(toastBox);
     }
@@ -362,7 +388,10 @@ export function toast(message, kind = 'info', ms = 3400) {
         : kind === 'warn' ? 'toast toast-warn'
         : kind === 'ok' ? 'toast toast-ok'
         : 'toast';
-    const el = h('div', { class: cls }, message);
+    const el = h('div', {
+        class: cls,
+        ...(kind === 'err' ? { role: 'alert' } : {})
+    }, message);
     box.appendChild(el);
     setTimeout(() => {
         if (el.isConnected) el.remove();
@@ -375,6 +404,20 @@ export function toast(message, kind = 'info', ms = 3400) {
 
 let modalSeq = 0;
 const modalStack = [];
+
+function syncModalBackdropState() {
+    const hasOpen = modalStack.length > 0;
+    const appRoot = document.getElementById('app');
+    if (appRoot) {
+        if (hasOpen) appRoot.setAttribute('inert', '');
+        else appRoot.removeAttribute('inert');
+    }
+    document.body.classList.toggle('modal-open', hasOpen);
+}
+
+export function hasOpenModals() {
+    return modalStack.length > 0;
+}
 
 function getFocusable(root) {
     const selector = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
@@ -402,6 +445,7 @@ export function openModal({ title, body, dismissible = true, onClose, onCancel }
         const idx = modalStack.indexOf(entry);
         if (idx >= 0) modalStack.splice(idx, 1);
         if (wrap.isConnected) wrap.remove();
+        syncModalBackdropState();
         if (typeof onClose === 'function') onClose();
         const top = modalStack[modalStack.length - 1];
         if (prevFocus && prevFocus.isConnected && (!top || top.card.contains(prevFocus))) {
@@ -494,6 +538,7 @@ export function openModal({ title, body, dismissible = true, onClose, onCancel }
 
     modalStack.push(entry);
     document.body.appendChild(wrap);
+    syncModalBackdropState();
     document.addEventListener('keydown', onKeyDown, true);
 
     queueMicrotask(() => {
@@ -943,4 +988,81 @@ export function createQrSvg(text, { label = '', margin = 2 } = {}) {
         svgEl('rect', { x: '0', y: '0', width: String(total), height: String(total), fill: '#FAF7F0' }),
         svgEl('path', { d: cmds.join(''), fill: '#0F0A08' })
     );
+}
+
+/* ==========================================================================
+   3D Tactile Dungeon Edition CSS Cube Die (Zero Inline Styles / CSP-Safe)
+   ========================================================================== */
+
+const DIE_FACE_PIPS = [
+    { face: 1, cls: 'die3d-face-1', pips: ['c'] },
+    { face: 2, cls: 'die3d-face-2', pips: ['tl', 'br'] },
+    { face: 3, cls: 'die3d-face-3', pips: ['tl', 'c', 'br'] },
+    { face: 4, cls: 'die3d-face-4', pips: ['tl', 'tr', 'bl', 'br'] },
+    { face: 5, cls: 'die3d-face-5', pips: ['tl', 'tr', 'c', 'bl', 'br'] },
+    { face: 6, cls: 'die3d-face-6', pips: ['tl', 'tr', 'ml', 'mr', 'bl', 'br'] }
+];
+
+/**
+ * Renders a tactile 3D 6-sided Dungeon Edition die.
+ * Uses pure CSS classes (`face-1..6`, `is-rolling`, `is-win`, `is-lose`) so it
+ * complies with strict `style-src 'self'` CSP and preserves GPU acceleration.
+ */
+export function createDice3D({
+    value = 6,
+    rolling = false,
+    rollSpin = 0,
+    outcome = null, // 'win' | 'lose' | null
+    disabled = false,
+    ariaLabel = '',
+    onRoll = null
+} = {}) {
+    const face = Math.max(1, Math.min(6, Math.round(Number(value) || 6)));
+    const cubeCls = [
+        'die3d-cube',
+        `face-${face}`,
+        rolling ? (rollSpin % 2 === 0 ? 'is-rolling-a' : 'is-rolling-b') : 'is-settled',
+        !rolling && outcome === 'win' ? 'is-win' : '',
+        !rolling && outcome === 'lose' ? 'is-lose' : ''
+    ].filter(Boolean).join(' ');
+
+    const cube = h('span', { class: cubeCls, 'aria-hidden': 'true' },
+        DIE_FACE_PIPS.map(({ face: f, cls, pips }) =>
+            h('span', { class: `die3d-face ${cls}` },
+                pips.map(pos => h('span', {
+                    class: `die3d-pip pip-${pos}${f === 1 ? ' pip-ace' : ''}`
+                }))
+            )
+        )
+    );
+
+    const shadow = h('span', {
+        class: `die3d-shadow${rolling ? ' is-rolling' : ''}`,
+        'aria-hidden': 'true'
+    });
+
+    const stageCls = [
+        'die3d-stage',
+        rolling ? 'is-rolling' : '',
+        !rolling && outcome === 'win' ? 'is-win' : '',
+        !rolling && outcome === 'lose' ? 'is-lose' : ''
+    ].filter(Boolean).join(' ');
+
+    if (typeof onRoll === 'function') {
+        return h('button', {
+            class: stageCls,
+            type: 'button',
+            disabled: disabled || rolling,
+            'aria-label': ariaLabel || String(face),
+            dataset: { key: 'die3d-stage' },
+            onclick: onRoll
+        }, cube, shadow);
+    }
+
+    return h('div', {
+        class: stageCls,
+        role: 'img',
+        'aria-label': ariaLabel || String(face),
+        dataset: { key: 'die3d-stage' }
+    }, cube, shadow);
 }

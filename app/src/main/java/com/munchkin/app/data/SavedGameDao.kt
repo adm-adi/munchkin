@@ -47,6 +47,7 @@ class GameStateConverter {
     private val json = Json { 
         ignoreUnknownKeys = true 
         encodeDefaults = true
+        coerceInputValues = true
     }
     
     fun fromGameState(state: GameState): String {

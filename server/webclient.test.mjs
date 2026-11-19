@@ -495,22 +495,33 @@ describe('engine reducer semantics', () => {
         assert.strictEqual(canStart(afterP2), true);
     });
 
-    test('PLAYER_ROLL clamps result 1..6 and recomputes RUN_AWAY success', () => {
+    test('PLAYER_ROLL clamps result 1..6 and recomputes RUN_AWAY success with manual modifier', () => {
         let s = makeState({
             phase: 'IN_GAME',
             combat: {
-                mainPlayerId: 'p2', helperPlayerId: null, monsters: [], tempBonuses: [],
+                mainPlayerId: 'p2', helperPlayerId: 'p3', monsters: [], tempBonuses: [],
                 heroModifier: 0, monsterModifier: 0, lastDiceRoll: null, isActive: true
             }
         });
         // p2 is ELF (+1): 4 + 1 = 5 >= 5 even if client reported success=false
         const elfRoll = applyEvent(s, events.playerRoll('p2', 4, 'RUN_AWAY', false));
         assert.strictEqual(elfRoll.combat.lastDiceRoll.result, 4);
+        assert.strictEqual(elfRoll.combat.lastDiceRoll.modifier, 0);
         assert.strictEqual(elfRoll.combat.lastDiceRoll.success, true);
 
         // p3 is HALFLING (-1): 5 - 1 = 4 < 5 even if client reported success=true
         const halflingRoll = applyEvent(s, events.playerRoll('p3', 5, 'RUN_AWAY', true));
         assert.strictEqual(halflingRoll.combat.lastDiceRoll.success, false);
+
+        // Manual card modifier (+2): HALFLING (-1) rolling 4 + (-1) + 2 = 5 >= 5 -> escapes
+        const halflingBuffed = applyEvent(s, events.playerRoll('p3', 4, 'RUN_AWAY', true, 2));
+        assert.strictEqual(halflingBuffed.combat.lastDiceRoll.modifier, 2);
+        assert.strictEqual(halflingBuffed.combat.lastDiceRoll.success, true);
+
+        // Manual curse modifier (-2): ELF (+1) rolling 5 + 1 - 2 = 4 < 5 -> caught
+        const elfCursed = applyEvent(s, events.playerRoll('p2', 5, 'RUN_AWAY', false, -2));
+        assert.strictEqual(elfCursed.combat.lastDiceRoll.modifier, -2);
+        assert.strictEqual(elfCursed.combat.lastDiceRoll.success, false);
 
         // Clamped out-of-range roll
         const highRoll = applyEvent(s, events.playerRoll('p2', 99, 'RANDOM', false));
@@ -525,9 +536,12 @@ describe('engine reducer semantics', () => {
         s = applyEvent(s, events.incLevel('p1', 50));
         assert.strictEqual(s.players.p1.level, 9);
 
-        // Gear clamped 0..999, avatarId clamped 0..100, tempCombatBonus clamped -100..100.
+        // Gear clamped -999..999 (official Munchkin allows negative combat strength), avatarId 0..100, tempCombatBonus -100..100.
         s = applyEvent(s, events.decGear('p1', 10));
-        assert.strictEqual(s.players.p1.gearBonus, 0);
+        assert.strictEqual(s.players.p1.gearBonus, -10);
+        s = applyEvent(s, { type: 'SET_GEAR', targetPlayerId: 'p1', gear: -5000 });
+        assert.strictEqual(s.players.p1.gearBonus, -999);
+        s = applyEvent(s, { type: 'SET_GEAR', targetPlayerId: 'p1', gear: 0 });
         s = applyEvent(s, events.incGear('p1', 100));
         assert.strictEqual(s.players.p1.gearBonus, 100);
         s = applyEvent(s, { type: 'SET_GEAR', targetPlayerId: 'p1', gear: 5000 });
@@ -649,7 +663,7 @@ describe('net resilience', () => {
         }
         await assert.rejects(
             () => oneOffRequest('ws://mock', messages.getLeaderboard(), { WebSocketImpl: MockWs }),
-            /Error de conexión/
+            (err) => err?.code === 'CONNECTION_LOST'
         );
     });
 

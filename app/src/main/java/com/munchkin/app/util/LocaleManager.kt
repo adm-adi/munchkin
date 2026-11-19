@@ -56,8 +56,9 @@ object LocaleManager {
                 applyLocaleWithAppCompat(locale)
             }
         } else {
-            // For older Android versions
+            // For older Android versions (ComponentActivity doesn't auto-recreate via AppCompatDelegate)
             applyLocaleWithAppCompat(locale)
+            (context as? Activity)?.recreate()
         }
     }
     
@@ -80,11 +81,11 @@ object LocaleManager {
             return context
         }
         
-        // Apply locale to configuration for older Android versions
+        // Apply locale to a copy of configuration for older Android versions
         val newLocale = Locale(locale.code)
         Locale.setDefault(newLocale)
         
-        val config = context.resources.configuration
+        val config = android.content.res.Configuration(context.resources.configuration)
         config.setLocale(newLocale)
         config.setLocales(LocaleList(newLocale))
         

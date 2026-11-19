@@ -1,11 +1,12 @@
 /**
  * Offline App-Shell Service Worker for Munchkin Mesa Tracker.
- * Network-first with cache fallback for same-origin app-shell assets so deploys
- * apply immediately while remaining usable offline. Never intercepts /api/*,
- * /health, non-GET requests, or WebSocket upgrades.
+ * Network-first with short timeout ("lie-fi" protection) and cache fallback for
+ * same-origin app-shell assets so deploys apply immediately while remaining
+ * usable offline. Never intercepts /api/*, /health, non-GET requests, or WS.
  */
 
-const CACHE_NAME = 'munchkin-shell-v1';
+const CACHE_NAME = 'munchkin-shell-v2';
+const NETWORK_TIMEOUT_MS = 4000;
 
 const SHELL_ASSETS = [
     '/',
@@ -14,6 +15,7 @@ const SHELL_ASSETS = [
     '/manifest.webmanifest',
     '/icon.svg',
     '/icon-180.png',
+    '/icon-192.png',
     '/icon-512.png',
     '/js/app.mjs',
     '/js/protocol.mjs',
@@ -28,7 +30,9 @@ const SHELL_ASSETS = [
 self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_NAME)
-            .then(cache => cache.addAll(SHELL_ASSETS))
+            .then(cache => cache.addAll(
+                SHELL_ASSETS.map(url => new Request(url, { cache: 'reload' }))
+            ))
             .then(() => self.skipWaiting())
     );
 });
@@ -43,6 +47,16 @@ self.addEventListener('activate', event => {
     );
 });
 
+function fetchWithTimeout(request, timeoutMs) {
+    if (typeof AbortController === 'undefined') {
+        return fetch(request);
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(request, { signal: controller.signal })
+        .finally(() => clearTimeout(timer));
+}
+
 self.addEventListener('fetch', event => {
     const { request } = event;
     if (request.method !== 'GET') return;
@@ -52,19 +66,21 @@ self.addEventListener('fetch', event => {
     if (url.origin !== self.location.origin) return;
     if (url.pathname.startsWith('/api/') || url.pathname === '/health') return;
 
+    const cacheKey = url.pathname === '/' ? '/' : url.pathname;
+
     event.respondWith(
-        fetch(request)
+        fetchWithTimeout(request, NETWORK_TIMEOUT_MS)
             .then(response => {
                 if (response && response.ok && response.type === 'basic') {
                     const copy = response.clone();
                     caches.open(CACHE_NAME)
-                        .then(cache => cache.put(request, copy))
+                        .then(cache => cache.put(cacheKey, copy))
                         .catch(() => {});
                 }
                 return response;
             })
             .catch(async () => {
-                const cached = await caches.match(request);
+                const cached = await caches.match(cacheKey);
                 if (cached) return cached;
                 if (request.mode === 'navigate') {
                     return (await caches.match('/index.html')) || (await caches.match('/'));

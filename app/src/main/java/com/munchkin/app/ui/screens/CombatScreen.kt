@@ -66,7 +66,7 @@ fun CombatScreen(
     onAddHelper: (PlayerId) -> Unit,
     onRemoveHelper: () -> Unit,
     onModifyModifier: (target: BonusTarget, delta: Int) -> Unit,
-    onRollCombatDice: (DiceRollPurpose, Int?, Boolean) -> Unit,
+    onRollCombatDice: (DiceRollPurpose, Int?, Boolean, Int) -> Unit,
     onEndCombat: () -> Unit,
     onCancelCombat: () -> Unit,
     onResolveRunAway: (success: Boolean) -> Unit,
@@ -684,50 +684,46 @@ fun CombatScreen(
                                         color = NeonGray400
                                     )
                                 } else {
-                                    combatState.tempBonuses.forEach { bonus ->
+                                    combatState.tempBonuses.forEachIndexed { idx, bonus ->
                                         val isHeroTarget = bonus.appliesTo == BonusTarget.HEROES
                                         val targetColor = if (isHeroTarget) HeroGreen else MonsterRed
                                         val sign = if (bonus.amount >= 0) "+" else ""
-                                        Surface(
-                                            color = NeonSurface,
-                                            shape = RoundedCornerShape(12.dp),
-                                            border = BorderStroke(1.dp, targetColor.copy(alpha = 0.35f)),
-                                            modifier = Modifier.fillMaxWidth()
+                                        if (idx > 0) {
+                                            HorizontalDivider(color = DungeonBorder, thickness = 1.dp)
+                                        }
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Text(
-                                                    text = stringResource(
-                                                        if (isHeroTarget) R.string.heroes else R.string.monsters
-                                                    ),
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = targetColor,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(
-                                                    text = "${bonus.label} ($sign${bonus.amount})",
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = NeonGray100,
-                                                    modifier = Modifier.weight(1f),
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                if (canEditCombat) {
-                                                    IconButton(
-                                                        onClick = { onRemoveTempBonus(bonus.id) },
-                                                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                                                    ) {
-                                                        Icon(
-                                                            Icons.Default.Close,
-                                                            contentDescription = stringResource(R.string.remove_temp_bonus, bonus.label),
-                                                            tint = NeonGray300
-                                                        )
-                                                    }
+                                            Text(
+                                                text = stringResource(
+                                                    if (isHeroTarget) R.string.heroes else R.string.monsters
+                                                ),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = targetColor,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "${bonus.label} ($sign${bonus.amount})",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = NeonGray100,
+                                                modifier = Modifier.weight(1f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (canEditCombat) {
+                                                IconButton(
+                                                    onClick = { onRemoveTempBonus(bonus.id) },
+                                                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Close,
+                                                        contentDescription = stringResource(R.string.remove_temp_bonus, bonus.label),
+                                                        tint = NeonGray300
+                                                    )
                                                 }
                                             }
                                         }
@@ -864,7 +860,7 @@ fun CombatScreen(
                                     .sizeIn(minHeight = 56.dp),
                                 shape = RoundedCornerShape(16.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isVictory) NeonSuccess else NeonError,
+                                    containerColor = if (isVictory) NeonSuccess else DungeonDangerFill,
                                     contentColor = if (isVictory) NeonBackground else NeonWhite,
                                     disabledContainerColor = NeonSurfaceVariant,
                                     disabledContentColor = NeonGray400
@@ -920,6 +916,7 @@ fun CombatScreen(
                     showAddMonster = false
                 },
                 onCreateNew = { name, level, mod, undead, treasures, levels, badStuff ->
+                    onAddMonster(name, level, mod, undead, badStuff, treasures, levels)
                     onRequestCreateGlobalMonster(name, level, mod, undead, treasures, levels, badStuff)
                     showAddMonster = false
                 }
@@ -1014,16 +1011,21 @@ fun CombatScreen(
             )
         }
 
-        // Run Away dialog — resolves Elf/Halfling bonus for the ACTUAL rolling player (myPlayerId)
+        // Run Away dialog — resolves Elf/Halfling bonus for the ACTUAL rolling player (myPlayerId or mainPlayerId when host helps)
         if (showRunAwayDialog) {
-            val runner = gameState.players[myPlayerId]
-                ?: combatState?.let { gameState.players[it.mainPlayerId] }
+            val isParticipant = combatState != null &&
+                (myPlayerId == combatState.mainPlayerId || myPlayerId == combatState.helperPlayerId)
+            val runner = if (isParticipant) {
+                gameState.players[myPlayerId]
+            } else {
+                combatState?.let { gameState.players[it.mainPlayerId] } ?: gameState.players[myPlayerId]
+            }
             val labelContext = LocalContext.current
             RunAwayDialog(
                 onDismiss = { showRunAwayDialog = false },
-                onResult = { resultValue, success ->
+                onResult = { resultValue, success, modifier ->
                     showRunAwayDialog = false
-                    onRollCombatDice(DiceRollPurpose.RUN_AWAY, resultValue, success)
+                    onRollCombatDice(DiceRollPurpose.RUN_AWAY, resultValue, success, modifier)
                 },
                 runAwayBonus = runner?.let { Abilities.runAwayBonus(it) } ?: 0,
                 runAwayBonusLabel = runner

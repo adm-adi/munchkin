@@ -407,6 +407,9 @@
     <string name="cd_physical_die_value">Log physical die %1$d</string>
     <string name="run_away_check_modifiers_title">⚠️ Check your modifiers</string>
     <string name="run_away_check_modifiers_desc">Account for any items or abilities modifying your Run Away roll.</string>
+    <string name="run_away_manual_modifier">Card modifier</string>
+    <string name="run_away_manual_modifier_hint">Items, abilities, or curses (−10 to +10)</string>
+    <string name="run_away_manual_mod_short">Cards</string>
     <string name="run_away_did_escape">Did you escape?</string>
     <string name="run_away_caught">Caught 💀</string>
     <string name="run_away_escaped">Escaped! 🏃</string>

@@ -31,6 +31,7 @@ function createGameAdminManager({
     }
 
     function persistGame(game, context) {
+        if (!game || game.ended || game.phase === 'FINISHED') return;
         db.saveActiveGame(game).catch(err => logger.error(`Failed to save after ${context}:`, err));
     }
 
@@ -120,6 +121,17 @@ function createGameAdminManager({
                 db.deleteActiveGame(game.id).catch(err =>
                     logger.error('Failed to drop finished game from active_games:', err));
             });
+
+        // Reclaim finished room memory after a short grace period for clients viewing victory screen.
+        game.cleanupTimer = setTimeout(() => {
+            if (games.has(game.id)) {
+                removeGameClients(game.id);
+                deleteGameRecord(game, 'finished game grace cleanup');
+            }
+        }, 5 * 60 * 1000);
+        if (typeof game.cleanupTimer.unref === 'function') {
+            game.cleanupTimer.unref();
+        }
     }
 
     function handleGameOver(ws, message) {
@@ -226,6 +238,21 @@ function createGameAdminManager({
                 player.isConnected = false;
             }
 
+            if (game.ended || game.phase === 'FINISHED') {
+                let anyConnected = false;
+                for (const activePlayer of game.players.values()) {
+                    if (activePlayer.isConnected !== false && activePlayer.ws) {
+                        anyConnected = true;
+                        break;
+                    }
+                }
+                clientGames.delete(ws);
+                if (!anyConnected && games.has(clientData.gameId)) {
+                    deleteGameRecord(game, 'all players left finished game');
+                }
+                return;
+            }
+
             let combatHelperCleared = false;
             if (game.combat && game.combat.helperPlayerId === clientData.playerId) {
                 game.combat.helperPlayerId = null;
@@ -282,6 +309,7 @@ function createGameAdminManager({
 
                     game.pendingHostMigration = setTimeout(() => {
                         game.pendingHostMigration = null;
+                        if (game.ended || game.phase === 'FINISHED' || !games.has(game.id)) return;
                         const hostPlayer = game.players.get(clientData.playerId);
                         if (hostPlayer && !hostPlayer.isConnected) {
                             for (const [playerId, activePlayer] of game.players.entries()) {
@@ -292,6 +320,7 @@ function createGameAdminManager({
                                 ) {
                                     game.hostId = playerId;
                                     game.hostName = activePlayer.name;
+                                    game.seq += 1;
                                     logger.info(`Host migrated to ${activePlayer.name} after 90s timeout`);
                                     broadcastSnapshot(game);
                                     persistGame(game, 'migration');
@@ -350,7 +379,7 @@ function createGameAdminManager({
         }
 
         const game = games.get(clientInfo.gameId);
-        if (!game) {
+        if (!game || game.ended) {
             return;
         }
 
@@ -391,7 +420,16 @@ function createGameAdminManager({
             }
         }
         if (kickedClientIp && kickedClientIp !== 'unknown') {
-            game.kickedIps.add(kickedClientIp);
+            let sharedWithOtherSeat = false;
+            for (const [otherPid, otherPlayer] of game.players.entries()) {
+                if (otherPid !== targetPlayerId && otherPlayer.lastKnownIp === kickedClientIp) {
+                    sharedWithOtherSeat = true;
+                    break;
+                }
+            }
+            if (!sharedWithOtherSeat) {
+                game.kickedIps.add(kickedClientIp);
+            }
         }
 
         if (game.turnPlayerId === targetPlayerId) {
@@ -478,7 +516,7 @@ function createGameAdminManager({
         }
 
         const game = games.get(clientInfo.gameId);
-        if (!game) {
+        if (!game || game.ended) {
             return;
         }
 

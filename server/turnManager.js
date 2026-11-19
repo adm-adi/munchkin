@@ -163,6 +163,7 @@ function createTurnManager({ games, db, logger, cancelPendingSave }) {
 
             logger.info(`⏱️ Turn timer advanced ${game.joinCode} from ${previousPlayerId} to ${nextPlayerId}`);
 
+            syncTurnTimer(game, 'post timeout advance');
             game.broadcast({
                 type: "STATE_SNAPSHOT",
                 gameState: game.buildGameState(),
@@ -170,74 +171,15 @@ function createTurnManager({ games, db, logger, cancelPendingSave }) {
             });
 
             db.saveActiveGame(game).catch(err => logger.error('Failed to save after turn timer expiry:', err));
-            syncTurnTimer(game, 'post timeout advance');
         }, delayMs);
 
         return previousDeadline !== nextDeadline;
     }
 
-    function closeGame(game, winnerId) {
-        if (game.ended) return;
-        clearRoomLifecycleTimers(game, 'game closed');
-        if (typeof cancelPendingSave === 'function') {
-            cancelPendingSave(game.id);
-        }
-        game.combat = null;
-        game.ended = true;
-
-        let validWinnerId = null;
-        let winnerUserId = null;
-        if (winnerId != null) {
-            const winner = game.players.get(winnerId);
-            const maxLevel = game.maxLevel || 10;
-            const legitimateWin =
-                game.phase === 'IN_GAME' &&
-                game.players.size >= 2 &&
-                winner &&
-                (winner.level || 0) >= maxLevel &&
-                (!requiresCombatToWin(game) || winner.reachedMaxLevelViaCombat === true);
-
-            if (legitimateWin) {
-                validWinnerId = winnerId;
-                winnerUserId = winner.userId || null;
-            } else {
-                logger.warn(`⚠️ closeGame cleared ineligible winnerId=${winnerId} for room ${game.joinCode}`);
-            }
-        }
-
-        game.winnerId = validWinnerId;
-        game.phase = "FINISHED";
-
-        const participants = [];
-        for (const [pid, p] of game.players) {
-            participants.push({
-                playerId: pid,
-                userId: p.userId,
-                joinedAt: p.joinedAt
-            });
-        }
-
-        db.recordGame(
-            game.id,
-            winnerUserId,
-            game.createdAt,
-            Date.now(),
-            participants,
-            game.joinCode,
-            game.originalHostId || game.hostId
-        )
-            .then(() => logger.info(`💾 Game ${game.id} recorded in history`))
-            .catch(err => logger.error(`❌ Failed to record game ${game.id}`, err));
-
-        db.deleteActiveGame(game.id)
-            .catch(err => logger.error(`❌ Failed to delete closed active game ${game.id}`, err));
-    }
-
     return {
         getNextTurnPlayerId,
         clearRoomLifecycleTimers,
-        syncTurnTimer,
-        closeGame
+        syncTurnTimer
     };
 }
 

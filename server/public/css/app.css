@@ -4,6 +4,8 @@
    ========================================================================== */
 
 :root {
+  color-scheme: dark;
+
   /* Core Dungeon Surfaces */
   --bg: #0F0A08;
   --surface: #1A110D;
@@ -35,6 +37,8 @@
   --danger: #B91C1C;
   --danger-hover: #991B1B;
   --danger-text: #E5534B;
+  --warning: #FFD600;
+  --warning-ink: #0F0A08;
   --warn-bg: #261B0A;
   --danger-bg: #260D0D;
   --ok-bg: #0E2314;
@@ -90,12 +94,20 @@ a:hover {
   color: var(--secondary-hover);
 }
 
+body.modal-open {
+  overflow: hidden;
+}
+
 button,
 input,
 select,
 textarea {
   font: inherit;
   color: inherit;
+}
+
+button {
+  touch-action: manipulation;
 }
 
 /* Global Keyboard Focus — High-contrast Gold Ring (WCAG 2.4.7 / 2.4.11) */
@@ -146,7 +158,7 @@ textarea {
   background: rgba(15, 10, 8, 0.94);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
-  padding: 8px 16px;
+  padding: max(8px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
 }
 
 .topbar-inner {
@@ -297,7 +309,7 @@ textarea {
   width: 100%;
   max-width: 580px;
   margin: 0 auto;
-  padding: 20px 16px calc(28px + env(safe-area-inset-bottom));
+  padding: 20px max(16px, env(safe-area-inset-right)) calc(28px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   flex: 1 0 auto;
   display: flex;
   flex-direction: column;
@@ -708,7 +720,7 @@ textarea {
   border: 1px solid var(--border-strong);
   background: var(--surface-2);
   color: var(--text);
-  font-size: 0.96rem;
+  font-size: 1rem;
 }
 
 .input::placeholder,
@@ -941,6 +953,17 @@ textarea {
   flex-wrap: wrap;
 }
 
+button.banner {
+  min-height: 44px;
+  cursor: pointer;
+  text-align: left;
+  transition: filter 140ms ease, border-color 140ms ease;
+}
+
+button.banner:hover {
+  filter: brightness(1.08);
+}
+
 .banner-warn {
   background: var(--warn-bg);
   border-color: var(--secondary);
@@ -1030,9 +1053,9 @@ textarea {
 }
 
 .timer-pill.is-urgent {
-  background: var(--danger);
-  border-color: var(--danger);
-  color: var(--primary-ink);
+  background: var(--warning);
+  border-color: var(--warning);
+  color: var(--warning-ink);
 }
 
 .board-grid {
@@ -1307,11 +1330,19 @@ textarea {
   height: 100%;
   background: var(--surface);
   border-left: 1px solid var(--border);
-  padding: 16px;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   box-shadow: var(--shadow-modal);
+}
+
+.log-drawer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .log-list {
@@ -1353,7 +1384,7 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
 
 .modal-card {
@@ -1437,7 +1468,7 @@ textarea {
 
 @media (max-width: 639px) {
   .topbar {
-    padding: 6px 12px;
+    padding: max(6px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 6px max(12px, env(safe-area-inset-left));
     position: static;
   }
 
@@ -1563,6 +1594,207 @@ details > summary::after {
 
 details[open] > summary::after {
   content: '▴';
+}
+
+@media (max-width: 420px) {
+  .dice-grid {
+    grid-template-columns: repeat(3, minmax(44px, 1fr));
+  }
+}
+
+@media (max-width: 350px) {
+  .stat-controls {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ==========================================================================
+   3D Tactile Dungeon Edition CSS Cube Die
+   ========================================================================== */
+
+.die3d-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0 2px;
+}
+
+.die3d-stage {
+  position: relative;
+  width: 140px;
+  height: 144px;
+  perspective: 460px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 44%, rgba(212, 150, 10, 0.16), transparent 68%);
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  padding: 0;
+  cursor: pointer;
+  transition: transform 160ms ease, background 220ms ease;
+}
+
+.die3d-stage:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: radial-gradient(circle at 50% 44%, rgba(212, 150, 10, 0.26), transparent 70%);
+}
+
+.die3d-stage:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.die3d-stage:disabled {
+  cursor: default;
+}
+
+.die3d-stage.is-win {
+  background: radial-gradient(circle at 50% 44%, rgba(46, 160, 67, 0.28), transparent 70%);
+}
+
+.die3d-stage.is-lose {
+  background: radial-gradient(circle at 50% 44%, rgba(204, 32, 32, 0.28), transparent 70%);
+}
+
+.die3d-cube {
+  position: relative;
+  width: 92px;
+  height: 92px;
+  transform-style: preserve-3d;
+  transition: transform 540ms cubic-bezier(0.22, 1.24, 0.36, 1);
+  will-change: transform;
+}
+
+.die3d-cube.face-1 { transform: rotateX(-12deg) rotateY(14deg); }
+.die3d-cube.face-2 { transform: rotateX(-12deg) rotateY(-76deg); }
+.die3d-cube.face-3 { transform: rotateX(-102deg) rotateY(14deg); }
+.die3d-cube.face-4 { transform: rotateX(78deg) rotateY(14deg); }
+.die3d-cube.face-5 { transform: rotateX(-12deg) rotateY(104deg); }
+.die3d-cube.face-6 { transform: rotateX(-12deg) rotateY(194deg); }
+
+.die3d-cube.is-rolling-a {
+  animation: die3d-tumble-a 680ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+}
+
+.die3d-cube.is-rolling-b {
+  animation: die3d-tumble-b 680ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+}
+
+@keyframes die3d-tumble-a {
+  0%   { transform: translateY(0) scale(0.92) rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
+  28%  { transform: translateY(-22px) scale(1.08) rotateX(210deg) rotateY(160deg) rotateZ(45deg); }
+  65%  { transform: translateY(-10px) scale(1.03) rotateX(450deg) rotateY(330deg) rotateZ(95deg); }
+  100% { transform: translateY(0) scale(1) rotateX(708deg) rotateY(554deg) rotateZ(0deg); }
+}
+
+@keyframes die3d-tumble-b {
+  0%   { transform: translateY(0) scale(0.92) rotateX(20deg) rotateY(-20deg) rotateZ(0deg); }
+  30%  { transform: translateY(-24px) scale(1.09) rotateX(-200deg) rotateY(190deg) rotateZ(-40deg); }
+  68%  { transform: translateY(-8px) scale(1.02) rotateX(-430deg) rotateY(370deg) rotateZ(-85deg); }
+  100% { transform: translateY(0) scale(1) rotateX(-732deg) rotateY(554deg) rotateZ(0deg); }
+}
+
+.die3d-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 28% 22%, rgba(250, 247, 240, 0.14), transparent 52%),
+    linear-gradient(145deg, #2D1E16 0%, #1A110D 58%, #110A07 100%);
+  border: 2px solid var(--secondary);
+  box-shadow:
+    inset 0 2px 4px rgba(250, 247, 240, 0.18),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.65);
+  backface-visibility: hidden;
+}
+
+.die3d-cube.is-win .die3d-face {
+  border-color: var(--ok-text);
+  box-shadow:
+    inset 0 2px 5px rgba(63, 185, 80, 0.28),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.65);
+}
+
+.die3d-cube.is-lose .die3d-face {
+  border-color: var(--primary);
+  box-shadow:
+    inset 0 2px 5px rgba(204, 32, 32, 0.28),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.65);
+}
+
+.die3d-face-1 { transform: rotateY(0deg) translateZ(45.5px); }
+.die3d-face-2 { transform: rotateY(90deg) translateZ(45.5px); }
+.die3d-face-3 { transform: rotateX(90deg) translateZ(45.5px); }
+.die3d-face-4 { transform: rotateX(-90deg) translateZ(45.5px); }
+.die3d-face-5 { transform: rotateY(-90deg) translateZ(45.5px); }
+.die3d-face-6 { transform: rotateY(180deg) translateZ(45.5px); }
+
+.die3d-pip {
+  position: absolute;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle at 35% 32%, #FAF7F0 0%, #E8B84B 28%, #D4960A 72%, #8A5D04 100%);
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.45),
+    0 1px 4px rgba(0, 0, 0, 0.75);
+}
+
+.die3d-pip.pip-ace {
+  width: 22px;
+  height: 22px;
+  background: radial-gradient(circle at 35% 32%, #FFACA0 0%, #E05050 32%, #CC2020 75%, #7A0E0E 100%);
+}
+
+.die3d-pip.pip-c  { top: 50%; left: 50%; }
+.die3d-pip.pip-tl { top: 24%; left: 24%; }
+.die3d-pip.pip-tr { top: 24%; left: 76%; }
+.die3d-pip.pip-ml { top: 50%; left: 24%; }
+.die3d-pip.pip-mr { top: 50%; left: 76%; }
+.die3d-pip.pip-bl { top: 76%; left: 24%; }
+.die3d-pip.pip-br { top: 76%; left: 76%; }
+
+.die3d-shadow {
+  position: absolute;
+  bottom: 8px;
+  width: 78px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.72), transparent 72%);
+  transition: transform 280ms ease, opacity 280ms ease;
+}
+
+.die3d-shadow.is-rolling {
+  transform: scale(0.62);
+  opacity: 0.4;
+}
+
+.runaway-mod-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.runaway-mod-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.runaway-mod-value {
+  min-width: 42px;
+  text-align: center;
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: var(--secondary);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -407,6 +407,9 @@
     <string name="cd_physical_die_value">Enregistrer le dé physique %1$d</string>
     <string name="run_away_check_modifiers_title">⚠️ Vérifiez vos modificateurs</string>
     <string name="run_away_check_modifiers_desc">Tenez compte des objets ou capacités modifiant votre fuite.</string>
+    <string name="run_away_manual_modifier">Modificateur de cartes</string>
+    <string name="run_away_manual_modifier_hint">Objets, capacités ou malédictions (−10 à +10)</string>
+    <string name="run_away_manual_mod_short">Cartes</string>
     <string name="run_away_did_escape">Avez-vous réussi à fuir ?</string>
     <string name="run_away_caught">Attrapé 💀</string>
     <string name="run_away_escaped">Échappé ! 🏃</string>

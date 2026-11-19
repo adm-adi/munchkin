@@ -2,7 +2,7 @@ services:
   munchkin-server:
     build: .
     ports:
-      - "8765:8765"
+      - "${MUNCHKIN_BIND_ADDR:-127.0.0.1}:${PORT:-8765}:8765"
     environment:
       NODE_ENV: production
       PORT: ${PORT:-8765}
@@ -15,6 +15,10 @@ services:
       - munchkin-data:/var/lib/munchkin
       - munchkin-logs:/app/server/logs
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: 512m
     security_opt:
       - "no-new-privileges:true"
     read_only: true

@@ -287,10 +287,12 @@ fun ProfileHeader(
 
     // Close edit mode and clear secrets when save completes without error
     LaunchedEffect(isLoading) {
-        if (savePending && !isLoading && error == null) {
-            isEditing = false
-            editedPassword = ""
-            currentPassword = ""
+        if (savePending && !isLoading) {
+            if (error == null) {
+                isEditing = false
+                editedPassword = ""
+                currentPassword = ""
+            }
             savePending = false
         }
     }
@@ -659,7 +661,7 @@ private fun DeleteAccountDialog(
                 onClick = { onConfirm(password) },
                 enabled = password.isNotBlank() && !isLoading,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = NeonError,
+                    containerColor = DungeonDangerFill,
                     contentColor = NeonWhite
                 ),
                 modifier = Modifier.heightIn(min = 48.dp)

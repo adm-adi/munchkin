@@ -69,8 +69,10 @@ class GameEngine {
     }
 
     companion object {
-        const val GEAR_MIN = 0
+        const val GEAR_MIN = -999
         const val GEAR_MAX = 999
+        const val RUN_AWAY_MODIFIER_MIN = -10
+        const val RUN_AWAY_MODIFIER_MAX = 10
         const val TEMP_COMBAT_BONUS_MIN = -100
         const val TEMP_COMBAT_BONUS_MAX = 100
         const val STEP_LIMIT = 100
@@ -149,7 +151,12 @@ class GameEngine {
                 is SetClass -> applySetClass(event, prevState)
                 is SetRace -> applySetRace(event, prevState)
 
-                is CombatStart -> prevState.copy(combat = CombatState(mainPlayerId = event.mainPlayerId))
+                is CombatStart -> prevState.copy(
+                    combat = CombatState(
+                        mainPlayerId = event.mainPlayerId,
+                        monsters = event.monsters
+                    )
+                )
                 is CombatAddHelper -> applyCombatAddHelper(event, prevState)
                 is CombatRemoveHelper -> {
                     val combat = prevState.combat?.copy(helperPlayerId = null) ?: return prevState
@@ -447,23 +454,47 @@ class GameEngine {
             val updatedPlayer = (basePlayers[event.actorId] ?: player).copy(lastRoll = clampedRoll)
             val stateWithPlayer = state.copy(players = basePlayers + (player.playerId to updatedPlayer))
 
-            return if (stateWithPlayer.combat != null &&
+            val combat = stateWithPlayer.combat
+            val isCombatParticipant = combat != null && (
+                event.actorId == combat.mainPlayerId ||
+                event.actorId == combat.helperPlayerId ||
+                event.actorId == stateWithPlayer.hostId
+            )
+
+            return if (combat != null &&
+                isCombatParticipant &&
                 (event.purpose == DiceRollPurpose.COMBAT || event.purpose == DiceRollPurpose.RUN_AWAY)
             ) {
+                val runner = if (
+                    event.purpose == DiceRollPurpose.RUN_AWAY &&
+                    event.actorId != combat.mainPlayerId &&
+                    event.actorId != combat.helperPlayerId &&
+                    event.actorId == stateWithPlayer.hostId
+                ) {
+                    stateWithPlayer.players[combat.mainPlayerId] ?: updatedPlayer
+                } else {
+                    updatedPlayer
+                }
+                val clampedModifier = if (event.purpose == DiceRollPurpose.RUN_AWAY) {
+                    event.modifier.coerceIn(RUN_AWAY_MODIFIER_MIN, RUN_AWAY_MODIFIER_MAX)
+                } else {
+                    0
+                }
                 val computedSuccess = if (event.purpose == DiceRollPurpose.RUN_AWAY) {
-                    (clampedRoll + Abilities.runAwayBonus(updatedPlayer)) >= Abilities.RUN_AWAY_THRESHOLD
+                    (clampedRoll + Abilities.runAwayBonus(runner) + clampedModifier) >= Abilities.RUN_AWAY_THRESHOLD
                 } else {
                     event.success
                 }
                 val rollInfo = DiceRollInfo(
                     playerId = event.actorId,
-                    playerName = updatedPlayer.name.ifEmpty { "Unknown" },
+                    playerName = runner.name.ifEmpty { updatedPlayer.name.ifEmpty { "Unknown" } },
                     result = clampedRoll,
                     success = computedSuccess,
                     timestamp = event.timestamp,
-                    purpose = event.purpose
+                    purpose = event.purpose,
+                    modifier = clampedModifier
                 )
-                stateWithPlayer.copy(combat = stateWithPlayer.combat.copy(lastDiceRoll = rollInfo))
+                stateWithPlayer.copy(combat = combat.copy(lastDiceRoll = rollInfo))
             } else {
                 stateWithPlayer
             }

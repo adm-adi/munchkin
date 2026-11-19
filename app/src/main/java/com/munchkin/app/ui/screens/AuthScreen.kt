@@ -335,7 +335,7 @@ fun AuthScreen(
                                         (!isRegister && email.isNotBlank())),
                                     modifier = Modifier.fillMaxWidth(),
                                     icon = if (isLoading) null else Icons.AutoMirrored.Filled.Login,
-                                    gradientColors = if (isRegister) GradientNeonFire else listOf(NeonPrimary, NeonSecondary)
+                                    gradientColors = if (isRegister) GradientNeonFire else GradientNeonPurple
                                 )
 
                                 // Toggle register/login

@@ -170,7 +170,7 @@ class CatalogViewModel internal constructor(
             return
         }
 
-        val cleanName = name.trim().take(60)
+        val cleanName = name.trim().take(80)
         val cleanBadStuff = badStuff.trim().take(200)
         val monster = CatalogMonster(
             name = cleanName,
@@ -186,11 +186,13 @@ class CatalogViewModel internal constructor(
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
+            var refreshLaunched = false
             try {
                 val result = remoteGateway.addMonsterToCatalog(ServerConfig.WS_URL, monster, token)
                 result.fold(
                     onSuccess = { created ->
                         _statusMessage.value = stringResolver.get(R.string.monster_created, created.name)
+                        refreshLaunched = true
                         search(currentQuery, currentExpansion, resetPage = true, debounceMs = 0L)
                         onCompleted?.invoke(Result.success(created))
                     },
@@ -202,7 +204,9 @@ class CatalogViewModel internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } finally {
-                _isLoading.value = false
+                if (!refreshLaunched) {
+                    _isLoading.value = false
+                }
             }
         }
     }

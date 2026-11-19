@@ -2464,3 +2464,105 @@ test('level 9->10 requires combat win and only freezes turn timer once reachedMa
     await guest.close();
     await host.close();
 });
+
+test('manual Run Away modifier, failed escape LOSE, auth pipelining, and turn timeout turnEndsAt', async () => {
+    // 1. Pipelined REGISTER + CREATE_GAME waits for ws._authPromise so hostUserId is bound.
+    const pipeClient = await TestClient.connect(server.url);
+    pipeClient.send({
+        type: 'REGISTER',
+        username: 'pipe_hero',
+        email: 'pipe_hero@example.com',
+        password: 'ValidPassword123',
+        avatarId: 0,
+        gender: 'M'
+    });
+    pipeClient.send({
+        type: 'CREATE_GAME',
+        playerMeta: { name: 'PipeHero', avatarId: 0, gender: 'M' },
+        turnTimerSeconds: 1
+    });
+    const authReply = await pipeClient.waitFor(['AUTH_SUCCESS', 'ERROR']);
+    assert.strictEqual(authReply.type, 'AUTH_SUCCESS');
+    const pipeWelcome = await pipeClient.waitFor(['WELCOME', 'ERROR']);
+    assert.strictEqual(pipeWelcome.type, 'WELCOME');
+    const pipeCode = pipeWelcome.gameState.joinCode;
+    const pipeHostId = pipeWelcome.yourPlayerId;
+    const hostedReply = await pipeClient.request({ type: 'GET_HOSTED_GAMES' }, ['HOSTED_GAMES_RESULT', 'ERROR']);
+    assert.strictEqual(hostedReply.type, 'HOSTED_GAMES_RESULT');
+    assert.ok(
+        hostedReply.games.some(g => g.gameId === pipeWelcome.gameState.gameId),
+        'pipelined CREATE_GAME must bind hostUserId from awaited REGISTER'
+    );
+
+    // 2. Join second player & start game with 1s turn timer -> expiry broadcasts non-null turnEndsAt.
+    const { client: p2, welcome: p2w } = await joinGame(server.url, pipeCode, 'RunnerGuest');
+    const p2Id = p2w.yourPlayerId;
+    await pipeClient.request(ev('GAME_START', pipeHostId), ['STATE_SNAPSHOT', 'ERROR']);
+
+    // Wait for 1s turn timer to expire and verify next snapshot carries a fresh future turnEndsAt.
+    const expirySnap = await pipeClient.waitFor(
+        ['STATE_SNAPSHOT'],
+        3500
+    );
+    assert.strictEqual(expirySnap.type, 'STATE_SNAPSHOT');
+    assert.ok(
+        expirySnap.gameState.turnEndsAt !== null && expirySnap.gameState.turnEndsAt > Date.now() - 200,
+        'turn timer expiration must broadcast a fresh non-null turnEndsAt for the next turn'
+    );
+
+    // 3. Manual Run Away modifier (+2 lets roll 3 escape; -2 makes roll 5 fail & COMBAT_END(LOSE) stays LOSE).
+    const activeTurn = expirySnap.gameState.turnPlayerId;
+    const activeClient = activeTurn === pipeHostId ? pipeClient : p2;
+    await activeClient.request(ev('COMBAT_START', activeTurn, { mainPlayerId: activeTurn }), ['STATE_SNAPSHOT', 'ERROR']);
+    // Weak level-1 monster so heroes are winning (power 1+5 vs 1), then force failed Run Away with -2 modifier.
+    await activeClient.request(ev('INC_GEAR', activeTurn, { targetPlayerId: activeTurn, amount: 5 }), ['EVENT_BROADCAST', 'ERROR']);
+    await activeClient.request(
+        ev('COMBAT_ADD_MONSTER', activeTurn, {
+            monster: { id: 'm-weak', name: 'Potted Plant', baseLevel: 1, levels: 1, treasures: 1 }
+        }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+
+    // Roll 3 with +2 card modifier => 5 >= 5 => success === true
+    const buffedRoll = await activeClient.request(
+        ev('PLAYER_ROLL', activeTurn, { targetPlayerId: activeTurn, result: 3, purpose: 'RUN_AWAY', success: true, modifier: 2 }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    assert.strictEqual(buffedRoll.gameState.combat.lastDiceRoll.modifier, 2);
+    assert.strictEqual(buffedRoll.gameState.combat.lastDiceRoll.success, true);
+
+    // Roll 5 with -2 curse modifier => 3 < 5 => success === false
+    const cursedRoll = await activeClient.request(
+        ev('PLAYER_ROLL', activeTurn, { targetPlayerId: activeTurn, result: 5, purpose: 'RUN_AWAY', success: false, modifier: -2 }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    assert.strictEqual(cursedRoll.gameState.combat.lastDiceRoll.modifier, -2);
+    assert.strictEqual(cursedRoll.gameState.combat.lastDiceRoll.success, false);
+
+    // Resolving failed Run Away with LOSE must NOT award WIN levels even though heroes had higher strength!
+    const preLevel = cursedRoll.gameState.players[activeTurn].level;
+    const loseSnap = await activeClient.request(
+        ev('COMBAT_END', activeTurn, { outcome: 'LOSE', cancelled: false, expectedSeq: cursedRoll.gameState.seq }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    assert.strictEqual(loseSnap.type, 'STATE_SNAPSHOT');
+    assert.strictEqual(loseSnap.gameState.combat, null);
+    assert.strictEqual(loseSnap.gameState.players[activeTurn].level, preLevel, 'failed Run Away LOSE must not be rewritten to WIN');
+
+    // 4. Negative gear works cleanly (-5 gear allowed per official Munchkin rules).
+    const negGear = await activeClient.request(
+        ev('DEC_GEAR', activeTurn, { targetPlayerId: activeTurn, amount: 10 }),
+        ['EVENT_BROADCAST', 'ERROR']
+    );
+    assert.strictEqual(negGear.type, 'EVENT_BROADCAST');
+
+    // 5. Deleting account while seated in an active room scrubs userId so GAME_OVER succeeds without FK rollback.
+    const delReply = await pipeClient.request({ type: 'DELETE_ACCOUNT', password: 'ValidPassword123' }, ['ACCOUNT_DELETED', 'ERROR']);
+    assert.strictEqual(delReply.type, 'ACCOUNT_DELETED');
+    const finSnap = await pipeClient.request({ type: 'GAME_OVER', gameId: pipeWelcome.gameState.gameId, winnerId: null }, ['STATE_SNAPSHOT', 'ERROR']);
+    assert.strictEqual(finSnap.type, 'STATE_SNAPSHOT');
+    assert.strictEqual(finSnap.gameState.phase, 'FINISHED');
+
+    await p2.close();
+    await pipeClient.close();
+});

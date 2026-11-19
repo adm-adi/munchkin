@@ -414,7 +414,7 @@ fun CreateGameScreen(
                     enabled = name.isNotBlank() && !isLoading,
                     modifier = Modifier.fillMaxWidth(),
                     icon = if (isLoading) null else Icons.Default.PlayArrow,
-                    gradientColors = listOf(NeonPrimary, NeonSecondary)
+                    gradientColors = GradientNeonPurple
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))

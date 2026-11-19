@@ -135,6 +135,10 @@ class UpdateChecker(private val context: Context) {
      */
     suspend fun downloadAndInstall(updateInfo: UpdateInfo): Result<Unit> = withContext(Dispatchers.IO) {
         val updatesDir = File(context.filesDir, "updates").apply { mkdirs() }
+        // Clean up any previously downloaded APKs/temp files so internal storage never bloats.
+        updatesDir.listFiles()?.forEach { oldFile ->
+            runCatching { oldFile.delete() }
+        }
         val safeVersion = updateInfo.version.replace(Regex("[^A-Za-z0-9._-]"), "_")
         val apkFile = File(updatesDir, "munchkin-$safeVersion.apk")
         val tempFile = File(updatesDir, "munchkin-$safeVersion.apk.tmp")

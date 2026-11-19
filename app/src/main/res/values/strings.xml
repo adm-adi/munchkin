@@ -407,6 +407,9 @@
     <string name="cd_physical_die_value">Registrar dado físico %1$d</string>
     <string name="run_away_check_modifiers_title">⚠️ Verifica tus modificadores</string>
     <string name="run_away_check_modifiers_desc">Ten en cuenta objetos o habilidades que modifiquen la huida.</string>
+    <string name="run_away_manual_modifier">Modificador de cartas</string>
+    <string name="run_away_manual_modifier_hint">Objetos, habilidades o maldiciones (−10 a +10)</string>
+    <string name="run_away_manual_mod_short">Cartas</string>
     <string name="run_away_did_escape">¿Has conseguido huir?</string>
     <string name="run_away_caught">Atrapado 💀</string>
     <string name="run_away_escaped">¡Escapé! 🏃</string>

@@ -44,10 +44,11 @@ class AndroidStringResolver(
     private val appContext = context.applicationContext
 
     override fun get(@StringRes resId: Int, vararg args: Any): String {
+        val localized = com.munchkin.app.util.LocaleManager.wrapContext(appContext)
         return if (args.isEmpty()) {
-            appContext.getString(resId)
+            localized.getString(resId)
         } else {
-            appContext.getString(resId, *args)
+            localized.getString(resId, *args)
         }
     }
 }

@@ -207,7 +207,7 @@ function createStaticFileServer({ rootDir, logger }) {
             'Content-Type': asset.contentType,
             'Cache-Control': cacheControl,
             'ETag': variant.etag,
-            'Vary': 'Accept-Encoding'
+            'Vary': 'Origin, Accept-Encoding'
         };
         if (asset.isServiceWorker) {
             baseHeaders['Service-Worker-Allowed'] = '/';

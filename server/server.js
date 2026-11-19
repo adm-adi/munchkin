@@ -8,6 +8,7 @@
 const WebSocket = require('ws');
 const http = require('http');
 const https = require('https');
+const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -33,7 +34,10 @@ const logger = require('./logger');
  *   connectionId?: string,
  *   isAlive?: boolean,
  *   userId?: string | null,
- *   _authPromise?: Promise<any> | null
+ *   _authPromise?: Promise<any> | null,
+ *   _authQueueDepth?: number,
+ *   _msgWindowStart?: number,
+ *   _msgCount?: number
  * }} AppWebSocket
  */
 
@@ -185,6 +189,7 @@ const AUTH_CHAINED_MESSAGES = new Set([
 
 function createAppServer(options = {}) {
     const port = options.port !== undefined ? Number(options.port) : (process.env.PORT !== undefined ? Number(process.env.PORT) : 8765);
+    const bindHost = options.host || process.env.MUNCHKIN_HOST || '0.0.0.0';
     const jwtSecret = options.jwtSecret !== undefined ? options.jwtSecret : process.env.JWT_SECRET;
     if (typeof jwtSecret !== 'string' || jwtSecret.length < MIN_JWT_SECRET_LENGTH) {
         throw new Error(`JWT_SECRET must be set and at least ${MIN_JWT_SECRET_LENGTH} characters long.`);
@@ -198,8 +203,21 @@ function createAppServer(options = {}) {
     const trustProxy = options.trustProxy !== undefined
         ? Boolean(options.trustProxy)
         : (process.env.MUNCHKIN_TRUST_PROXY === '1' || process.env.MUNCHKIN_TRUST_PROXY === 'true');
+    const trustedProxyHops = Math.max(1, clampInt(options.trustedProxyHops ?? process.env.MUNCHKIN_TRUSTED_PROXY_HOPS, 1, 10, 1));
+    const trustedProxyIps = new Set(
+        String(options.trustedProxyIps || process.env.MUNCHKIN_TRUSTED_PROXIES || '127.0.0.1,::1,::ffff:127.0.0.1')
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean)
+    );
     const createGameMaxPerMin = Number(options.createGameLimit ?? process.env.MUNCHKIN_CREATE_GAME_LIMIT) || 10;
     const maxActiveGames = Number(options.maxActiveGames ?? process.env.MUNCHKIN_MAX_ACTIVE_GAMES) || 500;
+    const maxConnectionsPerIp = Number(options.maxConnectionsPerIp ?? process.env.MUNCHKIN_MAX_CONNS_PER_IP) || 40;
+    const maxTotalConnections = Number(options.maxTotalConnections ?? process.env.MUNCHKIN_MAX_CONNS) || 2000;
+    const maxAuthQueueDepth = 32;
+    const maxMessagesPerWindow = 120;
+    const msgWindowMs = 10 * 1000;
+    const activeConnsByIp = new Map(); // IP -> count
 
     const extraOriginsRaw = options.allowedOrigins || process.env.MUNCHKIN_ALLOWED_ORIGINS || '';
     const extraOrigins = new Set(
@@ -257,14 +275,27 @@ function createAppServer(options = {}) {
         return null;
     }
 
+    function isTrustedProxyAddress(addr) {
+        if (!addr || typeof addr !== 'string') return false;
+        const normalized = addr.startsWith('::ffff:') ? addr.slice(7) : addr;
+        return trustedProxyIps.has(addr) || trustedProxyIps.has(normalized);
+    }
+
     function getClientIp(req) {
-        if (trustProxy) {
+        const remoteAddr = req.socket?.remoteAddress || 'unknown';
+        if (trustProxy && isTrustedProxyAddress(remoteAddr)) {
             const xff = req.headers['x-forwarded-for'];
-            const first = Array.isArray(xff) ? xff[0] : (typeof xff === 'string' ? xff.split(',')[0] : '');
-            const trimmed = first.trim();
-            if (trimmed) return trimmed;
+            const raw = Array.isArray(xff) ? xff.join(',') : (typeof xff === 'string' ? xff : '');
+            const parts = raw
+                .split(',')
+                .map(s => s.trim())
+                .filter(s => net.isIP(s) !== 0);
+            if (parts.length > 0) {
+                const idx = Math.max(0, parts.length - trustedProxyHops);
+                return parts[idx];
+            }
         }
-        return req.socket?.remoteAddress || 'unknown';
+        return remoteAddr;
     }
 
     function isAllowedOrigin(origin, hostHeader) {
@@ -279,6 +310,9 @@ function createAppServer(options = {}) {
             return false;
         }
         if (hostHeader && parsedOrigin.host.toLowerCase() === String(hostHeader).toLowerCase()) {
+            if (isSsl && parsedOrigin.protocol !== 'https:') {
+                return false;
+            }
             return true;
         }
         return extraOrigins.has(parsedOrigin.origin);
@@ -419,7 +453,7 @@ function createAppServer(options = {}) {
 
     function processRequest(req, res) {
         const origin = req.headers.origin;
-        if (origin && DEFAULT_ALLOWED_ORIGINS.has(origin)) {
+        if (origin && (DEFAULT_ALLOWED_ORIGINS.has(origin) || extraOrigins.has(origin))) {
             res.setHeader('Access-Control-Allow-Origin', origin);
         }
         res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET');
@@ -529,6 +563,17 @@ function createAppServer(options = {}) {
                 callback(false, 403, 'Forbidden Origin');
                 return;
             }
+            if (wss.clients.size >= maxTotalConnections) {
+                logger.warn('Rejected WebSocket upgrade: global connection cap reached');
+                callback(false, 503, 'Server Busy');
+                return;
+            }
+            const clientIp = getClientIp(info.req);
+            if ((activeConnsByIp.get(clientIp) || 0) >= maxConnectionsPerIp) {
+                logger.warn(`Rejected WebSocket upgrade: per-IP cap reached for ${clientIp}`);
+                callback(false, 429, 'Too Many Connections');
+                return;
+            }
             callback(true);
         }
     });
@@ -554,8 +599,7 @@ function createAppServer(options = {}) {
     const {
         getNextTurnPlayerId,
         clearRoomLifecycleTimers,
-        syncTurnTimer,
-        closeGame
+        syncTurnTimer
     } = createTurnManager({ games, db, logger, cancelPendingSave });
 
     const { calculateCombatResult } = createCombatManager();
@@ -564,6 +608,31 @@ function createAppServer(options = {}) {
         handleCatalogSearch,
         handleCatalogAdd
     } = createCatalogManager({ db, sendError, safeSend, logger });
+
+    function scrubDeletedAccount(deletedUserId) {
+        for (const game of games.values()) {
+            let dirty = false;
+            if (game.hostUserId === deletedUserId) {
+                game.hostUserId = null;
+                dirty = true;
+            }
+            for (const player of game.players.values()) {
+                if (player.userId === deletedUserId) {
+                    player.userId = null;
+                    dirty = true;
+                }
+            }
+            if (dirty && !game.ended) {
+                debouncedSaveGame(game);
+            }
+        }
+        for (const rawClient of wss.clients) {
+            const client = /** @type {AppWebSocket} */ (rawClient);
+            if (client.userId === deletedUserId) {
+                client.userId = null;
+            }
+        }
+    }
 
     const {
         handleRegister,
@@ -577,7 +646,8 @@ function createAppServer(options = {}) {
         sendError,
         safeSend,
         jwtSecret,
-        jwtExpirySeconds: JWT_EXPIRY_SECONDS
+        jwtExpirySeconds: JWT_EXPIRY_SECONDS,
+        onAccountDeleted: scrubDeletedAccount
     });
 
     const {
@@ -882,10 +952,7 @@ function createAppServer(options = {}) {
             return;
         }
 
-        if (
-            (ws.userId && game.kickedUserIds?.has(ws.userId)) ||
-            (clientIp && clientIp !== 'unknown' && game.kickedIps?.has(clientIp))
-        ) {
+        if (ws.userId && game.kickedUserIds?.has(ws.userId)) {
             sendError(ws, 'FORBIDDEN', 'Has sido expulsado de esta partida');
             return;
         }
@@ -903,14 +970,6 @@ function createAppServer(options = {}) {
             }
         }
 
-        const existingSocketSeat = clientGames.get(ws);
-        if (
-            existingSocketSeat &&
-            (existingSocketSeat.gameId !== game.id || existingSocketSeat.playerId !== playerId)
-        ) {
-            handleDisconnect(ws);
-        }
-
         logger.info(`👤 Player ${safeName} joining ${joinCode} with id: ${playerId}`);
 
         if (playerId && game.players.has(playerId)) {
@@ -922,8 +981,20 @@ function createAppServer(options = {}) {
                 return;
             }
 
-            if (player.ws && player.ws !== ws && player.ws.readyState === WebSocket.OPEN) {
-                player.ws.close(1000, 'Reconnected from another device');
+            const existingSocketSeat = clientGames.get(ws);
+            if (
+                existingSocketSeat &&
+                (existingSocketSeat.gameId !== game.id || existingSocketSeat.playerId !== playerId)
+            ) {
+                handleDisconnect(ws);
+            }
+
+            if (player.ws && player.ws !== ws) {
+                const supersededWs = player.ws;
+                clientGames.delete(supersededWs);
+                if (supersededWs.readyState === WebSocket.OPEN) {
+                    supersededWs.close(1000, 'Reconnected from another device');
+                }
             }
 
             recordJoinAttempt(clientIp, true);
@@ -970,9 +1041,19 @@ function createAppServer(options = {}) {
             return;
         }
 
+        if (clientIp && clientIp !== 'unknown' && game.kickedIps?.has(clientIp)) {
+            sendError(ws, 'FORBIDDEN', 'Has sido expulsado de esta partida');
+            return;
+        }
+
         if (game.players.size >= MAX_PLAYERS) {
             sendError(ws, 'GAME_FULL', 'Partida llena');
             return;
+        }
+
+        const existingSocketSeat = clientGames.get(ws);
+        if (existingSocketSeat && existingSocketSeat.gameId !== game.id) {
+            handleDisconnect(ws);
         }
 
         recordJoinAttempt(clientIp, true);
@@ -1226,8 +1307,27 @@ function createAppServer(options = {}) {
             case 'PLAYER_ROLL': {
                 const rollResult = clampInt(event.result, 1, 6, 1);
                 const purpose = VALID_DICE_PURPOSES.has(event.purpose) ? event.purpose : 'RANDOM';
+                const modifier = purpose === 'RUN_AWAY'
+                    ? clampInt(event.modifier, -10, 10, 0)
+                    : 0;
+                const isCombatParticipant = Boolean(
+                    game.combat && (
+                        playerId === game.combat.mainPlayerId ||
+                        playerId === game.combat.helperPlayerId ||
+                        playerId === game.hostId
+                    )
+                );
+                const runnerPlayer = (
+                    purpose === 'RUN_AWAY' &&
+                    game.combat &&
+                    playerId !== game.combat.mainPlayerId &&
+                    playerId !== game.combat.helperPlayerId &&
+                    playerId === game.hostId
+                )
+                    ? (game.players.get(game.combat.mainPlayerId) || player)
+                    : player;
                 const computedSuccess = purpose === 'RUN_AWAY'
-                    ? (rollResult + getRunAwayBonus(player)) >= 5
+                    ? (rollResult + getRunAwayBonus(runnerPlayer) + modifier) >= 5
                     : (event.success === true);
 
                 if (game.phase === 'LOBBY') {
@@ -1250,11 +1350,12 @@ function createAppServer(options = {}) {
                 }
 
                 player.lastRoll = rollResult;
-                if (game.combat && (purpose === 'COMBAT' || purpose === 'RUN_AWAY')) {
+                if (game.combat && isCombatParticipant && (purpose === 'COMBAT' || purpose === 'RUN_AWAY')) {
                     game.combat.lastDiceRoll = {
                         playerId,
-                        playerName: player.name || 'Jugador',
+                        playerName: runnerPlayer.name || player.name || 'Jugador',
                         result: rollResult,
+                        modifier,
                         purpose,
                         success: computedSuccess,
                         timestamp: Date.now()
@@ -1263,6 +1364,7 @@ function createAppServer(options = {}) {
 
                 sanitizedEvent = baseSanitizedEvent(event, playerId, {
                     result: rollResult,
+                    modifier,
                     purpose,
                     success: computedSuccess
                 });
@@ -1423,7 +1525,12 @@ function createAppServer(options = {}) {
                             }
                         } else {
                             const lastRoll = game.combat.lastDiceRoll;
-                            if (!lastRoll || lastRoll.purpose !== 'RUN_AWAY' || lastRoll.success !== true) {
+                            const validRoller = lastRoll && (
+                                lastRoll.playerId === game.combat.mainPlayerId ||
+                                lastRoll.playerId === game.combat.helperPlayerId ||
+                                lastRoll.playerId === game.hostId
+                            );
+                            if (!validRoller || lastRoll.purpose !== 'RUN_AWAY' || lastRoll.success !== true) {
                                 sendError(ws, 'INVALID_DATA', 'Debes superar la tirada de huida (5+) para escapar');
                                 return null;
                             }
@@ -1451,7 +1558,19 @@ function createAppServer(options = {}) {
                     return null;
                 }
 
-                if (serverResult.outcome !== requestedOutcome) {
+                const lastRoll = game.combat.lastDiceRoll;
+                const failedRunAway =
+                    requestedOutcome === 'LOSE' &&
+                    lastRoll &&
+                    lastRoll.purpose === 'RUN_AWAY' &&
+                    lastRoll.success === false &&
+                    (
+                        lastRoll.playerId === game.combat.mainPlayerId ||
+                        lastRoll.playerId === game.combat.helperPlayerId ||
+                        lastRoll.playerId === game.hostId
+                    );
+
+                if (!failedRunAway && serverResult.outcome !== requestedOutcome) {
                     logger.warn(
                         `⚠️ COMBAT_END mismatch: client=${requestedOutcome} server=${serverResult.outcome} ` +
                         `heroes=${serverResult.heroesPower} monsters=${serverResult.monstersPower}`
@@ -1460,7 +1579,7 @@ function createAppServer(options = {}) {
 
                 const mainPlayer = game.players.get(game.combat.mainPlayerId) || player;
                 const helperPlayerId = game.combat.helperPlayerId ?? null;
-                const finalOutcome = serverResult.outcome;
+                const finalOutcome = failedRunAway ? 'LOSE' : serverResult.outcome;
                 let finalLevels = 0;
                 let finalTreasures = 0;
                 let finalHelperLevels = 0;
@@ -1584,7 +1703,11 @@ function createAppServer(options = {}) {
         }
 
         const playerId = clientData.playerId;
-        logger.info(`🎯 Event: ${event.type} from ${playerId}`);
+        const seatedPlayer = game.players.get(playerId);
+        if (!seatedPlayer || seatedPlayer.ws !== ws) {
+            return;
+        }
+        logger.debug(`🎯 Event: ${event.type} from ${playerId}`);
 
         if (event.actorId && event.actorId !== playerId) {
             logger.warn(`⚠️ SECURITY: Actor mismatch. Session: ${playerId}, Event.actorId: ${event.actorId}`);
@@ -1630,11 +1753,18 @@ function createAppServer(options = {}) {
     }
 
     function dispatchMessage(ws, message) {
-        logger.info(`[${ws.connectionId}] 📨 Received: ${message.type}`);
+        if (message.type === 'PING' || message.type === 'PingMessage') {
+            logger.debug(`[${ws.connectionId}] 📨 Received: ${message.type}`);
+        } else {
+            logger.info(`[${ws.connectionId}] 📨 Received: ${message.type}`);
+        }
 
         const clientData = clientGames.get(ws);
         if (clientData && games.has(clientData.gameId)) {
-            games.get(clientData.gameId).lastActivity = Date.now();
+            const room = games.get(clientData.gameId);
+            if (!room.ended && message.type !== 'PING' && message.type !== 'PingMessage') {
+                room.lastActivity = Date.now();
+            }
         }
 
         switch (message.type) {
@@ -1716,7 +1846,24 @@ function createAppServer(options = {}) {
             return;
         }
 
+        const now = Date.now();
+        if (!ws._msgWindowStart || now - ws._msgWindowStart > msgWindowMs) {
+            ws._msgWindowStart = now;
+            ws._msgCount = 1;
+        } else {
+            ws._msgCount = (ws._msgCount || 0) + 1;
+            if (ws._msgCount > maxMessagesPerWindow) {
+                sendError(ws, 'RATE_LIMITED', 'Demasiados mensajes. Espera un momento.');
+                return;
+            }
+        }
+
         if (ws._authPromise) {
+            if ((ws._authQueueDepth || 0) >= maxAuthQueueDepth) {
+                sendError(ws, 'RATE_LIMITED', 'Demasiadas peticiones en cola');
+                return;
+            }
+            ws._authQueueDepth = (ws._authQueueDepth || 0) + 1;
             const next = ws._authPromise
                 .catch(() => {})
                 .then(() => {
@@ -1729,6 +1876,7 @@ function createAppServer(options = {}) {
                     }
                 });
             const tracked = next.finally(() => {
+                ws._authQueueDepth = Math.max(0, (ws._authQueueDepth || 1) - 1);
                 if (ws._authPromise === tracked) {
                     ws._authPromise = null;
                 }
@@ -1755,6 +1903,8 @@ function createAppServer(options = {}) {
         ws.connectionId = 'conn_' + crypto.randomUUID().substring(0, 8);
         ws.isAlive = true;
         ws._authPromise = null;
+        ws._authQueueDepth = 0;
+        activeConnsByIp.set(clientIp, (activeConnsByIp.get(clientIp) || 0) + 1);
 
         logger.info(`[${ws.connectionId}] 📱 Client connected from ${clientIp}`);
 
@@ -1780,6 +1930,11 @@ function createAppServer(options = {}) {
         });
 
         ws.on('close', () => {
+            const remaining = (activeConnsByIp.get(clientIp) || 1) - 1;
+            if (remaining <= 0) activeConnsByIp.delete(clientIp);
+            else activeConnsByIp.set(clientIp, remaining);
+
+            if (stopping) return;
             try {
                 logger.info(`[${ws.connectionId}] 🔌 Client disconnected`);
                 handleDisconnect(ws);
@@ -1820,6 +1975,9 @@ function createAppServer(options = {}) {
             if (now - lastActivity > maxAge) {
                 clearRoomLifecycleTimers(game, 'cleaning up old game');
                 cancelPendingSave(gameId);
+                for (const [clientWs, info] of clientGames.entries()) {
+                    if (info.gameId === gameId) clientGames.delete(clientWs);
+                }
                 removeGame(gameId);
                 db.deleteActiveGame(gameId).catch(err => logger.error('Failed to delete game from DB:', err));
                 logger.info(`🧹 Cleaned up old game ${game.joinCode} due to inactivity`);
@@ -1856,6 +2014,7 @@ function createAppServer(options = {}) {
                 game.turnPlayerId = saved.turnPlayerId;
                 game.combat = saved.combat;
                 game.createdAt = saved.createdAt;
+                game.lastActivity = saved.lastActivityAt || saved.createdAt || Date.now();
                 game.seq = saved.seq;
                 game.maxLevel = saved.maxLevel || 10;
                 game.turnTimerSeconds = clampInt(saved.turnTimerSeconds, 0, MAX_TURN_TIMER_SECONDS, 0);
@@ -1949,7 +2108,7 @@ function createAppServer(options = {}) {
         await loadGamesFromDatabase();
         await new Promise((resolve, reject) => {
             httpServer.once('error', reject);
-            httpServer.listen(port, '0.0.0.0', () => {
+            httpServer.listen(port, bindHost, () => {
                 httpServer.removeListener('error', reject);
                 const addr = httpServer.address();
                 const boundPort = typeof addr === 'object' && addr ? addr.port : port;

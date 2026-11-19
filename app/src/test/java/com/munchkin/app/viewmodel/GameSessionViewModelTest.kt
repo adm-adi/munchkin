@@ -388,7 +388,13 @@ class GameSessionViewModelTest {
         )
         advanceUntilIdle()
 
-        vm2.checkReconnection()
+        // Non-gameplay routes (allowColdResume = false) must NOT hijack the screen by auto-resuming.
+        vm2.checkReconnection(allowColdResume = false)
+        advanceUntilIdle()
+        assertEquals(null, reconnectGateway.lastConnectJoinCode)
+
+        // Gameplay routes (allowColdResume = true) resume the disconnected saved game.
+        vm2.checkReconnection(allowColdResume = true)
         advanceUntilIdle()
 
         assertEquals(ServerConfig.WS_URL, reconnectGateway.lastConnectUrl)

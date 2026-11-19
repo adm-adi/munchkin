@@ -446,7 +446,7 @@ fun LobbyScreen(
                                                 .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                                                 .semantics { contentDescription = rerollDesc },
                                             colors = ButtonDefaults.buttonColors(
-                                                containerColor = NeonError,
+                                                containerColor = DungeonDangerFill,
                                                 contentColor = NeonWhite
                                             )
                                         ) {
