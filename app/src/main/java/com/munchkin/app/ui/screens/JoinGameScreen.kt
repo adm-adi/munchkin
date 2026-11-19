@@ -2,6 +2,7 @@ package com.munchkin.app.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -58,6 +59,7 @@ fun JoinGameScreen(
     userProfile: UserProfile? = null,
     initialJoinCode: String = "",
     onJoinDiscoveredGame: (DiscoveredGame, name: String, avatarId: Int, gender: Gender) -> Unit = { _, _, _, _ -> },
+    onWatchGame: (String) -> Unit = {},
     onStartDiscovery: () -> Unit = {}
 ) {
     // Join code for manual entry (prefilled from deep links / initialJoinCode)
@@ -493,6 +495,25 @@ fun JoinGameScreen(
                                     Text(stringResource(R.string.join))
                                 }
                             }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedButton(
+                            onClick = {
+                                val code = validJoinCode
+                                if (code != null) onWatchGame(code)
+                            },
+                            enabled = validJoinCode != null && !isLoading,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .sizeIn(minHeight = 48.dp),
+                            border = BorderStroke(1.dp, NeonSecondary.copy(alpha = 0.6f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonSecondary)
+                        ) {
+                            Icon(Icons.Default.Tv, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(R.string.watch_as_spectator), fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }

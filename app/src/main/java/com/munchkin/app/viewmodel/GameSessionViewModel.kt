@@ -3,6 +3,8 @@ package com.munchkin.app.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.munchkin.app.R
+import com.munchkin.app.core.ActiveCurse
+import com.munchkin.app.core.AddCurse
 import com.munchkin.app.core.BonusTarget
 import com.munchkin.app.core.CharacterClass
 import com.munchkin.app.core.CharacterRace
@@ -15,9 +17,11 @@ import com.munchkin.app.core.CombatOutcome
 import com.munchkin.app.core.CombatRemoveBonus
 import com.munchkin.app.core.CombatRemoveHelper
 import com.munchkin.app.core.CombatRemoveMonster
+import com.munchkin.app.core.CombatSetHelperTreasures
 import com.munchkin.app.core.CombatSetModifier
 import com.munchkin.app.core.CombatStart
 import com.munchkin.app.core.CombatUpdateMonster
+import com.munchkin.app.core.ConditionalModifier
 import com.munchkin.app.core.DecGear
 import com.munchkin.app.core.DecLevel
 import com.munchkin.app.core.DiceRollPurpose
@@ -34,9 +38,11 @@ import com.munchkin.app.core.IncGear
 import com.munchkin.app.core.IncLevel
 import com.munchkin.app.core.LogType
 import com.munchkin.app.core.MonsterInstance
+import com.munchkin.app.core.PlayerDeath
 import com.munchkin.app.core.PlayerId
 import com.munchkin.app.core.PlayerRoll
 import com.munchkin.app.core.PlayerState
+import com.munchkin.app.core.RemoveCurse
 import com.munchkin.app.core.SetClass
 import com.munchkin.app.core.SetGender
 import com.munchkin.app.core.SetGear
@@ -610,12 +616,11 @@ class GameSessionViewModel internal constructor(
 
     fun applyDeath() {
         sendPlayerEvent { playerId ->
-            SetGear(
+            PlayerDeath(
                 eventId = UUID.randomUUID().toString(),
                 actorId = playerId,
                 timestamp = clockMs(),
-                targetPlayerId = playerId,
-                gear = 0
+                targetPlayerId = playerId
             )
         }
     }
@@ -689,6 +694,77 @@ class GameSessionViewModel internal constructor(
         }
     }
 
+    fun addCurse(
+        name: String,
+        combatPenalty: Int = 0,
+        runAwayPenalty: Int = 0,
+        combatsRemaining: Int = 0,
+        clearOnDeath: Boolean = true
+    ) {
+        val cleanName = name.trim().take(40)
+        if (cleanName.isEmpty()) return
+        val curse = ActiveCurse(
+            id = UUID.randomUUID().toString(),
+            name = cleanName,
+            combatPenalty = combatPenalty.coerceIn(-20, 20),
+            runAwayPenalty = runAwayPenalty.coerceIn(-5, 5),
+            combatsRemaining = combatsRemaining.coerceIn(0, 10),
+            clearOnDeath = clearOnDeath
+        )
+        sendPlayerEvent { pid ->
+            AddCurse(
+                eventId = UUID.randomUUID().toString(),
+                actorId = pid,
+                timestamp = clockMs(),
+                targetPlayerId = pid,
+                curse = curse
+            )
+        }
+    }
+
+    fun removeCurse(curseId: String) {
+        sendPlayerEvent { pid ->
+            RemoveCurse(
+                eventId = UUID.randomUUID().toString(),
+                actorId = pid,
+                timestamp = clockMs(),
+                targetPlayerId = pid,
+                curseId = curseId
+            )
+        }
+    }
+
+    fun undoLastAction() {
+        val session = sessionCoordinator.activeSession.value ?: return
+        viewModelScope.launch {
+            session.sendUndoLast().onFailure { err ->
+                sessionCoordinator.emitEvent(
+                    GameUiEvent.ShowError(getFriendlyErrorMessage(err, stringResolver))
+                )
+            }
+        }
+    }
+
+    fun toggleTurnTimerPause() {
+        val session = sessionCoordinator.activeSession.value ?: return
+        val state = gameState.value ?: return
+        val isPaused = state.turnTimerPausedRemainingMs != null
+        viewModelScope.launch {
+            val res = if (isPaused) session.sendResumeTurnTimer() else session.sendPauseTurnTimer()
+            res.onFailure { err ->
+                sessionCoordinator.emitEvent(
+                    GameUiEvent.ShowError(getFriendlyErrorMessage(err, stringResolver))
+                )
+            }
+        }
+    }
+
+    fun switchOfflineSeat(playerId: PlayerId) {
+        val offline = sessionCoordinator.activeSession.value as? OfflineSessionConnection ?: return
+        offline.switchActiveSeat(playerId)
+        sessionCoordinator.updateMyPlayerId(playerId)
+    }
+
     // ============== Combat Actions ==============
 
     fun startCombat() {
@@ -710,7 +786,8 @@ class GameSessionViewModel internal constructor(
         isUndead: Boolean,
         badStuff: String = "",
         treasures: Int = 1,
-        levels: Int = 1
+        levels: Int = 1,
+        conditionalModifiers: List<ConditionalModifier> = emptyList()
     ) {
         if (!canTouchCombat(gameState.value, myPlayerId.value)) return
         val monster = MonsterInstance(
@@ -721,7 +798,8 @@ class GameSessionViewModel internal constructor(
             treasures = treasures.coerceIn(0, 10),
             levels = levels.coerceIn(1, 5),
             isUndead = isUndead,
-            badStuff = badStuff.trim().take(200)
+            badStuff = badStuff.trim().take(200),
+            conditionalModifiers = conditionalModifiers.take(10)
         )
         sendPlayerEvent { playerId ->
             CombatAddMonster(
@@ -781,6 +859,20 @@ class GameSessionViewModel internal constructor(
                 eventId = UUID.randomUUID().toString(),
                 actorId = playerId,
                 timestamp = clockMs()
+            )
+        }
+    }
+
+    fun setHelperTreasureShare(treasures: Int?) {
+        val state = gameState.value ?: return
+        if (state.combat?.helperPlayerId == null) return
+        if (!canTouchCombat(state, myPlayerId.value)) return
+        sendPlayerEvent { playerId ->
+            CombatSetHelperTreasures(
+                eventId = UUID.randomUUID().toString(),
+                actorId = playerId,
+                timestamp = clockMs(),
+                treasures = treasures?.coerceIn(0, 10)
             )
         }
     }

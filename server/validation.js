@@ -14,8 +14,10 @@ const { randomUUID } = require('crypto');
 
 // These must mirror the Kotlin enums in core/Models.kt exactly.
 const VALID_GENDERS = new Set(['M', 'F', 'NA']);
-const VALID_CLASSES = new Set(['NONE', 'WARRIOR', 'WIZARD', 'THIEF', 'CLERIC']);
-const VALID_RACES = new Set(['HUMAN', 'ELF', 'DWARF', 'HALFLING']);
+const VALID_CLASSES = new Set(['NONE', 'WARRIOR', 'WIZARD', 'THIEF', 'CLERIC', 'BARD', 'RANGER']);
+const VALID_RACES = new Set(['HUMAN', 'ELF', 'DWARF', 'HALFLING', 'ORC', 'GNOME']);
+const EXPANSION_CLASSES = new Set(['BARD', 'RANGER']);
+const EXPANSION_RACES = new Set(['ORC', 'GNOME']);
 const DEFAULT_GENDER = 'M';
 
 const MAX_PLAYERS = 6;
@@ -25,6 +27,8 @@ const MAX_NAME_LENGTH = 20;
 const MAX_AVATAR_ID = 100;
 const MAX_MONSTERS_PER_COMBAT = 6;
 const MAX_BONUSES_PER_COMBAT = 20;
+const MAX_CURSES_PER_PLAYER = 10;
+const MAX_UNDO_HISTORY = 5;
 // 2 hours. The real bound is setTimeout's 32-bit delay (~24.8 days): past it the
 // timer fires immediately instead of never, turning the turn timer into a busy
 // loop. No table needs a longer turn than this anyway.
@@ -144,10 +148,82 @@ function sanitizeBonus(raw) {
     };
 }
 
+/** Normalises a client-supplied active curse on a player. */
+function sanitizeCurse(raw) {
+    const c = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const name = typeof c.name === 'string' ? c.name.trim().slice(0, 40) : '';
+    if (!name) return null;
+    return {
+        id: typeof c.id === 'string' && c.id ? c.id.slice(0, 64) : randomUUID(),
+        name,
+        combatPenalty: clampInt(c.combatPenalty, -20, 20, 0),
+        runAwayPenalty: clampInt(c.runAwayPenalty, -5, 5, 0),
+        combatsRemaining: clampInt(c.combatsRemaining, 0, 10, 0),
+        clearOnDeath: c.clearOnDeath !== false
+    };
+}
+
+const TEXT_CONDITION_MAPPINGS = [
+    { re: /\bhombres?\b|\bmales?\b|\bmen\b/i, conditionType: 'GENDER', conditionValue: 'M' },
+    { re: /\bmujeres?\b|\bfemales?\b|\bwomen\b/i, conditionType: 'GENDER', conditionValue: 'F' },
+    { re: /\bguerreros?\b|\bwarriors?\b/i, conditionType: 'CLASS_ID', conditionValue: 'WARRIOR' },
+    { re: /\bmagos?\b|\bwizards?\b/i, conditionType: 'CLASS_ID', conditionValue: 'WIZARD' },
+    { re: /\bladr[oó]n(?:es)?\b|\bthie(?:f|ves)\b/i, conditionType: 'CLASS_ID', conditionValue: 'THIEF' },
+    { re: /\bcl[eé]rigos?\b|\bclerics?\b/i, conditionType: 'CLASS_ID', conditionValue: 'CLERIC' },
+    { re: /\bbardos?\b|\bbards?\b/i, conditionType: 'CLASS_ID', conditionValue: 'BARD' },
+    { re: /\brangers?\b|\bexplorador(?:es)?\b/i, conditionType: 'CLASS_ID', conditionValue: 'RANGER' },
+    { re: /\belfos?\b|\bel(?:f|ves)\b/i, conditionType: 'RACE_ID', conditionValue: 'ELF' },
+    { re: /\benanos?\b|\bdwar(?:f|ves)\b/i, conditionType: 'RACE_ID', conditionValue: 'DWARF' },
+    { re: /\bmedianos?\b|\bhalflings?\b/i, conditionType: 'RACE_ID', conditionValue: 'HALFLING' },
+    { re: /\borcos?\b|\borcs?\b/i, conditionType: 'RACE_ID', conditionValue: 'ORC' },
+    { re: /\bgnomos?\b|\bgnomes?\b/i, conditionType: 'RACE_ID', conditionValue: 'GNOME' },
+    { re: /\bhumanos?\b|\bhumans?\b/i, conditionType: 'RACE_ID', conditionValue: 'HUMAN' }
+];
+
+/**
+ * Extracts structured monster conditional modifiers from descriptive text such as
+ * "+5 vs hombres", "+4 vs Clérigo", "-3 vs Ladrón", "+4 vs Elfo".
+ */
+function extractConditionalModifiersFromText(text, idPrefix = 'cm') {
+    if (typeof text !== 'string' || !text.trim()) return [];
+    const results = [];
+    const seen = new Set();
+    const pattern = /([+-]\d+)\s*(?:vs\.?|contra)\s+([a-záéíóúñü]+)/gi;
+    let match;
+    let idx = 0;
+    while ((match = pattern.exec(text)) !== null && results.length < 10) {
+        const amount = clampInt(match[1], -MODIFIER_LIMIT, MODIFIER_LIMIT, 0);
+        const targetWord = match[2];
+        if (amount === 0 || !targetWord) continue;
+        for (const mapping of TEXT_CONDITION_MAPPINGS) {
+            if (mapping.re.test(targetWord)) {
+                const key = `${mapping.conditionType}:${mapping.conditionValue}:${amount}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    idx++;
+                    results.push({
+                        id: `${idPrefix}-${idx}`,
+                        amount,
+                        side: 'MONSTER',
+                        conditionType: mapping.conditionType,
+                        conditionValue: mapping.conditionValue,
+                        scope: 'ANY_PARTICIPANT',
+                        applyMode: 'ONCE_IF_MATCH'
+                    });
+                }
+                break;
+            }
+        }
+    }
+    return results;
+}
+
 module.exports = {
     VALID_GENDERS,
     VALID_CLASSES,
     VALID_RACES,
+    EXPANSION_CLASSES,
+    EXPANSION_RACES,
     VALID_MODIFIER_SIDES,
     VALID_CONDITION_TYPES,
     VALID_MODIFIER_SCOPES,
@@ -159,6 +235,8 @@ module.exports = {
     MAX_AVATAR_ID,
     MAX_MONSTERS_PER_COMBAT,
     MAX_BONUSES_PER_COMBAT,
+    MAX_CURSES_PER_PLAYER,
+    MAX_UNDO_HISTORY,
     MAX_TURN_TIMER_SECONDS,
     MODIFIER_LIMIT,
     clampInt,
@@ -167,5 +245,7 @@ module.exports = {
     normalizeName,
     sanitizeMonster,
     sanitizeConditionalModifier,
-    sanitizeBonus
+    sanitizeBonus,
+    sanitizeCurse,
+    extractConditionalModifiersFromText
 };

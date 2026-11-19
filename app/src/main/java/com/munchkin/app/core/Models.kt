@@ -32,7 +32,17 @@ enum class CharacterClass {
     WARRIOR,    // Guerrero
     WIZARD,     // Mago
     THIEF,      // Ladron
-    CLERIC      // Clerigo
+    CLERIC,     // Clerigo
+    BARD,       // Bardo (Expansion)
+    RANGER;     // Explorador (Expansion)
+
+    val isExpansion: Boolean get() = this == BARD || this == RANGER
+
+    companion object {
+        val baseEntries: List<CharacterClass> = listOf(NONE, WARRIOR, WIZARD, THIEF, CLERIC)
+        fun availableFor(expansionsEnabled: Boolean): List<CharacterClass> =
+            if (expansionsEnabled) entries else baseEntries
+    }
 }
 
 @Serializable
@@ -40,8 +50,29 @@ enum class CharacterRace {
     HUMAN,      // Humano
     ELF,        // Elfo
     DWARF,      // Enano
-    HALFLING    // Mediano
+    HALFLING,   // Mediano
+    ORC,        // Orco (Expansion)
+    GNOME;      // Gnomo (Expansion)
+
+    val isExpansion: Boolean get() = this == ORC || this == GNOME
+
+    companion object {
+        val baseEntries: List<CharacterRace> = listOf(HUMAN, ELF, DWARF, HALFLING)
+        fun availableFor(expansionsEnabled: Boolean): List<CharacterRace> =
+            if (expansionsEnabled) entries else baseEntries
+    }
 }
+
+@Immutable
+@Serializable
+data class ActiveCurse(
+    val id: String,
+    val name: String,
+    val combatPenalty: Int = 0,
+    val runAwayPenalty: Int = 0,
+    val combatsRemaining: Int = 0,
+    val clearOnDeath: Boolean = true
+)
 
 @Serializable
 enum class GamePhase {
@@ -76,6 +107,7 @@ data class PlayerState(
     val treasures: Int = 0,
     val hasHalfBreed: Boolean = false,
     val hasSuperMunchkin: Boolean = false,
+    val activeCurses: List<ActiveCurse> = emptyList(),
     val isConnected: Boolean = true,
     val lastRoll: Int? = null, // For initial roll or others
     /**
@@ -148,6 +180,30 @@ data class PlayerState(
             (!settings.requiresCombatToWin || reachedMaxLevelViaCombat != false)
 }
 
+@Immutable
+@Serializable
+data class PlayerMatchStat(
+    val playerId: PlayerId,
+    val name: String,
+    val finalLevel: Int = 1,
+    val monstersKilled: Int = 0,
+    val combatsHelped: Int = 0,
+    val biggestCombat: Int = 0,
+    val deaths: Int = 0,
+    val escapes: Int = 0
+)
+
+@Immutable
+@Serializable
+data class MatchSummary(
+    val durationMs: Long = 0L,
+    val totalTurns: Int = 1,
+    val playerStats: List<PlayerMatchStat> = emptyList(),
+    val mvpSlayerId: PlayerId? = null,
+    val bestHelperId: PlayerId? = null,
+    val mostDeathsId: PlayerId? = null
+)
+
 // ============== Game State ==============
 
 @Immutable
@@ -164,6 +220,10 @@ data class GameState(
     val winnerId: PlayerId? = null,
     val turnPlayerId: PlayerId? = null, // Current active player
     val turnEndsAt: Long? = null, // Authoritative server deadline for the active turn
+    val turnTimerPausedRemainingMs: Long? = null,
+    val spectatorCount: Int = 0,
+    val canUndo: Boolean = false,
+    val matchSummary: MatchSummary? = null,
     val playerOrder: List<PlayerId> = emptyList(), // Custom Seat Order
     val createdAt: Long = System.currentTimeMillis(),
     val settings: GameSettings = GameSettings()
@@ -234,6 +294,7 @@ data class GameSettings(
     val levelTenOnlyCombat: Boolean = true,
     /** Lets the host confirm a win that did not come from a kill anyway. */
     val allowLevelTenOverride: Boolean = false,
+    val expansionsEnabled: Boolean = false,
     val turnTimerSeconds: Int = 0  // 0 = disabled, otherwise seconds per turn
 ) {
     /**

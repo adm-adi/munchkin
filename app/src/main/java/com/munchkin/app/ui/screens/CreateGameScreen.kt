@@ -41,7 +41,7 @@ import com.munchkin.app.ui.theme.*
 fun CreateGameScreen(
     isLoading: Boolean,
     error: String?,
-    onCreateGame: (name: String, avatarId: Int, gender: Gender, timerSeconds: Int, superMunchkin: Boolean) -> Unit,
+    onCreateGame: (name: String, avatarId: Int, gender: Gender, timerSeconds: Int, superMunchkin: Boolean, expansionsEnabled: Boolean) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     userProfile: UserProfile? = null
@@ -55,6 +55,7 @@ fun CreateGameScreen(
     }
     var selectedTimerSeconds by remember { mutableIntStateOf(0) }
     var isSuperMunchkin by remember { mutableStateOf(false) }
+    var expansionsEnabled by remember { mutableStateOf(false) }
 
     // Only lock the name if logged in, avatar can always be changed
     val isNameLocked = userProfile != null
@@ -402,13 +403,46 @@ fun CreateGameScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Expansions toggle (Orc, Gnome, Bard, Ranger)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(NeonSurfaceVariant)
+                        .border(1.dp, GlassBorderDim, RoundedCornerShape(12.dp))
+                        .clickable { expansionsEnabled = !expansionsEnabled }
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.expansions_mode),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = NeonGray100,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = stringResource(R.string.expansions_mode_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = NeonGray300
+                        )
+                    }
+                    Switch(
+                        checked = expansionsEnabled,
+                        onCheckedChange = null
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
 
                 GradientButton(
                     text = if (isLoading) stringResource(R.string.creating_game) else stringResource(R.string.create),
                     onClick = {
                         if (name.isNotBlank()) {
-                            onCreateGame(name, selectedAvatarId, selectedGender, selectedTimerSeconds, isSuperMunchkin)
+                            onCreateGame(name, selectedAvatarId, selectedGender, selectedTimerSeconds, isSuperMunchkin, expansionsEnabled)
                         }
                     },
                     enabled = name.isNotBlank() && !isLoading,

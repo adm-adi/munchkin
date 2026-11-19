@@ -36,8 +36,13 @@ import {
 import { calculateResult, runAwayBonus } from './public/js/combat.mjs';
 import { GameSocket, ConnState, ServerError, oneOffRequest, authenticatedRequest } from './public/js/net.mjs';
 import { session } from './public/js/session.mjs';
-import { SUPPORTED_LANGS, AVATARS, avatarName, setLang, getLang } from './public/js/i18n.mjs';
+import { SUPPORTED_LANGS, LANG_NATIVE_NAMES, AVATARS, avatarName, setLang, getLang } from './public/js/i18n.mjs';
 import { encodeQrMatrix, createQrSvg } from './public/js/ui.mjs';
+import { extractJoinCode } from './public/js/views/qrScanner.mjs';
+import {
+    isSoundEnabled, setSoundEnabled, isHapticsEnabled, setHapticsEnabled,
+    playDiceRoll, playVictory, playDefeat, playUndo, playTimerWarning
+} from './public/js/sound.mjs';
 
 let server;
 let baseHttp;
@@ -1034,6 +1039,12 @@ describe('web client modules: session, i18n, engine, and QR renderer (QA-09)', (
 
     test('i18n has 100% key parity across es/en/fr and canonical AVATARS 0..7 match Android', () => {
         assert.deepStrictEqual(SUPPORTED_LANGS, ['es', 'en', 'fr']);
+        for (const code of SUPPORTED_LANGS) {
+            assert.ok(
+                typeof LANG_NATIVE_NAMES[code] === 'string' && LANG_NATIVE_NAMES[code].trim().length > 0,
+                `LANG_NATIVE_NAMES missing non-empty label for ${code}`
+            );
+        }
 
         const here = path.dirname(fileURLToPath(import.meta.url));
         const i18nSrc = fs.readFileSync(path.join(here, 'public', 'js', 'i18n.mjs'), 'utf8');
@@ -1282,6 +1293,57 @@ describe('web client modules: session, i18n, engine, and QR renderer (QA-09)', (
             else delete globalThis.Node;
             if (hadDoc) globalThis.document = origDoc;
             else delete globalThis.document;
+        }
+    });
+
+    test('QR join code parser ignores untrusted wsUrl and sound/haptics preferences persist safely (Phase 4)', async () => {
+        assert.strictEqual(extractJoinCode('https://munchking-sirpepo.duckdns.org/#/join/ABCD2345'), 'ABCD2345');
+        assert.strictEqual(extractJoinCode('https://munchking-sirpepo.duckdns.org/#/tv/xy78ab90'), 'XY78AB90');
+        assert.strictEqual(extractJoinCode('https://evil.example/?join=QWER1234'), 'QWER1234');
+        assert.strictEqual(extractJoinCode('{"joinCode":"ZXCV5678","wsUrl":"ws://evil.example"}'), 'ZXCV5678');
+        assert.strictEqual(extractJoinCode('  munch123  '), 'MUNCH123');
+        assert.strictEqual(extractJoinCode('not a valid code!'), null);
+
+        // Sound/haptics helpers must be safe no-ops in Node and honor localStorage prefs
+        const hadStorage = Object.prototype.hasOwnProperty.call(globalThis, 'localStorage');
+        const origStorage = globalThis.localStorage;
+        const store = new Map();
+        try {
+            globalThis.localStorage = {
+                getItem: k => (store.has(k) ? store.get(k) : null),
+                setItem: (k, v) => store.set(k, String(v)),
+                removeItem: k => store.delete(k)
+            };
+            assert.strictEqual(isSoundEnabled(), true);
+            assert.strictEqual(isHapticsEnabled(), true);
+            setSoundEnabled(false);
+            setHapticsEnabled(false);
+            assert.strictEqual(isSoundEnabled(), false);
+            assert.strictEqual(isHapticsEnabled(), false);
+            assert.doesNotThrow(() => {
+                playDiceRoll();
+                playVictory();
+                playDefeat();
+                playUndo();
+                playTimerWarning();
+            });
+        } finally {
+            if (hadStorage) globalThis.localStorage = origStorage;
+            else delete globalThis.localStorage;
+        }
+
+        // GameSocket.watch() connects in read-only spectator mode against real server
+        const host = new GameSocket({ url: server.url, WebSocketImpl: WebSocket });
+        const tv = new GameSocket({ url: server.url, WebSocketImpl: WebSocket });
+        try {
+            const w = await host.create({ meta: playerMeta({ name: 'TvHost', avatarId: 0, gender: 'M' }) });
+            const tvW = await tv.watch({ joinCode: w.gameState.joinCode });
+            assert.strictEqual(tvW.isSpectator, true);
+            assert.strictEqual(tv.isSpectator, true);
+            assert.strictEqual(tvW.gameState.spectatorCount, 1);
+        } finally {
+            tv.leave();
+            host.leave();
         }
     });
 });

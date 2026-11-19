@@ -206,6 +206,7 @@
 
     <!-- Settings -->
     <string name="settings_title">Ajustes</string>
+    <string name="monster_catalog_subtitle">Consulta y añade monstruos de todas las expansiones</string>
     <string name="display">Pantalla</string>
     <string name="large_numbers">Números grandes</string>
     <string name="large_numbers_subtitle">Aumenta el tamaño de los números de nivel y combate</string>
@@ -304,10 +305,14 @@
     <string name="class_wizard">Mago</string>
     <string name="class_thief">Ladrón</string>
     <string name="class_cleric">Clérigo</string>
+    <string name="class_bard">Bardo</string>
+    <string name="class_ranger">Explorador</string>
     <string name="race_human">Humano</string>
     <string name="race_elf">Elfo</string>
     <string name="race_dwarf">Enano</string>
     <string name="race_halfling">Mediano</string>
+    <string name="race_orc">Orco</string>
+    <string name="race_gnome">Gnomo</string>
 
     <!-- History & Leaderboard -->
     <string name="winner_label">Ganador:</string>
@@ -385,6 +390,55 @@
     <string name="ability_dwarf_hand_size">Puedes tener 6 cartas en la mano.</string>
     <string name="ability_halfling_sell">Cada turno puedes vender un objeto por el doble de su precio; los demás objetos conservan su precio normal.</string>
     <string name="ability_halfling_run_away">-1 a la tirada de huida.</string>
+    <string name="ability_bard_enthrall">Hechizar: descarta una carta y tira el dado para obligar a otro jugador a ayudarte gratis.</string>
+    <string name="ability_bard_luck">Suerte bárdica: si ganas un combate en tu turno, robas 1 tesoro extra y descartas 1 a elegir.</string>
+    <string name="ability_ranger_tame">Domar: descarta cartas igual a los tesoros de un monstruo para domarlo como montura.</string>
+    <string name="ability_ranger_help">Ayuda de explorador: al ayudar en combate, descarta una carta para dar +2.</string>
+    <string name="ability_orc_overkill">Masacre: si derrotas monstruos solo por más de 10 de diferencia, subes 1 nivel extra.</string>
+    <string name="ability_orc_ignore_curse">Ignorar maldición: puedes perder 1 nivel para ignorar una maldición (si eres nivel 2+).</string>
+    <string name="ability_gnome_illusion">Ilusión: una vez por combate solo, juega un monstruo de tu mano para sumar su nivel a tu fuerza.</string>
+    <string name="ability_gnome_nose">Nariz de gnomo: los monstruos de nivel 1 no te persiguen; los objetos de nariz dan bono extra.</string>
+
+    <!-- Phase 1 enhancements -->
+    <string name="expansions_mode">Razas y clases de expansiones</string>
+    <string name="expansions_mode_desc">Activa Orco, Gnomo, Bardo y Explorador</string>
+    <string name="action_undo">Deshacer</string>
+    <string name="action_death_loot">Morir (Saquear)</string>
+    <string name="death_loot_confirm_title">¿Morir y saquear cadáver?</string>
+    <string name="death_loot_confirm_desc">Reinicia tu Equipo a 0 y limpia las maldiciones temporales. Conservas Nivel, Raza y Clase.</string>
+    <string name="curses_title">Maldiciones activas</string>
+    <string name="curse_add">Añadir maldición</string>
+    <string name="curse_none">Sin maldiciones activas</string>
+    <string name="curse_preset_sex_change">Cambio de sexo (−5 próx. combate)</string>
+    <string name="curse_preset_chicken">Pollo en la cabeza (−1 huir)</string>
+    <string name="curse_preset_no_armor">Sin armadura</string>
+    <string name="curse_name_label">Nombre de la maldición</string>
+    <string name="curse_combat_penalty">Penalización combate</string>
+    <string name="curse_runaway_penalty">Penalización huida</string>
+    <string name="curse_combats_remaining">Duración (0 = persistente)</string>
+    <string name="curse_persistent">Persistente</string>
+    <string name="combat_helper_treasures">Pacto de tesoros (Ayudante)</string>
+    <string name="combat_helper_treasures_deal">Ayudante se lleva %1$d de %2$d tesoros</string>
+    <string name="combat_presets_title">Cartas rápidas</string>
+    <string name="preset_ancient">Antiguo (+10)</string>
+    <string name="preset_enraged">Enfurecido (+5)</string>
+    <string name="preset_baby">Cría (−5)</string>
+    <string name="preset_potion_2">Poción +2</string>
+    <string name="preset_potion_3">Poción +3</string>
+    <string name="preset_potion_5">Poción +5</string>
+    <string name="orc_overkill_badge">Orco +1 nivel extra</string>
+
+    <!-- Phase 2 enhancements -->
+    <string name="timer_pause">Pausar reloj</string>
+    <string name="timer_resume">Reanudar reloj</string>
+    <string name="timer_paused_format">Pausado %1$s</string>
+    <string name="watch_as_spectator">Ver como Espectador (TV)</string>
+    <string name="offline_mode">Partida local (Offline)</string>
+    <string name="offline_setup_title">Partida local (1 dispositivo)</string>
+    <string name="offline_add_player">Añadir jugador</string>
+    <string name="offline_player_hint">Nombre del jugador %1$d</string>
+    <string name="offline_start">Empezar partida local</string>
+    <string name="offline_active_seat">Controlando a: %1$s</string>
 
     <!-- Game log drawer -->
     <string name="log_level_up">%1$s subió a Nivel %2$d</string>
@@ -445,4 +499,23 @@
     <string name="victory_dialog_winner">¡%1$s ha ganado la partida!</string>
     <string name="return_to_home">Volver al Inicio</string>
     <string name="modifiers_label">Modificadores (Bonus/Malus): %1$s</string>
+
+    <!-- Phase 3: Catalog Filters/Edit & Rich Match/Leaderboard Stats -->
+    <string name="catalog_filter_undead">No Muertos</string>
+    <string name="catalog_level_low">Nv 1–5</string>
+    <string name="catalog_level_mid">Nv 6–12</string>
+    <string name="catalog_level_high">Nv 13–20</string>
+    <string name="catalog_edit_monster">Editar monstruo</string>
+    <string name="catalog_delete_monster">Eliminar monstruo</string>
+    <string name="catalog_delete_confirm">¿Seguro que quieres eliminar «%1$s» del catálogo global?</string>
+    <string name="catalog_monster_updated">Monstruo «%1$s» actualizado</string>
+    <string name="catalog_monster_deleted">Monstruo eliminado del catálogo</string>
+    <string name="catalog_save_changes">Guardar cambios</string>
+    <string name="stats_duration_min">%1$d min</string>
+    <string name="stats_kills_badge">⚔️ %1$d bajas</string>
+    <string name="stats_deaths_badge">💀 %1$d muertes</string>
+    <string name="stats_streak_badge">🔥 Racha %1$d</string>
+    <string name="stats_mvp_slayer">⚔️ Cazador MVP: %1$s</string>
+    <string name="stats_best_helper">🤝 Mejor aliado: %1$s</string>
+    <string name="stats_most_deaths">💀 Más muertes: %1$s</string>
 </resources>

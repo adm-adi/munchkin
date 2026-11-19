@@ -206,6 +206,7 @@
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>
+    <string name="monster_catalog_subtitle">Browse and add monsters from all expansions</string>
     <string name="display">Display</string>
     <string name="large_numbers">Large numbers</string>
     <string name="large_numbers_subtitle">Increase level and combat number sizes</string>
@@ -304,10 +305,14 @@
     <string name="class_wizard">Wizard</string>
     <string name="class_thief">Thief</string>
     <string name="class_cleric">Cleric</string>
+    <string name="class_bard">Bard</string>
+    <string name="class_ranger">Ranger</string>
     <string name="race_human">Human</string>
     <string name="race_elf">Elf</string>
     <string name="race_dwarf">Dwarf</string>
     <string name="race_halfling">Halfling</string>
+    <string name="race_orc">Orc</string>
+    <string name="race_gnome">Gnome</string>
 
     <!-- History & Leaderboard -->
     <string name="winner_label">Winner:</string>
@@ -385,6 +390,55 @@
     <string name="ability_dwarf_hand_size">You may hold 6 cards in your hand.</string>
     <string name="ability_halfling_sell">Once per turn you may sell one item for double price; every other item keeps its normal price.</string>
     <string name="ability_halfling_run_away">-1 to the Run Away roll.</string>
+    <string name="ability_bard_enthrall">Enthrall: discard a card and roll a die to force another player to help you for free.</string>
+    <string name="ability_bard_luck">Bardic Luck: when you win combat on your turn, draw 1 extra Treasure and discard 1 of your choice.</string>
+    <string name="ability_ranger_tame">Tame Steed: discard cards equal to a monster\'s Treasure value to tame it as a Steed.</string>
+    <string name="ability_ranger_help">Ranger Help: when helping in combat, discard a card to grant +2.</string>
+    <string name="ability_orc_overkill">Overkill: when defeating monster(s) alone by more than 10, gain 1 extra level.</string>
+    <string name="ability_orc_ignore_curse">Ignore Curse: lose 1 level to ignore a Curse (if level 2+).</string>
+    <string name="ability_gnome_illusion">Illusion: once per solo combat, play a Monster from hand to add its level to your side.</string>
+    <string name="ability_gnome_nose">Gnome Nose: Level 1 monsters won\'t pursue you; Nose items grant extra bonuses.</string>
+
+    <!-- Phase 1 enhancements -->
+    <string name="expansions_mode">Expansion Races &amp; Classes</string>
+    <string name="expansions_mode_desc">Enable Orc, Gnome, Bard, and Ranger</string>
+    <string name="action_undo">Undo</string>
+    <string name="action_death_loot">Die (Loot Body)</string>
+    <string name="death_loot_confirm_title">Die &amp; loot the body?</string>
+    <string name="death_loot_confirm_desc">Resets Gear to 0 and clears temporary curses. Keeps Level, Race, and Class.</string>
+    <string name="curses_title">Active Curses</string>
+    <string name="curse_add">Add Curse</string>
+    <string name="curse_none">No active curses</string>
+    <string name="curse_preset_sex_change">Change Sex (−5 next combat)</string>
+    <string name="curse_preset_chicken">Chicken on Head (−1 run away)</string>
+    <string name="curse_preset_no_armor">Lose Armor</string>
+    <string name="curse_name_label">Curse name</string>
+    <string name="curse_combat_penalty">Combat penalty</string>
+    <string name="curse_runaway_penalty">Run away penalty</string>
+    <string name="curse_combats_remaining">Combats (0 = persistent)</string>
+    <string name="curse_persistent">Persistent</string>
+    <string name="combat_helper_treasures">Treasure Deal (Helper)</string>
+    <string name="combat_helper_treasures_deal">Helper takes %1$d of %2$d treasures</string>
+    <string name="combat_presets_title">Quick Cards</string>
+    <string name="preset_ancient">Ancient (+10)</string>
+    <string name="preset_enraged">Enraged (+5)</string>
+    <string name="preset_baby">Baby (−5)</string>
+    <string name="preset_potion_2">Potion +2</string>
+    <string name="preset_potion_3">Potion +3</string>
+    <string name="preset_potion_5">Potion +5</string>
+    <string name="orc_overkill_badge">Orc +1 extra level</string>
+
+    <!-- Phase 2 enhancements -->
+    <string name="timer_pause">Pause timer</string>
+    <string name="timer_resume">Resume timer</string>
+    <string name="timer_paused_format">Paused %1$s</string>
+    <string name="watch_as_spectator">Watch as Spectator (TV)</string>
+    <string name="offline_mode">Local Game (Offline)</string>
+    <string name="offline_setup_title">Local Game (Pass &amp; Play)</string>
+    <string name="offline_add_player">Add player</string>
+    <string name="offline_player_hint">Player %1$d name</string>
+    <string name="offline_start">Start local game</string>
+    <string name="offline_active_seat">Controlling: %1$s</string>
 
     <!-- Game log drawer -->
     <string name="log_level_up">%1$s reached Level %2$d</string>
@@ -445,4 +499,23 @@
     <string name="victory_dialog_winner">%1$s won the game!</string>
     <string name="return_to_home">Return Home</string>
     <string name="modifiers_label">Modifiers (Bonus/Malus): %1$s</string>
+
+    <!-- Phase 3: Catalog Filters/Edit & Rich Match/Leaderboard Stats -->
+    <string name="catalog_filter_undead">Undead</string>
+    <string name="catalog_level_low">Lv 1–5</string>
+    <string name="catalog_level_mid">Lv 6–12</string>
+    <string name="catalog_level_high">Lv 13–20</string>
+    <string name="catalog_edit_monster">Edit monster</string>
+    <string name="catalog_delete_monster">Delete monster</string>
+    <string name="catalog_delete_confirm">Are you sure you want to delete \"%1$s\" from the global catalog?</string>
+    <string name="catalog_monster_updated">Monster \"%1$s\" updated</string>
+    <string name="catalog_monster_deleted">Monster deleted from catalog</string>
+    <string name="catalog_save_changes">Save changes</string>
+    <string name="stats_duration_min">%1$d min</string>
+    <string name="stats_kills_badge">⚔️ %1$d kills</string>
+    <string name="stats_deaths_badge">💀 %1$d deaths</string>
+    <string name="stats_streak_badge">🔥 %1$d streak</string>
+    <string name="stats_mvp_slayer">⚔️ MVP Slayer: %1$s</string>
+    <string name="stats_best_helper">🤝 Best Helper: %1$s</string>
+    <string name="stats_most_deaths">💀 Most Deaths: %1$s</string>
 </resources>

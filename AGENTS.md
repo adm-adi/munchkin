@@ -136,7 +136,7 @@ Web PWA UI (app.mjs + ui.mjs) <-------> net.mjs + engine.mjs <--------------+
 
 First launch shows `TutorialScreen` when `!TutorialPrefs.isShown()`, then enters `NavHost` (`startDestination = "home"`):
 
-- Auth & Profile: `home` -> `auth`, `profile`, `history`, `leaderboard`, `settings`, `catalog`
+- Auth & Profile: `home` -> `auth`, `profile`, `history`, `leaderboard`, `settings` -> `catalog` (Web PWA mirrors `#/settings` -> `#/catalog`)
 - Session Creation & Join: `home` -> `create_game` / `join_game?code={code}` -> `lobby`
 - Active Gameplay (`GAMEPLAY_KEEP_SCREEN_ON_ROUTES`): `lobby`, `table`, `board`, `combat` (plus `player_detail` from `table`/`board`)
 

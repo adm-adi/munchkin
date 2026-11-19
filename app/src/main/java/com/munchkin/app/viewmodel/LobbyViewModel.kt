@@ -121,7 +121,8 @@ class LobbyViewModel internal constructor(
         avatarId: Int,
         gender: Gender,
         timerSeconds: Int = 0,
-        superMunchkin: Boolean = false
+        superMunchkin: Boolean = false,
+        expansionsEnabled: Boolean = false
     ) {
         if (_isLoading.value || sessionCoordinator.isConnectingOrLoading.value) return
         setConnectingState(true)
@@ -145,7 +146,8 @@ class LobbyViewModel internal constructor(
                     playerMeta = playerMeta,
                     superMunchkin = superMunchkin,
                     turnTimerSeconds = timerSeconds,
-                    authToken = sessionStore.getAuthToken()
+                    authToken = sessionStore.getAuthToken(),
+                    expansionsEnabled = expansionsEnabled
                 )
                 result.fold(
                     onSuccess = { (session, initialState) ->
@@ -169,6 +171,62 @@ class LobbyViewModel internal constructor(
             } finally {
                 setConnectingState(false)
             }
+        }
+    }
+
+    fun watchGame(joinCode: String) {
+        val cleanCode = JoinCodeParser.extractJoinCode(joinCode) ?: joinCode.trim().uppercase()
+        if (cleanCode.length < 4 || _isLoading.value || sessionCoordinator.isConnectingOrLoading.value) return
+        setConnectingState(true)
+        _error.value = null
+        viewModelScope.launch {
+            sessionCoordinator.clearActiveSession(closeClient = true)
+            try {
+                val result = remoteGateway.watchSessionConnection(
+                    wsUrl = ServerConfig.WS_URL,
+                    joinCode = cleanCode
+                )
+                result.fold(
+                    onSuccess = { (session, initialState) ->
+                        sessionCoordinator.attachActiveSession(
+                            session = session,
+                            initialState = initialState,
+                            playerId = PlayerId("SPECTATOR")
+                        )
+                    },
+                    onFailure = { err ->
+                        val friendly = getFriendlyErrorMessage(err, stringResolver)
+                        _error.value = friendly
+                        sessionCoordinator.emitEvent(GameUiEvent.ShowError(friendly))
+                    }
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } finally {
+                setConnectingState(false)
+            }
+        }
+    }
+
+    fun startOfflineGame(
+        playerNames: List<String>,
+        superMunchkin: Boolean = false,
+        expansionsEnabled: Boolean = false
+    ) {
+        viewModelScope.launch {
+            sessionCoordinator.clearActiveSession(closeClient = true)
+            val offlineSession = OfflineSessionConnection.create(
+                playerNames = playerNames,
+                superMunchkin = superMunchkin,
+                expansionsEnabled = expansionsEnabled
+            )
+            val initialState = offlineSession.gameState.value ?: return@launch
+            val firstSeat = offlineSession.myPlayerId.value ?: return@launch
+            sessionCoordinator.attachActiveSession(
+                session = offlineSession,
+                initialState = initialState,
+                playerId = firstSeat
+            )
         }
     }
 

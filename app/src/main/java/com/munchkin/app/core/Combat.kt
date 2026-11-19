@@ -14,6 +14,7 @@ import kotlinx.serialization.Serializable
 data class CombatState(
     val mainPlayerId: PlayerId,
     val helperPlayerId: PlayerId? = null,
+    val helperTreasureShare: Int? = null,
     val monsters: List<MonsterInstance> = emptyList(),
     val tempBonuses: List<TempBonus> = emptyList(),
     val heroModifier: Int = 0,      // Quick +/- for heroes
@@ -113,7 +114,8 @@ data class CombatResult(
     val warriorTieBreak: Boolean = false,
     val helperLevelsGained: Int = 0,
     val isWarriorInvolved: Boolean = false,
-    val heroesWinTies: Boolean = isWarriorInvolved
+    val heroesWinTies: Boolean = isWarriorInvolved,
+    val orcOverkillBonus: Boolean = false
 ) {
     val diff: Int get() = kotlin.math.abs(heroesPower - monstersPower)
 

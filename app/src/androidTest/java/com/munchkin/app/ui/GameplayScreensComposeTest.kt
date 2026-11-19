@@ -24,6 +24,8 @@ import com.munchkin.app.core.PlayerState
 import com.munchkin.app.network.ConnectionState
 import com.munchkin.app.ui.screens.BoardScreen
 import com.munchkin.app.ui.screens.CombatScreen
+import com.munchkin.app.ui.screens.HomeScreen
+import com.munchkin.app.ui.screens.SettingsScreen
 import com.munchkin.app.ui.theme.MunchkinTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -217,13 +219,14 @@ class GameplayScreensComposeTest {
                     connectionState = ConnectionState.CONNECTED,
                     onPlayerClick = {},
                     onCombatClick = { combatClicked = true },
-                    onCatalogClick = {},
                     onSettingsClick = {},
                     onLeaveGame = {}
                 )
             }
         }
 
+        val catalogDesc = context.getString(R.string.catalog)
+        composeTestRule.onNodeWithContentDescription(catalogDesc).assertDoesNotExist()
         composeTestRule.onNodeWithText(bannerText).assertIsDisplayed()
         composeTestRule.onNodeWithText(bannerText).performClick()
         assertTrue(combatClicked)
@@ -254,7 +257,6 @@ class GameplayScreensComposeTest {
                     connectionState = ConnectionState.CONNECTED,
                     onPlayerClick = {},
                     onCombatClick = {},
-                    onCatalogClick = {},
                     onSettingsClick = {},
                     onLeaveGame = {},
                     pendingWinners = winners,
@@ -269,5 +271,57 @@ class GameplayScreensComposeTest {
 
         composeTestRule.onNode(hasText("HeroTwo") and hasAnyAncestor(isDialog())).performClick()
         assertEquals(PlayerId("p2"), confirmedWinner)
+    }
+
+    @Test
+    fun homeScreen_doesNotShowMonsterCatalogButton() {
+        val catalogText = context.getString(R.string.monster_catalog)
+        val createGameText = context.getString(R.string.create_game)
+
+        composeTestRule.setContent {
+            MunchkinTheme {
+                HomeScreen(
+                    savedGame = null,
+                    updateInfo = null,
+                    isDownloading = false,
+                    onCreateGame = {},
+                    onJoinGame = {},
+                    onResumeGame = {},
+                    onDeleteSavedGame = {},
+                    onDownloadUpdate = {},
+                    onDismissUpdate = {},
+                    onSettings = {},
+                    onAuth = {},
+                    onLogout = {},
+                    onLeaderboardClick = {},
+                    onHistoryClick = {},
+                    onProfileClick = {},
+                    userProfile = null
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText(createGameText).assertIsDisplayed()
+        composeTestRule.onNodeWithText(catalogText).assertDoesNotExist()
+    }
+
+    @Test
+    fun settingsScreen_showsMonsterCatalogAndTriggersCallback() {
+        var catalogClicked = false
+        val catalogText = context.getString(R.string.monster_catalog)
+
+        composeTestRule.setContent {
+            MunchkinTheme {
+                SettingsScreen(
+                    onBack = {},
+                    onCheckUpdate = {},
+                    onCatalogClick = { catalogClicked = true }
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText(catalogText).assertIsDisplayed()
+        composeTestRule.onNodeWithText(catalogText).performClick()
+        assertTrue(catalogClicked)
     }
 }

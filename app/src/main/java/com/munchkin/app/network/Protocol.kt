@@ -18,8 +18,27 @@ sealed class WsMessage
 data class CreateGameRequest(
     val playerMeta: PlayerMeta,
     val superMunchkin: Boolean = false,
-    val turnTimerSeconds: Int = 0
+    val turnTimerSeconds: Int = 0,
+    val expansionsEnabled: Boolean = false
 ) : WsMessage()
+
+@Serializable
+@SerialName("UNDO_LAST")
+object UndoLastMessage : WsMessage()
+
+@Serializable
+@SerialName("WATCH_GAME")
+data class WatchGameMessage(
+    val joinCode: String
+) : WsMessage()
+
+@Serializable
+@SerialName("PAUSE_TURN_TIMER")
+object PauseTurnTimerMessage : WsMessage()
+
+@Serializable
+@SerialName("RESUME_TURN_TIMER")
+object ResumeTurnTimerMessage : WsMessage()
 
 /**
  * Initial handshake when client connects.
@@ -61,7 +80,8 @@ data class PingMessage(
 data class WelcomeMessage(
     val gameState: GameState,
     val yourPlayerId: PlayerId,
-    val reconnectToken: String? = null
+    val reconnectToken: String? = null,
+    val isSpectator: Boolean = false
 ) : WsMessage()
 
 /**
@@ -245,7 +265,13 @@ data class GameHistoryItem(
     /** Resolved by the server; null for a guest winner or a game with no winner. */
     val winnerName: String? = null,
     val didIWin: Boolean = false,
-    val playerCount: Int
+    val playerCount: Int,
+    val durationMs: Long = 0L,
+    val finalLevel: Int = 1,
+    val monstersKilled: Int = 0,
+    val biggestCombat: Int = 0,
+    val deaths: Int = 0,
+    val escapes: Int = 0
 )
 
 // ============== Room Discovery Messages ==============
@@ -345,7 +371,9 @@ data class CatalogMonster(
     val isUndead: Boolean = false,
     val badStuff: String = "",
     val expansion: String = "base",
-    val createdBy: String? = null
+    val createdBy: String? = null,
+    val canEdit: Boolean = false,
+    val conditionalModifiers: List<ConditionalModifier> = emptyList()
 )
 
 @Serializable
@@ -354,7 +382,10 @@ data class CatalogSearchRequest(
     val query: String,
     val expansion: String? = null,
     val limit: Int = 20,
-    val offset: Int = 0
+    val offset: Int = 0,
+    val isUndead: Boolean? = null,
+    val minLevel: Int? = null,
+    val maxLevel: Int? = null
 ) : WsMessage()
 
 @Serializable
@@ -374,6 +405,31 @@ data class CatalogAddRequest(
 @SerialName("CATALOG_ADD_SUCCESS")
 data class CatalogAddSuccess(
     val monster: CatalogMonster
+) : WsMessage()
+
+@Serializable
+@SerialName("CATALOG_UPDATE")
+data class CatalogUpdateRequest(
+    val monsterId: String,
+    val monster: CatalogMonster
+) : WsMessage()
+
+@Serializable
+@SerialName("CATALOG_UPDATE_SUCCESS")
+data class CatalogUpdateSuccess(
+    val monster: CatalogMonster
+) : WsMessage()
+
+@Serializable
+@SerialName("CATALOG_DELETE")
+data class CatalogDeleteRequest(
+    val monsterId: String
+) : WsMessage()
+
+@Serializable
+@SerialName("CATALOG_DELETE_SUCCESS")
+data class CatalogDeleteSuccess(
+    val monsterId: String
 ) : WsMessage()
 
 
@@ -407,7 +463,10 @@ data class LeaderboardEntry(
     val gender: Gender = Gender.M,
     val wins: Int,
     // Defaulted so an older server that does not send it still decodes.
-    val gamesPlayed: Int = 0
+    val gamesPlayed: Int = 0,
+    val currentStreak: Int = 0,
+    val totalMonstersKilled: Int = 0,
+    val totalDeaths: Int = 0
 ) {
     /** Win percentage, 0 when nothing has been played yet. */
     val winRate: Int

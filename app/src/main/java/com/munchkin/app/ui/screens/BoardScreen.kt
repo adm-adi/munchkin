@@ -12,7 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -52,7 +52,6 @@ fun BoardScreen(
     connectionState: ConnectionState,
     onPlayerClick: (PlayerId) -> Unit,
     onCombatClick: () -> Unit,
-    onCatalogClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onLeaveGame: () -> Unit,
     modifier: Modifier = Modifier,
@@ -68,6 +67,9 @@ fun BoardScreen(
     onKickPlayer: ((PlayerId) -> Unit)? = null,
     onTransferHost: ((PlayerId) -> Unit)? = null,
     onRollDice: (Int) -> Unit = {},
+    onUndoLast: () -> Unit = {},
+    onToggleTimerPause: () -> Unit = {},
+    onSwitchOfflineSeat: (PlayerId) -> Unit = {},
     logEntries: List<GameLogEntry> = emptyList(),
     reconnectAttempt: Int = 0,
     onRetryReconnect: () -> Unit = {}
@@ -142,6 +144,21 @@ fun BoardScreen(
                         )
                     ),
                     actions = {
+                        val canUndoNow = gameState.canUndo &&
+                            gameState.phase == GamePhase.IN_GAME &&
+                            (isHost || gameState.turnPlayerId == myPlayerId)
+                        if (canUndoNow) {
+                            IconButton(
+                                onClick = onUndoLast,
+                                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.Undo,
+                                    contentDescription = stringResource(R.string.action_undo),
+                                    tint = NeonSecondary
+                                )
+                            }
+                        }
                         IconButton(
                             onClick = { isTableView = !isTableView },
                             modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
@@ -177,16 +194,6 @@ fun BoardScreen(
                             Icon(
                                 Icons.Default.History,
                                 contentDescription = stringResource(R.string.game_log_button),
-                                tint = NeonGray200
-                            )
-                        }
-                        IconButton(
-                            onClick = onCatalogClick,
-                            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.MenuBook,
-                                contentDescription = stringResource(R.string.catalog),
                                 tint = NeonGray200
                             )
                         }
@@ -437,12 +444,80 @@ fun BoardScreen(
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                         }
-                                        if (turnStartedAt != null && timerDuration > 0) {
+                                        val pausedMs = gameState.turnTimerPausedRemainingMs
+                                        if (timerDuration > 0 && (turnStartedAt != null || pausedMs != null)) {
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            TurnCountdownBadge(
-                                                turnStartedAt = turnStartedAt,
-                                                timerSeconds = timerDuration,
-                                                serverTimeOffsetMs = serverTimeOffsetMs
+                                            if (pausedMs != null) {
+                                                val secs = ((pausedMs + 999L) / 1000L).coerceAtLeast(0L)
+                                                val mm = secs / 60
+                                                val ss = (secs % 60).toString().padStart(2, '0')
+                                                Surface(
+                                                    color = NeonSurfaceVariant,
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    border = BorderStroke(1.dp, NeonSecondary)
+                                                ) {
+                                                    Text(
+                                                        text = stringResource(R.string.timer_paused_format, "$mm:$ss"),
+                                                        color = NeonSecondary,
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                                    )
+                                                }
+                                            } else if (turnStartedAt != null) {
+                                                TurnCountdownBadge(
+                                                    turnStartedAt = turnStartedAt,
+                                                    timerSeconds = timerDuration,
+                                                    serverTimeOffsetMs = serverTimeOffsetMs
+                                                )
+                                            }
+                                            if (isHost || isMyTurn) {
+                                                IconButton(
+                                                    onClick = onToggleTimerPause,
+                                                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                                ) {
+                                                    Icon(
+                                                        if (pausedMs != null) Icons.Default.PlayArrow else Icons.Default.Pause,
+                                                        contentDescription = stringResource(
+                                                            if (pausedMs != null) R.string.timer_resume else R.string.timer_pause
+                                                        ),
+                                                        tint = NeonSecondary
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Offline Pass & Play quick seat switcher
+                                if (gameState.joinCode == "LOCAL") {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    val activeSeatName = gameState.players[myPlayerId]?.name.orEmpty()
+                                    Text(
+                                        text = stringResource(R.string.offline_active_seat, activeSeatName),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = NeonSecondary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        gameState.playerList.forEach { p ->
+                                            FilterChip(
+                                                selected = p.playerId == myPlayerId,
+                                                onClick = { onSwitchOfflineSeat(p.playerId) },
+                                                label = {
+                                                    Text(
+                                                        text = p.name,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                },
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .heightIn(min = 48.dp)
                                             )
                                         }
                                     }
@@ -836,14 +911,51 @@ fun BoardScreen(
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
                         text = stringResource(R.string.victory_dialog_winner, winner?.name ?: "?"),
                         style = MaterialTheme.typography.titleMedium,
                         color = NeonGray100,
                         fontWeight = FontWeight.SemiBold
                     )
+                    val summary = gameState.matchSummary
+                    if (summary != null) {
+                        val mins = maxOf(1, (summary.durationMs / 60_000L).toInt())
+                        Text(
+                            text = "⏱️ ${stringResource(R.string.stats_duration_min, mins)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        val slayerName = summary.mvpSlayerId?.let { gameState.players[it]?.name }
+                        val helperName = summary.bestHelperId?.let { gameState.players[it]?.name }
+                        val deathsName = summary.mostDeathsId?.let { gameState.players[it]?.name }
+                        if (slayerName != null) {
+                            Text(
+                                text = stringResource(R.string.stats_mvp_slayer, slayerName),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NeonSecondary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        if (helperName != null) {
+                            Text(
+                                text = stringResource(R.string.stats_best_helper, helperName),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NeonGray200
+                            )
+                        }
+                        if (deathsName != null) {
+                            Text(
+                                text = stringResource(R.string.stats_most_deaths, deathsName),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = NeonError
+                            )
+                        }
+                    }
                     HorizontalDivider(color = GlassBorder)
+                    val statsById = remember(summary) {
+                        summary?.playerStats?.associateBy { it.playerId } ?: emptyMap()
+                    }
                     standings.forEachIndexed { idx, p ->
                         val medal = when (idx) {
                             0 -> "🥇"
@@ -851,30 +963,51 @@ fun BoardScreen(
                             2 -> "🥉"
                             else -> "#${idx + 1}"
                         }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "$medal ${p.name}",
-                                color = if (idx == 0) NeonWarning else NeonGray200,
-                                fontWeight = if (idx == 0) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier.weight(1f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = stringResource(
-                                    R.string.standings_stats_format,
-                                    p.level,
-                                    p.combatPower,
-                                    p.treasures
-                                ),
-                                color = NeonGray300,
-                                style = MaterialTheme.typography.bodySmall
-                            )
+                        val pStat = statsById[p.playerId]
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "$medal ${p.name}",
+                                    color = if (idx == 0) NeonWarning else NeonGray200,
+                                    fontWeight = if (idx == 0) FontWeight.Bold else FontWeight.Normal,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = stringResource(
+                                        R.string.standings_stats_format,
+                                        p.level,
+                                        p.combatPower,
+                                        p.treasures
+                                    ),
+                                    color = NeonGray300,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            if (pStat != null && (pStat.monstersKilled > 0 || pStat.deaths > 0)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    if (pStat.monstersKilled > 0) {
+                                        Text(
+                                            text = stringResource(R.string.stats_kills_badge, pStat.monstersKilled),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = NeonSecondary
+                                        )
+                                    }
+                                    if (pStat.deaths > 0) {
+                                        Text(
+                                            text = stringResource(R.string.stats_deaths_badge, pStat.deaths),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = NeonError
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

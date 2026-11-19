@@ -169,6 +169,7 @@ internal class FakeSessionConnection(
     var sendEventResult: Result<Unit> = Result.success(Unit)
     var sendGameOverResult: Result<Unit> = Result.success(Unit)
     var sendDeleteGameResult: Result<Unit> = Result.success(Unit)
+    var undoCount = 0
     val transferHostTargets = mutableListOf<PlayerId>()
     val kickedTargets = mutableListOf<PlayerId>()
     val recordedWinners = mutableListOf<Pair<String, String?>>()
@@ -196,6 +197,15 @@ internal class FakeSessionConnection(
     }
 
     override suspend fun sendDeleteGame(): Result<Unit> = sendDeleteGameResult
+
+    override suspend fun sendUndoLast(): Result<Unit> {
+        undoCount++
+        return Result.success(Unit)
+    }
+
+    override suspend fun sendPauseTurnTimer(): Result<Unit> = Result.success(Unit)
+
+    override suspend fun sendResumeTurnTimer(): Result<Unit> = Result.success(Unit)
 
     override suspend fun sendSwapPlayers(player1: PlayerId, player2: PlayerId): Result<Unit> =
         Result.success(Unit)
@@ -264,7 +274,8 @@ internal class FakeRemoteGateway : RemoteGateway {
         playerMeta: PlayerMeta,
         superMunchkin: Boolean,
         turnTimerSeconds: Int,
-        authToken: String?
+        authToken: String?,
+        expansionsEnabled: Boolean
     ): Result<Pair<SessionConnection, GameState>> = nextCreateConnection()
 
     override suspend fun connectSessionConnection(
@@ -279,6 +290,11 @@ internal class FakeRemoteGateway : RemoteGateway {
         lastConnectMeta = playerMeta
         return nextConnectConnection()
     }
+
+    override suspend fun watchSessionConnection(
+        wsUrl: String,
+        joinCode: String
+    ): Result<Pair<SessionConnection, GameState>> = nextConnectConnection()
 
     override suspend fun login(serverUrl: String, email: String, password: String): Result<AuthSuccessMessage> =
         nextLogin()
@@ -329,7 +345,11 @@ internal class FakeRemoteGateway : RemoteGateway {
         query: String,
         expansion: String?,
         limit: Int,
-        offset: Int
+        offset: Int,
+        isUndead: Boolean?,
+        minLevel: Int?,
+        maxLevel: Int?,
+        authToken: String?
     ): Result<List<CatalogMonster>> = nextSearchMonsters(query, offset)
 
     override suspend fun addMonsterToCatalog(
@@ -337,4 +357,17 @@ internal class FakeRemoteGateway : RemoteGateway {
         monster: CatalogMonster,
         authToken: String
     ): Result<CatalogMonster> = nextAddMonster(monster)
+
+    override suspend fun updateMonsterInCatalog(
+        serverUrl: String,
+        monsterId: String,
+        monster: CatalogMonster,
+        authToken: String
+    ): Result<CatalogMonster> = Result.success(monster.copy(id = monsterId, canEdit = true))
+
+    override suspend fun deleteMonsterFromCatalog(
+        serverUrl: String,
+        monsterId: String,
+        authToken: String
+    ): Result<String> = Result.success(monsterId)
 }

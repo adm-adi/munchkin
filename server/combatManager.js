@@ -62,15 +62,54 @@ function combatPower(player) {
 }
 
 /**
- * Race modifiers affecting Run Away rolls (Elf +1, Halfling -1; Half-Breed holding
- * both nets 0). Matches CombatCalculator / combat.mjs.
+ * Race & active curse modifiers affecting Run Away rolls (Elf +1, Halfling -1;
+ * Half-Breed holding both nets 0; plus any active curse runAwayPenalty).
+ * Matches CombatCalculator / combat.mjs.
  */
 function getRunAwayBonus(player) {
     if (!player) return 0;
     let bonus = 0;
     if (playerHasRace(player, 'ELF')) bonus += 1;
     if (playerHasRace(player, 'HALFLING')) bonus -= 1;
+    for (const curse of (player.activeCurses || [])) {
+        bonus += Number.isFinite(curse?.runAwayPenalty) ? curse.runAwayPenalty : 0;
+    }
     return bonus;
+}
+
+/**
+ * Sum of combat penalties/bonuses from a player's active curses.
+ */
+function getCurseCombatPenalty(player) {
+    if (!player || !Array.isArray(player.activeCurses)) return 0;
+    let total = 0;
+    for (const curse of player.activeCurses) {
+        total += Number.isFinite(curse?.combatPenalty) ? curse.combatPenalty : 0;
+    }
+    return total;
+}
+
+/**
+ * Decrements combatsRemaining on temporary curses (> 0) and removes expired ones.
+ * Persistent curses (combatsRemaining === 0) remain until removed or death.
+ */
+function consumeCombatCurses(player) {
+    if (!player || !Array.isArray(player.activeCurses) || player.activeCurses.length === 0) {
+        return;
+    }
+    const next = [];
+    for (const c of player.activeCurses) {
+        if (!c) continue;
+        const remaining = Number.isFinite(c.combatsRemaining) ? c.combatsRemaining : 0;
+        if (remaining > 0) {
+            if (remaining - 1 > 0) {
+                next.push({ ...c, combatsRemaining: remaining - 1 });
+            }
+        } else {
+            next.push(c);
+        }
+    }
+    player.activeCurses = next;
 }
 
 /**
@@ -136,6 +175,7 @@ function calculateCombatResult(game) {
     const helperPlayer = combat.helperPlayerId ? game.players.get(combat.helperPlayerId) : null;
 
     let heroesPower = combatPower(mainPlayer) + (helperPlayer ? combatPower(helperPlayer) : 0);
+    heroesPower += getCurseCombatPenalty(mainPlayer) + (helperPlayer ? getCurseCombatPenalty(helperPlayer) : 0);
     heroesPower += (combat.heroModifier || 0);
 
     for (const bonus of (combat.tempBonuses || [])) {
@@ -172,6 +212,7 @@ function calculateCombatResult(game) {
     let totalLevels = 0;
     let totalTreasures = 0;
     let helperLevelsGained = 0;
+    let orcOverkillBonus = false;
     if (playerWins) {
         for (const monster of monsters) {
             totalLevels += Number.isFinite(monster.levels) ? monster.levels : 1;
@@ -179,6 +220,11 @@ function calculateCombatResult(game) {
         }
         if (helperPlayer && monsters.length > 0 && playerHasRace(helperPlayer, 'ELF')) {
             helperLevelsGained = monsters.length;
+        }
+        // Orc Overkill: defeating monster(s) alone by more than 10 grants +1 extra level.
+        if (!helperPlayer && monsters.length > 0 && playerHasRace(mainPlayer, 'ORC') && (heroesPower - monstersPower) > 10) {
+            totalLevels += 1;
+            orcOverkillBonus = true;
         }
     }
 
@@ -195,7 +241,8 @@ function calculateCombatResult(game) {
         helperLevelsGained,
         marginToWin,
         warriorTieBreak: heroesPower === monstersPower && isWarrior,
-        isWarriorInvolved: isWarrior
+        isWarriorInvolved: isWarrior,
+        orcOverkillBonus
     };
 }
 
@@ -215,6 +262,8 @@ module.exports = {
     playerHasRace,
     combatPower,
     getRunAwayBonus,
+    getCurseCombatPenalty,
+    consumeCombatCurses,
     requiresCombatToWin,
     matchesCondition,
     countMatches,

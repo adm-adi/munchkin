@@ -23,7 +23,9 @@ const {
     normalizeName,
     sanitizeMonster,
     sanitizeConditionalModifier,
-    sanitizeBonus
+    sanitizeBonus,
+    sanitizeCurse,
+    extractConditionalModifiersFromText
 } = require('./validation');
 
 test('clampInt bounds numbers into range', () => {
@@ -199,12 +201,52 @@ test('enum whitelists match the Kotlin enums in core/Models.kt', () => {
     assert.deepStrictEqual([...VALID_GENDERS].sort(), ['F', 'M', 'NA']);
     assert.deepStrictEqual(
         [...VALID_CLASSES].sort(),
-        ['CLERIC', 'NONE', 'THIEF', 'WARRIOR', 'WIZARD']
+        ['BARD', 'CLERIC', 'NONE', 'RANGER', 'THIEF', 'WARRIOR', 'WIZARD']
     );
     assert.deepStrictEqual(
         [...VALID_RACES].sort(),
-        ['DWARF', 'ELF', 'HALFLING', 'HUMAN']
+        ['DWARF', 'ELF', 'GNOME', 'HALFLING', 'HUMAN', 'ORC']
     );
+});
+
+test('sanitizeCurse normalises bounds and drops nameless curses', () => {
+    assert.strictEqual(sanitizeCurse({}), null);
+    const c = sanitizeCurse({
+        name: 'Cambio de sexo',
+        combatPenalty: -99,
+        runAwayPenalty: 99,
+        combatsRemaining: 99,
+        clearOnDeath: false
+    });
+    assert.ok(c && c.id);
+    assert.strictEqual(c.combatPenalty, -20);
+    assert.strictEqual(c.runAwayPenalty, 5);
+    assert.strictEqual(c.combatsRemaining, 10);
+    assert.strictEqual(c.clearOnDeath, false);
+});
+
+test('extractConditionalModifiersFromText parses Spanish and English monster text', () => {
+    const amazona = extractConditionalModifiersFromText('+5 vs hombres. Pierdes tu clase.', 'm1-16');
+    assert.strictEqual(amazona.length, 1);
+    assert.strictEqual(amazona[0].amount, 5);
+    assert.strictEqual(amazona[0].conditionType, 'GENDER');
+    assert.strictEqual(amazona[0].conditionValue, 'M');
+
+    const ninja = extractConditionalModifiersFromText('-3 vs Ladrón. MUERE.', 'm1-26');
+    assert.strictEqual(ninja.length, 1);
+    assert.strictEqual(ninja[0].amount, -3);
+    assert.strictEqual(ninja[0].conditionType, 'CLASS_ID');
+    assert.strictEqual(ninja[0].conditionValue, 'THIEF');
+
+    const medusa = extractConditionalModifiersFromText('+4 vs Elfo. Pierdes cartas.', 'm1-25');
+    assert.strictEqual(medusa.length, 1);
+    assert.strictEqual(medusa[0].conditionType, 'RACE_ID');
+    assert.strictEqual(medusa[0].conditionValue, 'ELF');
+
+    const ranger = extractConditionalModifiersFromText('+3 vs Ranger. Pierde 2 niveles.', 'm5-01');
+    assert.strictEqual(ranger.length, 1);
+    assert.strictEqual(ranger[0].conditionType, 'CLASS_ID');
+    assert.strictEqual(ranger[0].conditionValue, 'RANGER');
 });
 
 test('sanitizeMonster preserves zero treasures rather than defaulting to 1', () => {

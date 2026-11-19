@@ -5,6 +5,7 @@
 
 export const SUPPORTED_LANGS = ['es', 'en', 'fr'];
 export const LANG_LABELS = { es: 'ES', en: 'EN', fr: 'FR' };
+export const LANG_NATIVE_NAMES = { es: 'Español', en: 'English', fr: 'Français' };
 const LANG_KEY = 'munchkin.lang';
 
 export const EXPANSIONS = [
@@ -40,8 +41,8 @@ export function avatarEmoji(avatarId, gender) {
 
 const LABELS_BY_LANG = {
     es: {
-        classes: { NONE: 'Sin clase', WARRIOR: 'Guerrero', WIZARD: 'Mago', THIEF: 'Ladrón', CLERIC: 'Clérigo' },
-        races: { HUMAN: 'Humano', ELF: 'Elfo', DWARF: 'Enano', HALFLING: 'Mediano' },
+        classes: { NONE: 'Sin clase', WARRIOR: 'Guerrero', WIZARD: 'Mago', THIEF: 'Ladrón', CLERIC: 'Clérigo', BARD: 'Bardo', RANGER: 'Explorador' },
+        races: { HUMAN: 'Humano', ELF: 'Elfo', DWARF: 'Enano', HALFLING: 'Mediano', ORC: 'Orco', GNOME: 'Gnomo' },
         genders: { M: 'Hombre', F: 'Mujer', NA: 'Otro' },
         avatars: {
             WARRIOR: 'Guerrero', WIZARD: 'Mago', THIEF: 'Ladrón', CLERIC: 'Clérigo',
@@ -87,6 +88,22 @@ const LABELS_BY_LANG = {
             HALFLING: [
                 { text: 'Cada turno puedes vender un objeto por el doble de su precio.', auto: false },
                 { text: '-1 a la tirada de huida.', auto: true }
+            ],
+            BARD: [
+                { text: 'Hechizar: descarta una carta y tira el dado para obligar a otro jugador a ayudarte gratis.', auto: false },
+                { text: 'Suerte bárdica: al ganar un combate en tu turno, robas 1 tesoro extra y descartas 1.', auto: false }
+            ],
+            RANGER: [
+                { text: 'Domar: descarta cartas igual a los tesoros de un monstruo para domarlo como montura.', auto: false },
+                { text: 'Ayuda de explorador: al ayudar en combate, descarta una carta para dar +2.', auto: false }
+            ],
+            ORC: [
+                { text: 'Masacre: si derrotas monstruos solo por más de 10 de diferencia, subes 1 nivel extra.', auto: true },
+                { text: 'Ignorar maldición: puedes perder 1 nivel para ignorar una maldición (nivel 2+).', auto: false }
+            ],
+            GNOME: [
+                { text: 'Ilusión: una vez por combate solo, juega un monstruo de tu mano para sumar su nivel.', auto: false },
+                { text: 'Nariz de gnomo: monstruos de nivel 1 no te persiguen; objetos de nariz dan bono extra.', auto: false }
             ]
         },
         errors: {
@@ -168,11 +185,15 @@ const LABELS_BY_LANG = {
             'home.codeLabel': 'Código {code}',
             'home.newGame': 'Nueva partida',
             'home.joinGame': 'Unirse con código',
-            'home.catalog': 'Catálogo de monstruos',
             'home.ranking': 'Ranking',
             'home.history': 'Mi historial',
             'home.myGames': 'Mis partidas',
             'home.installHint': 'Añade esta página a tu pantalla de inicio para usarla como app.',
+
+            'settings.title': 'Ajustes',
+            'settings.catalogSection': 'Catálogo',
+            'settings.catalogDesc': 'Consulta y añade monstruos de todas las expansiones',
+            'settings.langDesc': 'Elige el idioma de la interfaz',
 
             'profile.title': 'Tu perfil',
             'profile.username': 'Nombre de usuario',
@@ -473,6 +494,82 @@ const LABELS_BY_LANG = {
             'log.playerJoined': '{name} se unió a la sala',
             'log.playerLeft': '{name} salió de la sala',
             'log.hostTransferred': '{name} es ahora el anfitrión',
+
+            'create.expansions': 'Razas y clases de expansiones',
+            'create.expansionsHint': 'Activa Orco, Gnomo, Bardo y Explorador',
+            'action.undo': 'Deshacer',
+            'action.deathLoot': 'Morir (Saquear)',
+            'action.deathConfirmTitle': '¿Morir y saquear cadáver?',
+            'action.deathConfirmText': 'Reinicia tu Equipo a 0 y limpia las maldiciones temporales. Conservas Nivel, Raza y Clase.',
+            'curses.title': 'Maldiciones activas',
+            'curses.add': 'Añadir maldición',
+            'curses.none': 'Sin maldiciones activas',
+            'curses.presetSexChange': 'Cambio de sexo (−5 próx. combate)',
+            'curses.presetChicken': 'Pollo en la cabeza (−1 huir)',
+            'curses.presetNoArmor': 'Sin armadura',
+            'curses.name': 'Nombre de la maldición',
+            'curses.combatPen': 'Combate (±)',
+            'curses.runPen': 'Huida (±)',
+            'curses.combats': 'Combates (0 = persistente)',
+            'curses.persistent': 'Persistente',
+            'combat.helperTreasures': 'Pacto de tesoros (Ayudante)',
+            'combat.helperTreasuresDeal': 'Ayudante se lleva {share} de {total} tesoros',
+            'combat.presets': 'Cartas rápidas',
+            'combat.presetAncient': 'Antiguo (+10)',
+            'combat.presetEnraged': 'Enfurecido (+5)',
+            'combat.presetBaby': 'Cría (−5)',
+            'combat.presetPotion2': 'Poción +2',
+            'combat.presetPotion3': 'Poción +3',
+            'combat.presetPotion5': 'Poción +5',
+            'combat.orcOverkill': 'Orco +1 nivel extra',
+            'timer.pause': 'Pausar reloj',
+            'timer.resume': 'Reanudar reloj',
+            'timer.paused': 'Pausado {time}',
+            'tv.openBtn': 'Pantalla TV',
+            'tv.title': 'Modo Mesa TV · {code}',
+            'tv.spectators': '{count} viendo',
+            'tv.watchCodePlaceholder': 'Código de sala (ej. ABCD1234)',
+            'tv.watchBtn': 'Ver en modo TV',
+            'tv.waitingLobby': 'Esperando jugadores — escanea el QR para unirte',
+            'tv.liveCombat': 'Combate en directo',
+            'offline.openBtn': 'Partida local (Offline)',
+            'offline.title': 'Partida local (1 dispositivo)',
+            'offline.addPlayer': 'Añadir jugador',
+            'offline.playerName': 'Nombre del jugador',
+            'offline.start': 'Empezar partida local',
+            'offline.reset': 'Reiniciar partida local',
+            'offline.activeSeat': 'Controlando a: {name}',
+            'offline.badge': 'Offline',
+            'results.awards': 'Premios de la partida',
+            'results.mvpSlayer': 'Cazamonstruos',
+            'results.bestHelper': 'Mejor ayudante',
+            'results.mostDeaths': 'Más caído',
+            'results.duration': 'Duración: {mins} min · {turns} turnos',
+            'results.killsShort': '⚔️ {n}',
+            'results.deathsShort': '💀 {n}',
+            'results.escapesShort': '🏃 {n}',
+            'ranking.streak': '🔥 {n}',
+            'catalog.filterUndead': 'Solo No-Muertos',
+            'catalog.filterAllLevels': 'Todos los niveles',
+            'catalog.filterLow': 'Nv 1–5',
+            'catalog.filterMid': 'Nv 6–12',
+            'catalog.filterBoss': 'Nv 13–20',
+            'catalog.editBtn': 'Editar',
+            'catalog.editTitle': 'Editar monstruo',
+            'catalog.updated': 'Monstruo actualizado',
+            'catalog.deleted': 'Monstruo eliminado',
+            'catalog.deleteConfirm': '¿Eliminar "{name}" del catálogo?',
+            'settings.sensorySection': 'Sonido y vibración',
+            'settings.sound': 'Efectos de sonido',
+            'settings.soundDesc': 'Reproducir efectos de dado, combate y avisos de turno.',
+            'settings.haptics': 'Vibración háptica',
+            'settings.hapticsDesc': 'Vibrar en móvil al tirar dados o resolver combates.',
+            'qr.scanBtn': 'Escanear QR',
+            'qr.scanTitle': 'Escanear código QR',
+            'qr.starting': 'Iniciando cámara...',
+            'qr.pointingHint': 'Apunta al código QR de la sala o del modo TV.',
+            'qr.unsupported': 'Tu navegador no soporta escaneo nativo de QR. Introduce el código manualmente.',
+            'qr.permissionError': 'No se pudo acceder a la cámara. Comprueba los permisos del navegador.',
             'common.error': 'Error',
             'phase.LOBBY': 'Sala',
             'phase.IN_GAME': 'En juego',
@@ -495,8 +592,8 @@ const LABELS_BY_LANG = {
     },
 
     en: {
-        classes: { NONE: 'No Class', WARRIOR: 'Warrior', WIZARD: 'Wizard', THIEF: 'Thief', CLERIC: 'Cleric' },
-        races: { HUMAN: 'Human', ELF: 'Elf', DWARF: 'Dwarf', HALFLING: 'Halfling' },
+        classes: { NONE: 'No Class', WARRIOR: 'Warrior', WIZARD: 'Wizard', THIEF: 'Thief', CLERIC: 'Cleric', BARD: 'Bard', RANGER: 'Ranger' },
+        races: { HUMAN: 'Human', ELF: 'Elf', DWARF: 'Dwarf', HALFLING: 'Halfling', ORC: 'Orc', GNOME: 'Gnome' },
         genders: { M: 'Male', F: 'Female', NA: 'Other' },
         avatars: {
             WARRIOR: 'Warrior', WIZARD: 'Wizard', THIEF: 'Thief', CLERIC: 'Cleric',
@@ -542,6 +639,22 @@ const LABELS_BY_LANG = {
             HALFLING: [
                 { text: 'Once per turn you may sell one item for double value.', auto: false },
                 { text: '-1 to Run Away rolls.', auto: true }
+            ],
+            BARD: [
+                { text: 'Enthrall: discard a card and roll a die to force another player to help for free.', auto: false },
+                { text: 'Bardic Luck: when winning combat on your turn, draw 1 extra Treasure and discard 1.', auto: false }
+            ],
+            RANGER: [
+                { text: 'Tame Steed: discard cards equal to a monster’s Treasures to tame it as a Steed.', auto: false },
+                { text: 'Ranger Help: when helping in combat, discard a card to grant +2.', auto: false }
+            ],
+            ORC: [
+                { text: 'Overkill: when defeating monster(s) alone by more than 10, gain 1 extra level.', auto: true },
+                { text: 'Ignore Curse: lose 1 level to ignore a Curse (if level 2+).', auto: false }
+            ],
+            GNOME: [
+                { text: 'Illusion: once per solo combat, play a Monster from hand to add its level.', auto: false },
+                { text: 'Gnome Nose: Level 1 monsters won’t pursue you; Nose items grant extra bonuses.', auto: false }
             ]
         },
         errors: {
@@ -623,11 +736,15 @@ const LABELS_BY_LANG = {
             'home.codeLabel': 'Code {code}',
             'home.newGame': 'New Game',
             'home.joinGame': 'Join with Code',
-            'home.catalog': 'Monster Catalog',
             'home.ranking': 'Leaderboard',
             'home.history': 'My History',
             'home.myGames': 'My Hosted Games',
             'home.installHint': 'Add this page to your home screen to use it as an offline-ready app.',
+
+            'settings.title': 'Settings',
+            'settings.catalogSection': 'Catalog',
+            'settings.catalogDesc': 'Browse and add monsters from all expansions',
+            'settings.langDesc': 'Choose the interface language',
 
             'profile.title': 'Your Profile',
             'profile.username': 'Username',
@@ -928,6 +1045,82 @@ const LABELS_BY_LANG = {
             'log.playerJoined': '{name} joined the room',
             'log.playerLeft': '{name} left the room',
             'log.hostTransferred': '{name} is now host',
+
+            'create.expansions': 'Expansion Races & Classes',
+            'create.expansionsHint': 'Enable Orc, Gnome, Bard, and Ranger',
+            'action.undo': 'Undo',
+            'action.deathLoot': 'Die (Loot Body)',
+            'action.deathConfirmTitle': 'Die & loot the body?',
+            'action.deathConfirmText': 'Resets Gear to 0 and clears temporary curses. Keeps Level, Race, and Class.',
+            'curses.title': 'Active Curses',
+            'curses.add': 'Add Curse',
+            'curses.none': 'No active curses',
+            'curses.presetSexChange': 'Change Sex (−5 next combat)',
+            'curses.presetChicken': 'Chicken on Head (−1 run away)',
+            'curses.presetNoArmor': 'Lose Armor',
+            'curses.name': 'Curse name',
+            'curses.combatPen': 'Combat (±)',
+            'curses.runPen': 'Run away (±)',
+            'curses.combats': 'Combats (0 = persistent)',
+            'curses.persistent': 'Persistent',
+            'combat.helperTreasures': 'Treasure Deal (Helper)',
+            'combat.helperTreasuresDeal': 'Helper takes {share} of {total} treasures',
+            'combat.presets': 'Quick Cards',
+            'combat.presetAncient': 'Ancient (+10)',
+            'combat.presetEnraged': 'Enraged (+5)',
+            'combat.presetBaby': 'Baby (−5)',
+            'combat.presetPotion2': 'Potion +2',
+            'combat.presetPotion3': 'Potion +3',
+            'combat.presetPotion5': 'Potion +5',
+            'combat.orcOverkill': 'Orc +1 extra level',
+            'timer.pause': 'Pause timer',
+            'timer.resume': 'Resume timer',
+            'timer.paused': 'Paused {time}',
+            'tv.openBtn': 'TV Screen',
+            'tv.title': 'Tabletop TV Mode · {code}',
+            'tv.spectators': '{count} watching',
+            'tv.watchCodePlaceholder': 'Room code (e.g. ABCD1234)',
+            'tv.watchBtn': 'Watch in TV mode',
+            'tv.waitingLobby': 'Waiting for players — scan QR to join',
+            'tv.liveCombat': 'Live Combat',
+            'offline.openBtn': 'Local Game (Offline)',
+            'offline.title': 'Local Game (Pass & Play)',
+            'offline.addPlayer': 'Add player',
+            'offline.playerName': 'Player name',
+            'offline.start': 'Start local game',
+            'offline.reset': 'Reset local game',
+            'offline.activeSeat': 'Controlling: {name}',
+            'offline.badge': 'Offline',
+            'results.awards': 'Match Awards',
+            'results.mvpSlayer': 'Monster Slayer',
+            'results.bestHelper': 'Best Helper',
+            'results.mostDeaths': 'Most Deaths',
+            'results.duration': 'Duration: {mins} min · {turns} turns',
+            'results.killsShort': '⚔️ {n}',
+            'results.deathsShort': '💀 {n}',
+            'results.escapesShort': '🏃 {n}',
+            'ranking.streak': '🔥 {n}',
+            'catalog.filterUndead': 'Undead only',
+            'catalog.filterAllLevels': 'All levels',
+            'catalog.filterLow': 'Lv 1–5',
+            'catalog.filterMid': 'Lv 6–12',
+            'catalog.filterBoss': 'Lv 13–20',
+            'catalog.editBtn': 'Edit',
+            'catalog.editTitle': 'Edit monster',
+            'catalog.updated': 'Monster updated',
+            'catalog.deleted': 'Monster deleted',
+            'catalog.deleteConfirm': 'Delete "{name}" from the catalog?',
+            'settings.sensorySection': 'Sound & haptics',
+            'settings.sound': 'Sound effects',
+            'settings.soundDesc': 'Play dice, combat, and turn warning audio cues.',
+            'settings.haptics': 'Haptic vibration',
+            'settings.hapticsDesc': 'Vibrate on mobile when rolling dice or resolving combat.',
+            'qr.scanBtn': 'Scan QR',
+            'qr.scanTitle': 'Scan QR code',
+            'qr.starting': 'Starting camera...',
+            'qr.pointingHint': 'Point your camera at the room or TV QR code.',
+            'qr.unsupported': 'Your browser does not support native QR scanning. Enter the room code manually.',
+            'qr.permissionError': 'Could not access the camera. Please check browser permissions.',
             'common.error': 'Error',
             'phase.LOBBY': 'Lobby',
             'phase.IN_GAME': 'In Game',
@@ -950,8 +1143,8 @@ const LABELS_BY_LANG = {
     },
 
     fr: {
-        classes: { NONE: 'Sans classe', WARRIOR: 'Guerrier', WIZARD: 'Magicien', THIEF: 'Voleur', CLERIC: 'Clerc' },
-        races: { HUMAN: 'Humain', ELF: 'Elfe', DWARF: 'Nain', HALFLING: 'Halfelin' },
+        classes: { NONE: 'Sans classe', WARRIOR: 'Guerrier', WIZARD: 'Magicien', THIEF: 'Voleur', CLERIC: 'Clerc', BARD: 'Barde', RANGER: 'Rôdeur' },
+        races: { HUMAN: 'Humain', ELF: 'Elfe', DWARF: 'Nain', HALFLING: 'Halfelin', ORC: 'Orque', GNOME: 'Gnome' },
         genders: { M: 'Homme', F: 'Femme', NA: 'Autre' },
         avatars: {
             WARRIOR: 'Guerrier', WIZARD: 'Magicien', THIEF: 'Voleur', CLERIC: 'Clerc',
@@ -997,6 +1190,22 @@ const LABELS_BY_LANG = {
             HALFLING: [
                 { text: 'Une fois par tour, vendez un objet pour le double de sa valeur.', auto: false },
                 { text: '-1 aux jets de fuite.', auto: true }
+            ],
+            BARD: [
+                { text: 'Charme bardique : défaussez une carte et lancez le dé pour forcer une aide gratuite.', auto: false },
+                { text: 'Chance bardique : en gagnant à votre tour, piochez 1 Trésor bonus et défaussez-en 1.', auto: false }
+            ],
+            RANGER: [
+                { text: 'Domptage : défaussez autant de cartes que de trésors pour dompter un monstre.', auto: false },
+                { text: 'Aide du rôdeur : en aidant un combat, défaussez une carte pour donner +2.', auto: false }
+            ],
+            ORC: [
+                { text: 'Massacre : si vous battez un monstre seul avec plus de 10 d’écart, +1 niveau bonus.', auto: true },
+                { text: 'Ignorer malédiction : perdez 1 niveau pour ignorer une malédiction (niveau 2+).', auto: false }
+            ],
+            GNOME: [
+                { text: 'Illusion : une fois par combat seul, jouez un monstre de votre main pour ajouter son niveau.', auto: false },
+                { text: 'Nez de gnome : monstres niveau 1 vous ignorent ; les objets Nez donnent un bonus.', auto: false }
             ]
         },
         errors: {
@@ -1078,11 +1287,15 @@ const LABELS_BY_LANG = {
             'home.codeLabel': 'Code {code}',
             'home.newGame': 'Nouvelle partie',
             'home.joinGame': 'Rejoindre avec code',
-            'home.catalog': 'Catalogue des monstres',
             'home.ranking': 'Classement',
             'home.history': 'Mon historique',
             'home.myGames': 'Mes parties',
             'home.installHint': 'Ajoutez cette page à l’écran d’accueil pour l’utiliser comme une application.',
+
+            'settings.title': 'Paramètres',
+            'settings.catalogSection': 'Catalogue',
+            'settings.catalogDesc': 'Parcourir et ajouter des monstres de toutes les extensions',
+            'settings.langDesc': 'Choisissez la langue de l’interface',
 
             'profile.title': 'Votre profil',
             'profile.username': 'Nom d’utilisateur',
@@ -1383,6 +1596,82 @@ const LABELS_BY_LANG = {
             'log.playerJoined': '{name} a rejoint le salon',
             'log.playerLeft': '{name} a quitté le salon',
             'log.hostTransferred': '{name} est maintenant l’hôte',
+
+            'create.expansions': 'Races et classes d’extensions',
+            'create.expansionsHint': 'Active Orque, Gnome, Barde et Rôdeur',
+            'action.undo': 'Annuler',
+            'action.deathLoot': 'Mourir (Piller)',
+            'action.deathConfirmTitle': 'Mourir et piller le corps ?',
+            'action.deathConfirmText': 'Réinitialise votre Équipement à 0 et retire les malédictions temporaires. Conserve Niveau, Race et Classe.',
+            'curses.title': 'Malédictions actives',
+            'curses.add': 'Ajouter malédiction',
+            'curses.none': 'Aucune malédiction active',
+            'curses.presetSexChange': 'Changement de sexe (−5 proch. combat)',
+            'curses.presetChicken': 'Poulet sur la tête (−1 fuite)',
+            'curses.presetNoArmor': 'Sans armure',
+            'curses.name': 'Nom de la malédiction',
+            'curses.combatPen': 'Combat (±)',
+            'curses.runPen': 'Fuite (±)',
+            'curses.combats': 'Combats (0 = persistant)',
+            'curses.persistent': 'Persistant',
+            'combat.helperTreasures': 'Partage des trésors (Aide)',
+            'combat.helperTreasuresDeal': 'L’aide prend {share} sur {total} trésors',
+            'combat.presets': 'Cartes rapides',
+            'combat.presetAncient': 'Ancien (+10)',
+            'combat.presetEnraged': 'Enragé (+5)',
+            'combat.presetBaby': 'Bébé (−5)',
+            'combat.presetPotion2': 'Potion +2',
+            'combat.presetPotion3': 'Potion +3',
+            'combat.presetPotion5': 'Potion +5',
+            'combat.orcOverkill': 'Orque +1 niveau bonus',
+            'timer.pause': 'Mettre en pause',
+            'timer.resume': 'Reprendre',
+            'timer.paused': 'En pause {time}',
+            'tv.openBtn': 'Écran TV',
+            'tv.title': 'Mode Table TV · {code}',
+            'tv.spectators': '{count} spectateurs',
+            'tv.watchCodePlaceholder': 'Code de salle (ex. ABCD1234)',
+            'tv.watchBtn': 'Regarder en mode TV',
+            'tv.waitingLobby': 'En attente de joueurs — scannez le QR pour rejoindre',
+            'tv.liveCombat': 'Combat en direct',
+            'offline.openBtn': 'Partie locale (Hors ligne)',
+            'offline.title': 'Partie locale (1 appareil)',
+            'offline.addPlayer': 'Ajouter joueur',
+            'offline.playerName': 'Nom du joueur',
+            'offline.start': 'Lancer la partie locale',
+            'offline.reset': 'Réinitialiser la partie locale',
+            'offline.activeSeat': 'Contrôle : {name}',
+            'offline.badge': 'Hors ligne',
+            'results.awards': 'Récompenses de la partie',
+            'results.mvpSlayer': 'Tueur de monstres',
+            'results.bestHelper': 'Meilleur allié',
+            'results.mostDeaths': 'Plus de morts',
+            'results.duration': 'Durée : {mins} min · {turns} tours',
+            'results.killsShort': '⚔️ {n}',
+            'results.deathsShort': '💀 {n}',
+            'results.escapesShort': '🏃 {n}',
+            'ranking.streak': '🔥 {n}',
+            'catalog.filterUndead': 'Morts-Vivants uniquement',
+            'catalog.filterAllLevels': 'Tous les niveaux',
+            'catalog.filterLow': 'Niv 1–5',
+            'catalog.filterMid': 'Niv 6–12',
+            'catalog.filterBoss': 'Niv 13–20',
+            'catalog.editBtn': 'Modifier',
+            'catalog.editTitle': 'Modifier le monstre',
+            'catalog.updated': 'Monstre mis à jour',
+            'catalog.deleted': 'Monstre supprimé',
+            'catalog.deleteConfirm': 'Supprimer « {name} » du catalogue ?',
+            'settings.sensorySection': 'Son et vibrations',
+            'settings.sound': 'Effets sonores',
+            'settings.soundDesc': 'Jouer les sons de dés, de combat et d\'alerte de tour.',
+            'settings.haptics': 'Vibration haptique',
+            'settings.hapticsDesc': 'Vibrer sur mobile lors des jets de dés et combats.',
+            'qr.scanBtn': 'Scanner un QR',
+            'qr.scanTitle': 'Scanner le code QR',
+            'qr.starting': 'Démarrage de la caméra...',
+            'qr.pointingHint': 'Visez le code QR de la salle ou du mode TV.',
+            'qr.unsupported': 'Votre navigateur ne prend pas en charge le scan QR natif. Saisissez le code manuellement.',
+            'qr.permissionError': 'Impossible d\'accéder à la caméra. Vérifiez les autorisations du navigateur.',
             'common.error': 'Erreur',
             'phase.LOBBY': 'Salon',
             'phase.IN_GAME': 'En jeu',
@@ -1471,6 +1760,40 @@ export function avatarName(avatarId) {
 export function expansionLabel(exp) {
     const dict = LABELS_BY_LANG[currentLang] || LABELS_BY_LANG.es;
     return dict.expansions[exp] || LABELS_BY_LANG.es.expansions[exp] || exp;
+}
+
+const SEED_MONSTER_NAMES = {
+    en: {
+        'm1-01': 'Potted Plant', 'm1-02': 'Drooling Slime', 'm1-03': 'Maul Rat',
+        'm1-04': 'Purple Worm', 'm1-05': 'Crabs', 'm1-06': 'Giant Bat',
+        'm1-07': 'Undead Horse', 'm1-08': 'Skeleton', 'm1-09': '3,872 Orcs',
+        'm1-10': 'Evil Smurfs', 'm1-11': 'Psychedelic Lizard', 'm1-12': 'Shrieking Geek',
+        'm1-13': 'Harpies', 'm1-14': 'Woolly Spider', 'm1-15': 'Ogre',
+        'm1-16': 'Amazon', 'm1-17': 'Lawyer', 'm1-18': 'Mutant Hippie',
+        'm1-19': 'King Tut', 'm1-20': 'Minotaur', 'm1-21': 'Gorgon',
+        'm1-22': 'Leprechaun', 'm1-23': 'Wight Brothers', 'm1-24': 'Floating Nose',
+        'm1-25': 'Medusa', 'm1-26': 'Giant Ninja', 'm1-27': 'Katrina',
+        'm1-28': 'Plutonium Dragon'
+    },
+    fr: {
+        'm1-01': 'Plante en Pot', 'm1-02': 'Baveux Visqueux', 'm1-03': 'Rat Mortel',
+        'm1-04': 'Ver Pourpre', 'm1-05': 'Lutin Cornu', 'm1-06': 'Chauve-Souris Géante',
+        'm1-07': 'Rats Morts-Vivants', 'm1-08': 'Squelette', 'm1-09': 'Orque Masqué',
+        'm1-10': 'Schtroumpfs Maléfiques', 'm1-11': 'Lézard Psychédélique', 'm1-12': 'Troll Hurleur',
+        'm1-13': 'Harpies', 'm1-14': 'Araignée Laineuse', 'm1-15': 'Ogre',
+        'm1-16': 'Amazone', 'm1-17': 'Avocat', 'm1-18': 'Hippie Mutant',
+        'm1-19': 'Roi Tout', 'm1-20': 'Minotaure', 'm1-21': 'Gorgone',
+        'm1-22': 'Farfadet', 'm1-23': 'Dragonnet', 'm1-24': 'Nez Flottant',
+        'm1-25': 'Méduse', 'm1-26': 'Ninja Géant', 'm1-27': 'Katrina',
+        'm1-28': 'Dragon de Plutonium'
+    }
+};
+
+export function localizeMonsterName(monster) {
+    if (!monster) return '';
+    const map = SEED_MONSTER_NAMES[currentLang];
+    if (map && monster.id && map[monster.id]) return map[monster.id];
+    return monster.name || '';
 }
 
 export function abilitiesFor(code) {

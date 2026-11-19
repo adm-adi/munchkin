@@ -1,4 +1,4 @@
-const { clampInt } = require('./validation');
+const { clampInt, sanitizeConditionalModifier, extractConditionalModifiersFromText } = require('./validation');
 
 function createCatalogManager({ db, sendError, safeSend, logger }) {
     const sendJson = typeof safeSend === 'function'
@@ -77,7 +77,7 @@ function createCatalogManager({ db, sendError, safeSend, logger }) {
         }
         recordCatalogSearch(clientIp);
 
-        const { query, expansion, limit, offset } = message;
+        const { query, expansion, limit, offset, isUndead, minLevel, maxLevel } = message;
 
         if (typeof query !== 'string') {
             sendJson(ws, { type: "CATALOG_SEARCH_RESULT", results: [] });
@@ -100,7 +100,11 @@ function createCatalogManager({ db, sendError, safeSend, logger }) {
                 ? expansion.trim().slice(0, 40)
                 : undefined,
             limit: clampInt(limit, 1, 50, 20),
-            offset: clampInt(offset, 0, 10_000, 0)
+            offset: clampInt(offset, 0, 10_000, 0),
+            viewerUserId: ws.userId || null,
+            isUndead: typeof isUndead === 'boolean' ? isUndead : null,
+            minLevel: minLevel !== undefined && minLevel !== null ? clampInt(minLevel, 1, 20, 1) : null,
+            maxLevel: maxLevel !== undefined && maxLevel !== null ? clampInt(maxLevel, 1, 20, 20) : null
         };
 
         db.searchMonsters(effectiveQuery, safeOptions)
@@ -130,6 +134,16 @@ function createCatalogManager({ db, sendError, safeSend, logger }) {
             return;
         }
 
+        const rawBadStuff = typeof monster.badStuff === 'string'
+            ? monster.badStuff.trim().slice(0, 200)
+            : '';
+        const explicitMods = Array.isArray(monster.conditionalModifiers)
+            ? monster.conditionalModifiers.slice(0, 10).map(sanitizeConditionalModifier).filter(Boolean)
+            : [];
+        const conditionalModifiers = explicitMods.length > 0
+            ? explicitMods
+            : extractConditionalModifiersFromText(rawBadStuff);
+
         const sanitizedMonster = {
             name: monster.name.trim().slice(0, 80),
             level: clampInt(monster.level, 1, 20, 1),
@@ -140,12 +154,12 @@ function createCatalogManager({ db, sendError, safeSend, logger }) {
             // Dropped before, so a monster contributed by a player lost its Bad
             // Stuff on the way into the catalog — and the Bad Stuff is the whole
             // consequence of losing a fight to it.
-            badStuff: typeof monster.badStuff === 'string'
-                ? monster.badStuff.trim().slice(0, 200)
-                : '',
+            badStuff: rawBadStuff,
             expansion: typeof monster.expansion === 'string' && monster.expansion.trim()
                 ? monster.expansion.trim().slice(0, 40)
-                : 'base'
+                : 'base',
+            conditionalModifiers,
+            canEdit: true
         };
         monster = sanitizedMonster;
 
@@ -170,9 +184,89 @@ function createCatalogManager({ db, sendError, safeSend, logger }) {
             });
     }
 
+    function handleCatalogUpdate(ws, message) {
+        if (!ws.userId) {
+            sendError(ws, "UNAUTHORIZED", "Debes iniciar sesión para editar monstruos");
+            return;
+        }
+        const { monsterId, monster } = message;
+        if (typeof monsterId !== 'string' || !monsterId.trim() || !monster || typeof monster.name !== 'string' || !monster.name.trim()) {
+            sendError(ws, "INVALID_DATA", "Datos de monstruo inválidos");
+            return;
+        }
+        if (isCatalogAddRateLimited(ws.userId)) {
+            sendError(ws, "RATE_LIMITED", "Demasiadas ediciones. Espera un momento.");
+            return;
+        }
+        recordCatalogAdd(ws.userId);
+
+        const rawBadStuff = typeof monster.badStuff === 'string' ? monster.badStuff.trim().slice(0, 200) : '';
+        const explicitMods = Array.isArray(monster.conditionalModifiers)
+            ? monster.conditionalModifiers.slice(0, 10).map(sanitizeConditionalModifier).filter(Boolean)
+            : [];
+        const sanitizedMonster = {
+            name: monster.name.trim().slice(0, 80),
+            level: clampInt(monster.level, 1, 20, 1),
+            modifier: clampInt(monster.modifier, -10, 10, 0),
+            treasures: clampInt(monster.treasures, 0, 10, 1),
+            levels: clampInt(monster.levels, 1, 5, 1),
+            isUndead: monster.isUndead === true,
+            badStuff: rawBadStuff,
+            expansion: typeof monster.expansion === 'string' && monster.expansion.trim()
+                ? monster.expansion.trim().slice(0, 40)
+                : 'base',
+            conditionalModifiers: explicitMods.length > 0 ? explicitMods : extractConditionalModifiersFromText(rawBadStuff)
+        };
+
+        db.updateMonster(monsterId.trim(), sanitizedMonster, ws.userId)
+            .then(result => {
+                if (result.error === 'NOT_FOUND') {
+                    sendError(ws, 'INVALID_DATA', 'Monstruo no encontrado');
+                } else if (result.error === 'FORBIDDEN') {
+                    sendError(ws, 'FORBIDDEN', 'Solo el autor puede editar este monstruo');
+                } else if (result.error === 'DUPLICATE') {
+                    sendError(ws, 'INVALID_DATA', 'Ya existe otro monstruo con ese nombre y nivel');
+                } else {
+                    sendJson(ws, { type: 'CATALOG_UPDATE_SUCCESS', monster: result.monster });
+                }
+            })
+            .catch(err => {
+                logger.error("Update monster error:", err);
+                sendError(ws, "SERVER_ERROR", "Error al actualizar monstruo");
+            });
+    }
+
+    function handleCatalogDelete(ws, message) {
+        if (!ws.userId) {
+            sendError(ws, "UNAUTHORIZED", "Debes iniciar sesión para eliminar monstruos");
+            return;
+        }
+        const { monsterId } = message;
+        if (typeof monsterId !== 'string' || !monsterId.trim()) {
+            sendError(ws, "INVALID_DATA", "ID de monstruo inválido");
+            return;
+        }
+        db.deleteMonster(monsterId.trim(), ws.userId)
+            .then(result => {
+                if (result.error === 'NOT_FOUND') {
+                    sendError(ws, 'INVALID_DATA', 'Monstruo no encontrado');
+                } else if (result.error === 'FORBIDDEN') {
+                    sendError(ws, 'FORBIDDEN', 'Solo el autor puede eliminar este monstruo');
+                } else {
+                    sendJson(ws, { type: 'CATALOG_DELETE_SUCCESS', monsterId: result.id });
+                }
+            })
+            .catch(err => {
+                logger.error("Delete monster error:", err);
+                sendError(ws, "SERVER_ERROR", "Error al eliminar monstruo");
+            });
+    }
+
     return {
         handleCatalogSearch,
-        handleCatalogAdd
+        handleCatalogAdd,
+        handleCatalogUpdate,
+        handleCatalogDelete
     };
 }
 

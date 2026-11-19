@@ -2566,3 +2566,178 @@ test('manual Run Away modifier, failed escape LOSE, auth pipelining, and turn ti
     await p2.close();
     await pipeClient.close();
 });
+
+test('Phase 1/2/3 end-to-end: expansions gating, curses, death, helper deal, undo, timer pause, spectator TV, and matchSummary', async () => {
+    // 1. Default room (expansionsEnabled: false) rejects expansion races/classes
+    const baseRoom = await createGame(server.url, 'BaseHost');
+    const baseHostId = baseRoom.welcome.yourPlayerId;
+    const baseRejectRace = await baseRoom.client.request(
+        ev('SET_RACE', baseHostId, { targetPlayerId: baseHostId, newRace: 'ORC' }),
+        ['EVENT_BROADCAST', 'ERROR']
+    );
+    assert.strictEqual(baseRejectRace.type, 'ERROR');
+    assert.strictEqual(baseRejectRace.code, 'INVALID_DATA');
+    const baseRejectClass = await baseRoom.client.request(
+        ev('SET_CLASS', baseHostId, { targetPlayerId: baseHostId, newClass: 'BARD' }),
+        ['EVENT_BROADCAST', 'ERROR']
+    );
+    assert.strictEqual(baseRejectClass.type, 'ERROR');
+    assert.strictEqual(baseRejectClass.code, 'INVALID_DATA');
+    await baseRoom.client.close();
+
+    // 2. Room with expansionsEnabled: true + 60s turn timer
+    const { client: host, welcome } = await createGame(server.url, 'ExpHost', {
+        turnTimerSeconds: 60,
+        expansionsEnabled: true
+    });
+    const hostId = welcome.yourPlayerId;
+    const code = welcome.gameState.joinCode;
+    assert.strictEqual(welcome.gameState.settings.expansionsEnabled, true);
+
+    const { client: guest, welcome: guestWelcome } = await joinGame(server.url, code, 'ExpGuest');
+    const guestId = guestWelcome.yourPlayerId;
+
+    // 3. Spectator joins via WATCH_GAME without taking a player seat
+    const tv = await TestClient.connect(server.url);
+    const tvWelcome = await tv.request({ type: 'WATCH_GAME', joinCode: code }, ['WELCOME', 'ERROR']);
+    assert.strictEqual(tvWelcome.type, 'WELCOME', JSON.stringify(tvWelcome));
+    assert.strictEqual(tvWelcome.isSpectator, true);
+    assert.strictEqual(tvWelcome.yourPlayerId, 'SPECTATOR');
+    assert.strictEqual(Object.keys(tvWelcome.gameState.players).length, 2, 'spectator must not consume a seat');
+    assert.strictEqual(tvWelcome.gameState.spectatorCount, 1);
+
+    // Spectator cannot mutate state
+    const tvMutate = await tv.request(
+        ev('INC_LEVEL', hostId, { targetPlayerId: hostId, amount: 1 }),
+        ['EVENT_BROADCAST', 'ERROR']
+    );
+    assert.strictEqual(tvMutate.type, 'ERROR');
+    assert.strictEqual(tvMutate.code, 'FORBIDDEN');
+
+    await Promise.all([host.settle(), guest.settle(), tv.settle()]);
+
+    // 4. Start game & verify ORC/BARD allowed
+    const started = await host.request(ev('GAME_START', hostId), ['STATE_SNAPSHOT', 'ERROR']);
+    assert.strictEqual(started.type, 'STATE_SNAPSHOT');
+    const tvStartSnap = await tv.waitFor(['STATE_SNAPSHOT']);
+    assert.strictEqual(tvStartSnap.gameState.phase, 'IN_GAME');
+
+    const orcEv = await host.request(
+        ev('SET_RACE', hostId, { targetPlayerId: hostId, newRace: 'ORC' }),
+        ['EVENT_BROADCAST', 'ERROR']
+    );
+    assert.strictEqual(orcEv.type, 'EVENT_BROADCAST');
+    const bardEv = await guest.request(
+        ev('SET_CLASS', guestId, { targetPlayerId: guestId, newClass: 'BARD' }),
+        ['EVENT_BROADCAST', 'ERROR']
+    );
+    assert.strictEqual(bardEv.type, 'EVENT_BROADCAST');
+
+    // 5. Turn timer Pause & Resume
+    const paused = await host.request({ type: 'PAUSE_TURN_TIMER' }, ['STATE_SNAPSHOT', 'ERROR']);
+    assert.strictEqual(paused.type, 'STATE_SNAPSHOT');
+    assert.strictEqual(paused.gameState.turnEndsAt, null);
+    assert.ok(
+        typeof paused.gameState.turnTimerPausedRemainingMs === 'number' &&
+        paused.gameState.turnTimerPausedRemainingMs > 0
+    );
+
+    const resumed = await host.request({ type: 'RESUME_TURN_TIMER' }, ['STATE_SNAPSHOT', 'ERROR']);
+    assert.strictEqual(resumed.type, 'STATE_SNAPSHOT');
+    assert.strictEqual(resumed.gameState.turnTimerPausedRemainingMs, null);
+    assert.ok(resumed.gameState.turnEndsAt > Date.now());
+
+    // 6. Active curses + combat consumption + helper treasure deal
+    const addCurse = await host.request(
+        ev('ADD_CURSE', hostId, {
+            targetPlayerId: hostId,
+            curse: { id: 'c-chicken', name: 'Pollo en la cabeza', combatPenalty: -2, runAwayPenalty: -1, combatsRemaining: 1 }
+        }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    assert.strictEqual(addCurse.type, 'STATE_SNAPSHOT');
+    assert.strictEqual(addCurse.gameState.players[hostId].activeCurses.length, 1);
+
+    await host.request(ev('INC_GEAR', hostId, { targetPlayerId: hostId, amount: 8 }), ['EVENT_BROADCAST', 'ERROR']);
+    await host.request(ev('COMBAT_START', hostId, { mainPlayerId: hostId }), ['STATE_SNAPSHOT', 'ERROR']);
+    await host.request(
+        ev('COMBAT_ADD_MONSTER', hostId, {
+            monster: { id: 'm-gob', name: 'Goblin', baseLevel: 2, levels: 1, treasures: 3 }
+        }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    await host.request(ev('COMBAT_ADD_HELPER', hostId, { helperId: guestId }), ['STATE_SNAPSHOT', 'ERROR']);
+    const dealSnap = await host.request(
+        ev('COMBAT_SET_HELPER_TREASURES', hostId, { treasures: 2 }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    assert.strictEqual(dealSnap.gameState.combat.helperTreasureShare, 2);
+
+    const winSnap = await host.request(
+        ev('COMBAT_END', hostId, { outcome: 'WIN', cancelled: false, expectedSeq: dealSnap.gameState.seq }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    assert.strictEqual(winSnap.type, 'STATE_SNAPSHOT');
+    assert.strictEqual(winSnap.gameState.combat, null);
+    assert.strictEqual(
+        winSnap.gameState.players[hostId].activeCurses.length,
+        0,
+        '1-combat curse must be consumed after combat ends'
+    );
+    assert.strictEqual(winSnap.gameState.canUndo, true);
+
+    // 7. UNDO_LAST authorization: non-turn guest rejected; host restores pre-COMBAT_END state
+    await Promise.all([host.settle(), guest.settle()]);
+    host.drain();
+    guest.drain();
+    if (winSnap.gameState.turnPlayerId !== guestId) {
+        const guestUndo = await guest.request({ type: 'UNDO_LAST' }, ['STATE_SNAPSHOT', 'ERROR']);
+        assert.strictEqual(guestUndo.type, 'ERROR');
+        assert.strictEqual(guestUndo.code, 'FORBIDDEN');
+    }
+    const undoneSnap = await host.request({ type: 'UNDO_LAST' }, ['STATE_SNAPSHOT', 'ERROR']);
+    assert.strictEqual(undoneSnap.type, 'STATE_SNAPSHOT');
+    assert.ok(undoneSnap.gameState.combat !== null, 'UNDO_LAST must restore pre-combat-end state');
+
+    // Finish combat again cleanly so stats record 1 kill
+    const winAgain = await host.request(
+        ev('COMBAT_END', hostId, { outcome: 'WIN', cancelled: false, expectedSeq: undoneSnap.gameState.seq }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    assert.strictEqual(winAgain.type, 'STATE_SNAPSHOT');
+
+    // 8. PLAYER_DEATH resets gear to 0 and clears clearOnDeath curses while preserving level
+    await guest.request(ev('INC_GEAR', guestId, { targetPlayerId: guestId, amount: 4 }), ['EVENT_BROADCAST', 'ERROR']);
+    await guest.request(
+        ev('ADD_CURSE', guestId, {
+            targetPlayerId: guestId,
+            curse: { id: 'c-death', name: 'Maldición mortal', combatPenalty: -1, clearOnDeath: true }
+        }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    const deathSnap = await guest.request(
+        ev('PLAYER_DEATH', guestId, { targetPlayerId: guestId }),
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    assert.strictEqual(deathSnap.type, 'STATE_SNAPSHOT');
+    assert.strictEqual(deathSnap.gameState.players[guestId].gearBonus, 0);
+    assert.strictEqual(deathSnap.gameState.players[guestId].activeCurses.length, 0);
+
+    // 9. GAME_OVER populates matchSummary with duration, playerStats, and MVP awards
+    await Promise.all([host.settle(), guest.settle()]);
+    host.drain();
+    const overSnap = await host.request(
+        { type: 'GAME_OVER', gameId: welcome.gameState.gameId, winnerId: null },
+        ['STATE_SNAPSHOT', 'ERROR']
+    );
+    assert.strictEqual(overSnap.type, 'STATE_SNAPSHOT');
+    assert.strictEqual(overSnap.gameState.phase, 'FINISHED');
+    assert.ok(overSnap.gameState.matchSummary, 'FINISHED game must include matchSummary');
+    assert.strictEqual(overSnap.gameState.matchSummary.mvpSlayerId, hostId);
+    assert.strictEqual(overSnap.gameState.matchSummary.mostDeathsId, guestId);
+    assert.strictEqual(overSnap.gameState.matchSummary.playerStats.length, 2);
+
+    await tv.close();
+    await guest.close();
+    await host.close();
+});

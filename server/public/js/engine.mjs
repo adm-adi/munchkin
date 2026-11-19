@@ -5,8 +5,8 @@
  * the local snapshot rendered by the UI without mutating prevState.
  */
 
-const VALID_CLASSES = new Set(['NONE', 'WARRIOR', 'WIZARD', 'THIEF', 'CLERIC']);
-const VALID_RACES = new Set(['HUMAN', 'ELF', 'DWARF', 'HALFLING']);
+const VALID_CLASSES = new Set(['NONE', 'WARRIOR', 'WIZARD', 'THIEF', 'CLERIC', 'BARD', 'RANGER']);
+const VALID_RACES = new Set(['HUMAN', 'ELF', 'DWARF', 'HALFLING', 'ORC', 'GNOME']);
 const VALID_GENDERS = new Set(['M', 'F', 'NA']);
 
 const GEAR_MIN = -999;
@@ -224,8 +224,13 @@ export function applyEvent(prevState, event) {
                 )
                     ? (state.players[state.combat.mainPlayerId] || updatedActor)
                     : updatedActor;
+                const curseRunPenalty = (runner.activeCurses || []).reduce(
+                    (sum, c) => sum + (Number.isFinite(c?.runAwayPenalty) ? c.runAwayPenalty : 0),
+                    0
+                );
                 const runBonus = (hasRace(runner, 'ELF') ? 1 : 0) +
-                    (hasRace(runner, 'HALFLING') ? -1 : 0);
+                    (hasRace(runner, 'HALFLING') ? -1 : 0) +
+                    curseRunPenalty;
                 const modifier = event.purpose === 'RUN_AWAY'
                     ? clampInt(event.modifier ?? 0, -10, 10, 0)
                     : 0;
@@ -437,10 +442,39 @@ export function applyEvent(prevState, event) {
                 state.combat.helperPlayerId = event.helperId;
             }
             break;
+        case 'PLAYER_DEATH':
+            updatePlayer(event.targetPlayerId, p => {
+                p.gearBonus = 0;
+                p.activeCurses = (p.activeCurses || []).filter(c => c && c.clearOnDeath === false);
+            });
+            break;
+        case 'ADD_CURSE':
+            if (event.curse) {
+                updatePlayer(event.targetPlayerId, p => {
+                    const list = Array.isArray(p.activeCurses) ? [...p.activeCurses] : [];
+                    list.push(event.curse);
+                    p.activeCurses = list;
+                });
+            }
+            break;
+        case 'REMOVE_CURSE':
+            updatePlayer(event.targetPlayerId, p => {
+                p.activeCurses = (p.activeCurses || []).filter(c => c && c.id !== event.curseId);
+            });
+            break;
         case 'COMBAT_REMOVE_HELPER':
             if (state.combat) {
                 state.combat = cloneCombat(state.combat);
                 state.combat.helperPlayerId = null;
+                state.combat.helperTreasureShare = null;
+            }
+            break;
+        case 'COMBAT_SET_HELPER_TREASURES':
+            if (state.combat) {
+                state.combat = cloneCombat(state.combat);
+                state.combat.helperTreasureShare = event.treasures === null || event.treasures === undefined
+                    ? null
+                    : clampInt(event.treasures, 0, 10, 0);
             }
             break;
         case 'COMBAT_ADD_MONSTER':
@@ -492,6 +526,21 @@ export function applyEvent(prevState, event) {
         case 'COMBAT_END': {
             const combat = state.combat;
             state.combat = null;
+            const consumeCurses = p => {
+                if (!Array.isArray(p.activeCurses) || p.activeCurses.length === 0) return;
+                p.activeCurses = p.activeCurses
+                    .map(c => ((c.combatsRemaining || 0) > 0 ? { ...c, combatsRemaining: c.combatsRemaining - 1 } : c))
+                    .filter(c => {
+                        const orig = p.activeCurses.find(o => o.id === c.id);
+                        return !((orig?.combatsRemaining || 0) > 0) || c.combatsRemaining > 0;
+                    });
+            };
+            if (combat && !event.cancelled && (combat.monsters || []).length > 0) {
+                updatePlayer(combat.mainPlayerId, consumeCurses);
+                if (combat.helperPlayerId) {
+                    updatePlayer(combat.helperPlayerId, consumeCurses);
+                }
+            }
             if (combat && !event.cancelled && event.outcome === 'WIN') {
                 const levelsGained = Math.max(0, Math.round(Number(event.levelsGained) || 0));
                 const treasuresGained = Math.max(0, Math.round(Number(event.treasuresGained) || 0));

@@ -5,7 +5,7 @@
  * usable offline. Never intercepts /api/*, /health, non-GET requests, or WS.
  */
 
-const CACHE_NAME = 'munchkin-shell-v2';
+const CACHE_NAME = 'munchkin-shell-v6';
 const NETWORK_TIMEOUT_MS = 4000;
 
 const SHELL_ASSETS = [
@@ -24,7 +24,12 @@ const SHELL_ASSETS = [
     '/js/net.mjs',
     '/js/session.mjs',
     '/js/i18n.mjs',
-    '/js/ui.mjs'
+    '/js/ui.mjs',
+    '/js/sound.mjs',
+    '/js/views/combatHelpers.mjs',
+    '/js/views/tvView.mjs',
+    '/js/views/offlineMode.mjs',
+    '/js/views/qrScanner.mjs'
 ];
 
 self.addEventListener('install', event => {

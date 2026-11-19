@@ -37,12 +37,18 @@ function createHistoryManager({ db, logger, sendError, safeSend }) {
                     games: games.map(game => ({
                         id: game.id,
                         endedAt: game.ended_at || 0,
+                        durationMs: game.duration_ms || 0,
                         winnerId: game.winner_id,
                         // Resolved server-side; null when the winner was a guest
                         // (no account to name) or the game ended with no winner.
                         winnerName: game.winner_name || null,
                         didIWin: game.did_i_win === 1,
-                        playerCount: game.player_count || 0
+                        playerCount: game.player_count || 0,
+                        finalLevel: game.final_level || 0,
+                        monstersKilled: game.monsters_killed || 0,
+                        biggestCombat: game.biggest_combat || 0,
+                        deaths: game.deaths || 0,
+                        escapes: game.escapes || 0
                     }))
                 });
             })
@@ -70,14 +76,22 @@ function createHistoryManager({ db, logger, sendError, safeSend }) {
 
         Promise.all([db.getLeaderboard(), statsFor])
             .then(([rows, own]) => {
-                const leaderboard = rows.map(row => ({
-                    id: row.id,
-                    username: row.username,
-                    avatarId: row.avatar_id || 0,
-                    gender: row.gender || 'M',
-                    wins: row.wins || 0,
-                    gamesPlayed: row.games_played || 0
-                }));
+                const leaderboard = rows.map(row => {
+                    const wins = row.wins || 0;
+                    const gamesPlayed = row.games_played || 0;
+                    return {
+                        id: row.id,
+                        username: row.username,
+                        avatarId: row.avatar_id || 0,
+                        gender: row.gender || 'M',
+                        wins,
+                        gamesPlayed,
+                        winRate: gamesPlayed > 0 ? Math.round((wins * 100) / gamesPlayed) : 0,
+                        currentStreak: row.current_streak || 0,
+                        totalMonstersKilled: row.total_monsters_killed || 0,
+                        totalDeaths: row.total_deaths || 0
+                    };
+                });
 
                 // Only meaningful once they have actually played something.
                 let me = null;

@@ -17,6 +17,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
@@ -81,7 +83,37 @@ fun MonsterCatalogScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedExpansion by remember { mutableStateOf<String?>(null) }
+    var undeadOnly by remember { mutableStateOf(false) }
+    var levelBand by remember { mutableStateOf<String?>(null) } // "low" | "mid" | "high" | null
     var showCreateDialog by remember { mutableStateOf(false) }
+    var editingMonster by remember { mutableStateOf<CatalogMonster?>(null) }
+    var deletingMonster by remember { mutableStateOf<CatalogMonster?>(null) }
+
+    fun levelBounds(band: String?): Pair<Int?, Int?> = when (band) {
+        "low" -> 1 to 5
+        "mid" -> 6 to 12
+        "high" -> 13 to 20
+        else -> null to null
+    }
+
+    fun triggerSearch(
+        q: String = searchQuery,
+        exp: String? = selectedExpansion,
+        undead: Boolean = undeadOnly,
+        band: String? = levelBand,
+        debounceMs: Long = 0L
+    ) {
+        val (minLv, maxLv) = levelBounds(band)
+        viewModel.search(
+            query = q,
+            expansion = exp,
+            isUndead = if (undead) true else null,
+            minLevel = minLv,
+            maxLevel = maxLv,
+            resetPage = true,
+            debounceMs = debounceMs
+        )
+    }
 
     val searchResults by viewModel.searchResults.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
@@ -101,7 +133,7 @@ fun MonsterCatalogScreen(
     }
 
     LaunchedEffect(Unit) {
-        viewModel.search("", expansion = null, resetPage = true, debounceMs = 0L)
+        triggerSearch(q = "", exp = null, undead = false, band = null, debounceMs = 0L)
     }
 
     LaunchedEffect(shouldLoadMore, hasMore, isLoading, isLoadingMore) {
@@ -112,6 +144,7 @@ fun MonsterCatalogScreen(
 
     if (showCreateDialog && canCreate) {
         CreateCatalogMonsterDialog(
+            initialMonster = null,
             error = error,
             onDismiss = {
                 viewModel.clearError()
@@ -134,6 +167,76 @@ fun MonsterCatalogScreen(
                         }
                     }
                 )
+            }
+        )
+    }
+
+    editingMonster?.let { target ->
+        CreateCatalogMonsterDialog(
+            initialMonster = target,
+            error = error,
+            onDismiss = {
+                viewModel.clearError()
+                editingMonster = null
+            },
+            onSubmit = { name, level, modifier, isUndead, treasures, levelsReward, badStuff, expansion, onDone ->
+                viewModel.updateMonster(
+                    monsterId = target.id,
+                    name = name,
+                    level = level,
+                    modifier = modifier,
+                    isUndead = isUndead,
+                    treasures = treasures,
+                    levels = levelsReward,
+                    badStuff = badStuff,
+                    expansion = expansion,
+                    onCompleted = { result ->
+                        onDone()
+                        if (result.isSuccess) {
+                            editingMonster = null
+                        }
+                    }
+                )
+            }
+        )
+    }
+
+    deletingMonster?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deletingMonster = null },
+            containerColor = NeonSurface,
+            title = {
+                Text(
+                    text = stringResource(R.string.catalog_delete_monster),
+                    color = NeonGray100,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = stringResource(R.string.catalog_delete_confirm, target.name),
+                    color = NeonGray300
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val id = target.id
+                        deletingMonster = null
+                        viewModel.deleteMonster(id)
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text(stringResource(R.string.delete_action), color = NeonError, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { deletingMonster = null },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text(stringResource(R.string.cancel), color = NeonGray200)
+                }
             }
         )
     }
@@ -192,12 +295,7 @@ fun MonsterCatalogScreen(
                         value = searchQuery,
                         onValueChange = { next ->
                             searchQuery = next
-                            viewModel.search(
-                                query = next,
-                                expansion = selectedExpansion,
-                                resetPage = true,
-                                debounceMs = 350L
-                            )
+                            triggerSearch(q = next, debounceMs = 350L)
                         },
                         label = { Text(stringResource(R.string.search_monster_placeholder)) },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
@@ -206,12 +304,7 @@ fun MonsterCatalogScreen(
                                 IconButton(
                                     onClick = {
                                         searchQuery = ""
-                                        viewModel.search(
-                                            query = "",
-                                            expansion = selectedExpansion,
-                                            resetPage = true,
-                                            debounceMs = 0L
-                                        )
+                                        triggerSearch(q = "", debounceMs = 0L)
                                     }
                                 ) {
                                     Icon(
@@ -254,12 +347,7 @@ fun MonsterCatalogScreen(
                                 selected = selected,
                                 onClick = {
                                     selectedExpansion = null
-                                    viewModel.search(
-                                        query = searchQuery,
-                                        expansion = null,
-                                        resetPage = true,
-                                        debounceMs = 0L
-                                    )
+                                    triggerSearch(exp = null, debounceMs = 0L)
                                 },
                                 modifier = Modifier.heightIn(min = 48.dp),
                                 label = { Text(stringResource(R.string.catalog_all_expansions)) },
@@ -281,12 +369,7 @@ fun MonsterCatalogScreen(
                                 onClick = {
                                     val next = if (selected) null else exp.code
                                     selectedExpansion = next
-                                    viewModel.search(
-                                        query = searchQuery,
-                                        expansion = next,
-                                        resetPage = true,
-                                        debounceMs = 0L
-                                    )
+                                    triggerSearch(exp = next, debounceMs = 0L)
                                 },
                                 modifier = Modifier.heightIn(min = 48.dp),
                                 label = { Text(stringResource(exp.labelRes)) },
@@ -299,6 +382,45 @@ fun MonsterCatalogScreen(
                                         )
                                     }
                                 } else null
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Undead & level-band filter chips
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        item(key = "filter_undead") {
+                            FilterChip(
+                                selected = undeadOnly,
+                                onClick = {
+                                    val next = !undeadOnly
+                                    undeadOnly = next
+                                    triggerSearch(undead = next, debounceMs = 0L)
+                                },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                                label = { Text("💀 ${stringResource(R.string.catalog_filter_undead)}") }
+                            )
+                        }
+                        val bands = listOf(
+                            "low" to R.string.catalog_level_low,
+                            "mid" to R.string.catalog_level_mid,
+                            "high" to R.string.catalog_level_high
+                        )
+                        items(bands, key = { it.first }) { (code, labelRes) ->
+                            val selected = levelBand == code
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    val next = if (selected) null else code
+                                    levelBand = next
+                                    triggerSearch(band = next, debounceMs = 0L)
+                                },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                                label = { Text(stringResource(labelRes)) }
                             )
                         }
                     }
@@ -461,7 +583,18 @@ fun MonsterCatalogScreen(
                                         monster.id.ifEmpty { "${monster.name}_${monster.expansion}_$index" }
                                     }
                                 ) { _, monster ->
-                                    MonsterCard(monster)
+                                    MonsterCard(
+                                        monster = monster,
+                                        onEdit = if (monster.canEdit) {
+                                            {
+                                                viewModel.clearError()
+                                                editingMonster = monster
+                                            }
+                                        } else null,
+                                        onDelete = if (monster.canEdit) {
+                                            { deletingMonster = monster }
+                                        } else null
+                                    )
                                 }
 
                                 if (isLoadingMore) {
@@ -500,7 +633,11 @@ fun MonsterCatalogScreen(
 }
 
 @Composable
-fun MonsterCard(monster: CatalogMonster) {
+fun MonsterCard(
+    monster: CatalogMonster,
+    onEdit: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null
+) {
     val levelLabel = stringResource(R.string.level)
     val treasuresLabel = stringResource(R.string.treasures_format, monster.treasures)
     val levelsLabel = stringResource(R.string.levels_format, monster.levels)
@@ -590,12 +727,53 @@ fun MonsterCard(monster: CatalogMonster) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+
+            if (onEdit != null || onDelete != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (onEdit != null) {
+                        TextButton(
+                            onClick = onEdit,
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = null,
+                                tint = NeonSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(stringResource(R.string.catalog_edit_monster), color = NeonSecondary)
+                        }
+                    }
+                    if (onDelete != null) {
+                        TextButton(
+                            onClick = onDelete,
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = NeonError,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(stringResource(R.string.delete_action), color = NeonError)
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun CreateCatalogMonsterDialog(
+    initialMonster: CatalogMonster? = null,
     error: String?,
     onDismiss: () -> Unit,
     onSubmit: (
@@ -610,14 +788,15 @@ private fun CreateCatalogMonsterDialog(
         onDone: () -> Unit
     ) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
-    var level by remember { mutableIntStateOf(1) }
-    var modifierValue by remember { mutableIntStateOf(0) }
-    var isUndead by remember { mutableStateOf(false) }
-    var treasures by remember { mutableIntStateOf(1) }
-    var levelsReward by remember { mutableIntStateOf(1) }
-    var badStuff by remember { mutableStateOf("") }
-    var selectedExpansion by remember { mutableStateOf("base") }
+    val isEditing = initialMonster != null
+    var name by remember(initialMonster?.id) { mutableStateOf(initialMonster?.name ?: "") }
+    var level by remember(initialMonster?.id) { mutableIntStateOf(initialMonster?.level ?: 1) }
+    var modifierValue by remember(initialMonster?.id) { mutableIntStateOf(initialMonster?.modifier ?: 0) }
+    var isUndead by remember(initialMonster?.id) { mutableStateOf(initialMonster?.isUndead ?: false) }
+    var treasures by remember(initialMonster?.id) { mutableIntStateOf(initialMonster?.treasures ?: 1) }
+    var levelsReward by remember(initialMonster?.id) { mutableIntStateOf(initialMonster?.levels ?: 1) }
+    var badStuff by remember(initialMonster?.id) { mutableStateOf(initialMonster?.badStuff ?: "") }
+    var selectedExpansion by remember(initialMonster?.id) { mutableStateOf(initialMonster?.expansion ?: "base") }
     var isSubmitting by remember { mutableStateOf(false) }
 
     val trimmedName = name.trim()
@@ -633,7 +812,7 @@ private fun CreateCatalogMonsterDialog(
         containerColor = NeonSurface,
         title = {
             Text(
-                text = stringResource(R.string.create_new),
+                text = stringResource(if (isEditing) R.string.catalog_edit_monster else R.string.create_new),
                 color = NeonGray100,
                 fontWeight = FontWeight.Bold
             )
@@ -783,7 +962,7 @@ private fun CreateCatalogMonsterDialog(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                 }
-                Text(stringResource(R.string.create_new_button))
+                Text(stringResource(if (isEditing) R.string.catalog_save_changes else R.string.create_new_button))
             }
         },
         dismissButton = {

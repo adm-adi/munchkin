@@ -40,7 +40,8 @@ fun SettingsScreen(
     largeNumbersMode: Boolean = false,
     onToggleLargeNumbersMode: (Boolean) -> Unit = {},
     onBack: () -> Unit,
-    onCheckUpdate: () -> Unit
+    onCheckUpdate: () -> Unit,
+    onCatalogClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var currentLocale by remember { mutableStateOf(LocaleManager.getCurrentLocale(context)) }
@@ -109,8 +110,24 @@ fun SettingsScreen(
                     .padding(horizontal = 20.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                // App Info Section
+                // Catalog Section
                 EntranceAnimation(delayMs = 0) {
+                    GlassSettingsSection(
+                        title = stringResource(R.string.catalog),
+                        titleColor = NeonPrimaryLight
+                    ) {
+                        GlassSettingsItem(
+                            icon = Icons.Default.CollectionsBookmark,
+                            iconTint = NeonPrimaryLight,
+                            title = stringResource(R.string.monster_catalog),
+                            subtitle = stringResource(R.string.monster_catalog_subtitle),
+                            onClick = onCatalogClick
+                        )
+                    }
+                }
+
+                // App Info Section
+                EntranceAnimation(delayMs = 50) {
                     GlassSettingsSection(
                         title = stringResource(R.string.about),
                         titleColor = NeonCyan
@@ -138,7 +155,7 @@ fun SettingsScreen(
                 }
 
                 // Display Section
-                EntranceAnimation(delayMs = 60) {
+                EntranceAnimation(delayMs = 100) {
                     GlassSettingsSection(
                         title = stringResource(R.string.display),
                         titleColor = NeonPrimaryLight
@@ -155,7 +172,7 @@ fun SettingsScreen(
                 }
 
                 // Language Section
-                EntranceAnimation(delayMs = 120) {
+                EntranceAnimation(delayMs = 150) {
                     GlassSettingsSection(
                         title = stringResource(R.string.language),
                         titleColor = NeonSecondary
@@ -203,7 +220,7 @@ fun SettingsScreen(
                 }
 
                 // Developer / Credits Section
-                EntranceAnimation(delayMs = 180) {
+                EntranceAnimation(delayMs = 200) {
                     GlassSettingsSection(
                         title = stringResource(R.string.developer_section),
                         titleColor = NeonGold
@@ -312,7 +329,7 @@ private fun GlassSettingsItem(
             .heightIn(min = 56.dp)
             .then(
                 if (onClick != null && !isLoading)
-                    Modifier.clickable { onClick() }
+                    Modifier.clickable(role = Role.Button) { onClick() }
                 else Modifier
             )
             .padding(horizontal = 16.dp, vertical = 14.dp),

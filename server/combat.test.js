@@ -353,3 +353,68 @@ test('getRunAwayBonus and web runAwayBonus match for Elf, Halfling, Half-Breed E
         assert.strictEqual(webCombat.runAwayBonus(c.player), c.expected, `web: ${c.label}`);
     }
 });
+
+test('Orc overkill grants +1 extra level only when fighting solo by > 10 margin', async () => {
+    const webCombat = await import(pathToFileURL(path.join(__dirname, 'public', 'js', 'combat.mjs')).href);
+
+    const orc = player({ level: 8, gear: 8, characterRace: 'ORC' }); // power 16
+    const helper = player({ level: 2, gear: 0 });
+    const monster = { id: 'm1', name: 'Goblin', baseLevel: 5, flatModifier: 0, levels: 1, treasures: 1, isUndead: false };
+
+    const soloWin = {
+        tiesGoToMonsters: true,
+        players: new Map([['p1', orc]]),
+        combat: { mainPlayerId: 'p1', helperPlayerId: null, monsters: [monster], tempBonuses: [], heroModifier: 0, monsterModifier: 0 }
+    };
+    const serverSolo = calculateCombatResult(soloWin);
+    const webSolo = webCombat.calculateResult(soloWin.combat, {
+        settings: { tiesGoToMonsters: true },
+        players: { p1: { ...orc, gearBonus: orc.gear } }
+    });
+    assert.strictEqual(serverSolo.orcOverkillBonus, true);
+    assert.strictEqual(serverSolo.totalLevels, 2);
+    assert.strictEqual(webSolo.orcOverkillBonus, true);
+    assert.strictEqual(webSolo.totalLevels, 2);
+
+    const withHelper = {
+        tiesGoToMonsters: true,
+        players: new Map([['p1', orc], ['p2', helper]]),
+        combat: { mainPlayerId: 'p1', helperPlayerId: 'p2', monsters: [monster], tempBonuses: [], heroModifier: 0, monsterModifier: 0 }
+    };
+    const serverHelper = calculateCombatResult(withHelper);
+    assert.strictEqual(serverHelper.orcOverkillBonus, false);
+    assert.strictEqual(serverHelper.totalLevels, 1);
+});
+
+test('Active curses apply combatPenalty and runAwayPenalty identically on server and web', async () => {
+    const webCombat = await import(pathToFileURL(path.join(__dirname, 'public', 'js', 'combat.mjs')).href);
+    const cursed = player({
+        level: 5,
+        gear: 5,
+        characterRace: 'ELF',
+        activeCurses: [
+            { id: 'c1', name: 'Cambio de sexo', combatPenalty: -5, runAwayPenalty: 0, combatsRemaining: 1, clearOnDeath: true },
+            { id: 'c2', name: 'Pollo', combatPenalty: 0, runAwayPenalty: -1, combatsRemaining: 0, clearOnDeath: true }
+        ]
+    });
+    assert.strictEqual(getRunAwayBonus(cursed), 0, 'Elf +1 and Chicken -1 net 0');
+    assert.strictEqual(webCombat.runAwayBonus(cursed), 0);
+
+    const combat = {
+        mainPlayerId: 'p1',
+        helperPlayerId: null,
+        monsters: [{ id: 'm1', name: 'Orco', baseLevel: 6, flatModifier: 0, levels: 1, treasures: 1, isUndead: false }],
+        tempBonuses: [],
+        heroModifier: 0,
+        monsterModifier: 0
+    };
+    const sRes = calculateCombatResult({ tiesGoToMonsters: true, players: new Map([['p1', cursed]]), combat });
+    const wRes = webCombat.calculateResult(combat, {
+        settings: { tiesGoToMonsters: true },
+        players: { p1: { ...cursed, gearBonus: cursed.gear } }
+    });
+    assert.strictEqual(sRes.heroesPower, 5);
+    assert.strictEqual(wRes.heroesPower, 5);
+    assert.strictEqual(sRes.outcome, 'LOSE');
+    assert.strictEqual(wRes.outcome, 'LOSE');
+});

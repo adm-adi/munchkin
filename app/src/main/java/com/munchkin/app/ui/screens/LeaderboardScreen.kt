@@ -308,6 +308,26 @@ fun LeaderboardItem(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (entry.currentStreak >= 2 || entry.totalMonstersKilled > 0) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (entry.currentStreak >= 2) {
+                            Text(
+                                text = stringResource(R.string.stats_streak_badge, entry.currentStreak),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeonWarning,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        if (entry.totalMonstersKilled > 0) {
+                            Text(
+                                text = stringResource(R.string.stats_kills_badge, entry.totalMonstersKilled),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeonSecondary
+                            )
+                        }
+                    }
+                }
             }
 
             // Wins

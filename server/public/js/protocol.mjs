@@ -14,6 +14,7 @@ export const MSG = {
     // Client → server
     CREATE_GAME: 'CREATE_GAME',
     HELLO: 'HELLO',
+    WATCH_GAME: 'WATCH_GAME',
     EVENT_REQUEST: 'EVENT_REQUEST',
     PING: 'PING',
     LIST_GAMES: 'LIST_GAMES',
@@ -28,8 +29,13 @@ export const MSG = {
     DELETE_HOSTED_GAME: 'DELETE_HOSTED_GAME',
     CATALOG_SEARCH: 'CATALOG_SEARCH',
     CATALOG_ADD: 'CATALOG_ADD',
+    CATALOG_UPDATE: 'CATALOG_UPDATE',
+    CATALOG_DELETE: 'CATALOG_DELETE',
     GAME_OVER: 'GAME_OVER',
     END_TURN: 'END_TURN',
+    PAUSE_TURN_TIMER: 'PAUSE_TURN_TIMER',
+    RESUME_TURN_TIMER: 'RESUME_TURN_TIMER',
+    UNDO_LAST: 'UNDO_LAST',
     KICK_PLAYER: 'KICK_PLAYER',
     SWAP_PLAYERS: 'SWAP_PLAYERS',
     TRANSFER_HOST: 'TRANSFER_HOST',
@@ -52,13 +58,19 @@ export const MSG = {
     HOSTED_GAME_DELETED: 'HOSTED_GAME_DELETED',
     CATALOG_SEARCH_RESULT: 'CATALOG_SEARCH_RESULT',
     CATALOG_ADD_SUCCESS: 'CATALOG_ADD_SUCCESS',
+    CATALOG_UPDATE_SUCCESS: 'CATALOG_UPDATE_SUCCESS',
+    CATALOG_DELETE_SUCCESS: 'CATALOG_DELETE_SUCCESS',
     COMBAT_DICE_ROLL_RESULT: 'COMBAT_DICE_ROLL_RESULT',
     GAME_DELETED: 'GAME_DELETED'
 };
 
 export const GENDERS = ['M', 'F', 'NA'];
-export const CLASSES = ['NONE', 'WARRIOR', 'WIZARD', 'THIEF', 'CLERIC'];
-export const RACES = ['HUMAN', 'ELF', 'DWARF', 'HALFLING'];
+export const BASE_CLASSES = ['NONE', 'WARRIOR', 'WIZARD', 'THIEF', 'CLERIC'];
+export const EXPANSION_CLASSES = ['BARD', 'RANGER'];
+export const CLASSES = [...BASE_CLASSES, ...EXPANSION_CLASSES];
+export const BASE_RACES = ['HUMAN', 'ELF', 'DWARF', 'HALFLING'];
+export const EXPANSION_RACES = ['ORC', 'GNOME'];
+export const RACES = [...BASE_RACES, ...EXPANSION_RACES];
 export const PHASES = { LOBBY: 'LOBBY', IN_GAME: 'IN_GAME', FINISHED: 'FINISHED' };
 export const OUTCOMES = { WIN: 'WIN', LOSE: 'LOSE', ESCAPE: 'ESCAPE' };
 export const BONUS_TARGETS = { HEROES: 'HEROES', MONSTER: 'MONSTER' };
@@ -100,11 +112,20 @@ export function playerMeta({ playerId = null, name, avatarId = 0, gender = 'NA',
 // ============== Connection / auth messages ==============
 
 export const messages = {
-    createGame(meta, { superMunchkin = false, turnTimerSeconds = 0 } = {}) {
-        return { type: MSG.CREATE_GAME, playerMeta: meta, superMunchkin, turnTimerSeconds };
+    createGame(meta, { superMunchkin = false, turnTimerSeconds = 0, expansionsEnabled = false } = {}) {
+        return { type: MSG.CREATE_GAME, playerMeta: meta, superMunchkin, turnTimerSeconds, expansionsEnabled };
     },
     hello(joinCode, meta, reconnectToken = null) {
         return { type: MSG.HELLO, gameId: '', joinCode, playerMeta: meta, reconnectToken };
+    },
+    watchGame(joinCode) {
+        return { type: MSG.WATCH_GAME, joinCode };
+    },
+    pauseTurnTimer() {
+        return { type: MSG.PAUSE_TURN_TIMER };
+    },
+    resumeTurnTimer() {
+        return { type: MSG.RESUME_TURN_TIMER };
     },
     eventRequest(event) {
         return { type: MSG.EVENT_REQUEST, event };
@@ -168,15 +189,24 @@ export const messages = {
         const opts = typeof optsOrLimit === 'number'
             ? { limit: optsOrLimit }
             : (optsOrLimit || {});
-        const { expansion = null, limit = 20, offset = 0 } = opts;
+        const { expansion = null, limit = 20, offset = 0, isUndead = null, minLevel = null, maxLevel = null } = opts;
         const msg = { type: MSG.CATALOG_SEARCH, query, limit, offset };
         if (expansion !== undefined && expansion !== null && expansion !== '') {
             msg.expansion = expansion;
         }
+        if (typeof isUndead === 'boolean') msg.isUndead = isUndead;
+        if (minLevel !== undefined && minLevel !== null) msg.minLevel = Number(minLevel);
+        if (maxLevel !== undefined && maxLevel !== null) msg.maxLevel = Number(maxLevel);
         return msg;
     },
     catalogAdd(monster, userId = null) {
         return { type: MSG.CATALOG_ADD, monster, userId };
+    },
+    catalogUpdate(monsterId, monster) {
+        return { type: MSG.CATALOG_UPDATE, monsterId, monster };
+    },
+    catalogDelete(monsterId) {
+        return { type: MSG.CATALOG_DELETE, monsterId };
     },
     gameOver(gameId, winnerId) {
         return { type: MSG.GAME_OVER, gameId, winnerId };
@@ -192,6 +222,9 @@ export const messages = {
     },
     deleteGame() {
         return { type: MSG.DELETE_GAME, timestamp: Date.now() };
+    },
+    undoLast() {
+        return { type: MSG.UNDO_LAST };
     }
 };
 
@@ -253,6 +286,15 @@ export const events = {
     setSuperMunchkin(actorId, enabled) {
         return { ...base('SET_SUPER_MUNCHKIN', actorId, actorId), enabled };
     },
+    playerDeath(actorId) {
+        return base('PLAYER_DEATH', actorId, actorId);
+    },
+    addCurse(actorId, curse) {
+        return { ...base('ADD_CURSE', actorId, actorId), curse };
+    },
+    removeCurse(actorId, curseId) {
+        return { ...base('REMOVE_CURSE', actorId, actorId), curseId };
+    },
     combatStart(actorId, mainPlayerId) {
         return { ...base('COMBAT_START', actorId), mainPlayerId };
     },
@@ -261,6 +303,9 @@ export const events = {
     },
     combatRemoveHelper(actorId) {
         return base('COMBAT_REMOVE_HELPER', actorId);
+    },
+    combatSetHelperTreasures(actorId, treasures) {
+        return { ...base('COMBAT_SET_HELPER_TREASURES', actorId), treasures };
     },
     combatAddMonster(actorId, monster) {
         return { ...base('COMBAT_ADD_MONSTER', actorId), monster };
@@ -328,4 +373,23 @@ export function monsterInstance({
 /** Builds a TempBonus in the exact shape core/Combat.kt expects. */
 export function tempBonus({ id = null, label, amount, appliesTo }) {
     return { id: id || uuid(), label, amount, appliesTo };
+}
+
+/** Builds an ActiveCurse in the exact shape core/Models.kt expects. */
+export function activeCurse({
+    id = null,
+    name,
+    combatPenalty = 0,
+    runAwayPenalty = 0,
+    combatsRemaining = 0,
+    clearOnDeath = true
+}) {
+    return {
+        id: id || uuid(),
+        name,
+        combatPenalty,
+        runAwayPenalty,
+        combatsRemaining,
+        clearOnDeath
+    };
 }

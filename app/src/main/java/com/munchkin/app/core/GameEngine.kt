@@ -150,6 +150,18 @@ class GameEngine {
 
                 is SetClass -> applySetClass(event, prevState)
                 is SetRace -> applySetRace(event, prevState)
+                is PlayerDeath -> updatePlayer(prevState, event.targetPlayerId) {
+                    it.copy(
+                        gearBonus = 0,
+                        activeCurses = it.activeCurses.filter { curse -> !curse.clearOnDeath }
+                    )
+                }
+                is AddCurse -> updatePlayer(prevState, event.targetPlayerId) {
+                    it.copy(activeCurses = it.activeCurses + event.curse)
+                }
+                is RemoveCurse -> updatePlayer(prevState, event.targetPlayerId) {
+                    it.copy(activeCurses = it.activeCurses.filter { curse -> curse.id != event.curseId })
+                }
 
                 is CombatStart -> prevState.copy(
                     combat = CombatState(
@@ -159,8 +171,15 @@ class GameEngine {
                 )
                 is CombatAddHelper -> applyCombatAddHelper(event, prevState)
                 is CombatRemoveHelper -> {
-                    val combat = prevState.combat?.copy(helperPlayerId = null) ?: return prevState
+                    val combat = prevState.combat?.copy(helperPlayerId = null, helperTreasureShare = null)
+                        ?: return prevState
                     prevState.copy(combat = combat)
+                }
+                is CombatSetHelperTreasures -> {
+                    val combat = prevState.combat ?: return prevState
+                    if (combat.helperPlayerId == null) return prevState
+                    val share = event.treasures?.coerceIn(0, 10)
+                    prevState.copy(combat = combat.copy(helperTreasureShare = share))
                 }
                 is CombatAddMonster -> {
                     val combat = prevState.combat ?: return prevState
@@ -368,7 +387,7 @@ class GameEngine {
             val combat = state.combat ?: return state
             if (event.helperId == combat.mainPlayerId) return state
             if (!state.players.containsKey(event.helperId)) return state
-            return state.copy(combat = combat.copy(helperPlayerId = event.helperId))
+            return state.copy(combat = combat.copy(helperPlayerId = event.helperId, helperTreasureShare = null))
         }
 
         private fun applyCombatSetModifier(event: CombatSetModifier, state: GameState): GameState {
@@ -381,10 +400,32 @@ class GameEngine {
             return state.copy(combat = updatedCombat)
         }
 
+        private fun consumeCurses(curses: List<ActiveCurse>): List<ActiveCurse> =
+            curses.mapNotNull { curse ->
+                when {
+                    curse.combatsRemaining <= 0 -> curse
+                    curse.combatsRemaining - 1 > 0 -> curse.copy(combatsRemaining = curse.combatsRemaining - 1)
+                    else -> null
+                }
+            }
+
         private fun applyCombatEnd(event: CombatEnd, state: GameState): GameState {
             val combat = state.combat
             var newState = state.copy(combat = null)
-            if (combat == null || event.cancelled || event.outcome != CombatOutcome.WIN) {
+            if (combat == null) return newState
+
+            if (!event.cancelled && combat.monsters.isNotEmpty()) {
+                newState = updatePlayer(newState, combat.mainPlayerId) {
+                    it.copy(activeCurses = consumeCurses(it.activeCurses))
+                }
+                combat.helperPlayerId?.let { helperId ->
+                    newState = updatePlayer(newState, helperId) {
+                        it.copy(activeCurses = consumeCurses(it.activeCurses))
+                    }
+                }
+            }
+
+            if (event.cancelled || event.outcome != CombatOutcome.WIN) {
                 return newState
             }
 

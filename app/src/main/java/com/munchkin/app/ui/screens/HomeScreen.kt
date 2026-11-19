@@ -1,9 +1,10 @@
-package com.munchkin.app.ui.screens
+﻿package com.munchkin.app.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,10 +57,11 @@ fun HomeScreen(
     hostedGames: List<com.munchkin.app.network.HostedGame> = emptyList(),
     onResumeHostedGame: (String) -> Unit = {},
     onDeleteHostedGame: (String) -> Unit = {},
-    onCatalogClick: () -> Unit = {}
+    onStartOfflineGame: (playerNames: List<String>, superMunchkin: Boolean, expansionsEnabled: Boolean) -> Unit = { _, _, _ -> }
 ) {
     // Show update dialog if update available
     var showUpdateDialog by remember { mutableStateOf(false) }
+    var showOfflineDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(updateInfo) {
         if (updateInfo != null) {
@@ -245,7 +247,7 @@ fun HomeScreen(
                             )
                     )
                     Text(
-                        text = "⚔️",
+                        text = "âš”ï¸",
                         fontSize = 72.sp
                     )
                 }
@@ -319,10 +321,10 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 GlassOutlinedButton(
-                    text = stringResource(R.string.monster_catalog),
-                    onClick = onCatalogClick,
+                    text = stringResource(R.string.offline_mode),
+                    onClick = { showOfflineDialog = true },
                     modifier = Modifier.fillMaxWidth(),
-                    icon = Icons.Default.CollectionsBookmark
+                    icon = Icons.Default.Group
                 )
 
                 // Saved game section
@@ -438,6 +440,102 @@ fun HomeScreen(
             }
         }
     }
+
+    if (showOfflineDialog) {
+        OfflineGameSetupDialog(
+            onDismiss = { showOfflineDialog = false },
+            onStart = { names, superMunchkin, expansions ->
+                showOfflineDialog = false
+                onStartOfflineGame(names, superMunchkin, expansions)
+            }
+        )
+    }
+}
+
+@Composable
+private fun OfflineGameSetupDialog(
+    onDismiss: () -> Unit,
+    onStart: (List<String>, Boolean, Boolean) -> Unit
+) {
+    val playerNames = remember { mutableStateListOf("Jugador 1", "Jugador 2") }
+    var superMunchkin by remember { mutableStateOf(false) }
+    var expansionsEnabled by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = NeonSurface,
+        title = { Text(stringResource(R.string.offline_setup_title), color = NeonGray100) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                playerNames.forEachIndexed { idx, value ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedTextField(
+                            value = value,
+                            onValueChange = { playerNames[idx] = it.take(20) },
+                            label = { Text(stringResource(R.string.offline_player_hint, idx + 1)) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (playerNames.size > 2) {
+                            IconButton(
+                                onClick = { playerNames.removeAt(idx) },
+                                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.close), tint = NeonError)
+                            }
+                        }
+                    }
+                }
+                if (playerNames.size < 6) {
+                    TextButton(
+                        onClick = { playerNames.add("Jugador ${playerNames.size + 1}") },
+                        modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = NeonSecondary)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(stringResource(R.string.offline_add_player), color = NeonSecondary)
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp).clickable { superMunchkin = !superMunchkin },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(stringResource(R.string.game_mode_super), color = NeonGray100, style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = superMunchkin, onCheckedChange = null)
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp).clickable { expansionsEnabled = !expansionsEnabled },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(stringResource(R.string.expansions_mode), color = NeonGray100, style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = expansionsEnabled, onCheckedChange = null)
+                }
+            }
+        },
+        confirmButton = {
+            val validNames = playerNames.map { it.trim() }.filter { it.isNotEmpty() }
+            Button(
+                onClick = { onStart(validNames, superMunchkin, expansionsEnabled) },
+                enabled = validNames.size >= 2,
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = NeonPrimary, contentColor = NeonWhite)
+            ) {
+                Text(stringResource(R.string.offline_start))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
+                Text(stringResource(R.string.cancel), color = NeonGray300)
+            }
+        }
+    )
 }
 
 @Composable
@@ -489,7 +587,7 @@ private fun HostedGameCard(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "${game.playerCount} ${stringResource(R.string.players).lowercase()} • ${game.phase}",
+                    text = "${game.playerCount} ${stringResource(R.string.players).lowercase()} â€¢ ${game.phase}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

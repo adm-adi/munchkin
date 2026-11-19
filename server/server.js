@@ -20,6 +20,7 @@ const {
     createCombatManager,
     VALID_DICE_PURPOSES,
     getRunAwayBonus,
+    consumeCombatCurses,
     requiresCombatToWin
 } = require('./combatManager');
 const { createGameAdminManager } = require('./gameAdminManager');
@@ -45,12 +46,16 @@ const {
     VALID_GENDERS,
     VALID_CLASSES,
     VALID_RACES,
+    EXPANSION_CLASSES,
+    EXPANSION_RACES,
     DEFAULT_GENDER,
     MAX_PLAYERS,
     GEAR_LIMIT,
     MAX_AVATAR_ID,
     MAX_MONSTERS_PER_COMBAT,
     MAX_BONUSES_PER_COMBAT,
+    MAX_CURSES_PER_PLAYER,
+    MAX_UNDO_HISTORY,
     MAX_TURN_TIMER_SECONDS,
     MODIFIER_LIMIT,
     clampInt,
@@ -58,7 +63,8 @@ const {
     normalizeGender,
     normalizeName,
     sanitizeMonster,
-    sanitizeBonus
+    sanitizeBonus,
+    sanitizeCurse
 } = require('./validation');
 
 const MIN_JWT_SECRET_LENGTH = 32;
@@ -142,6 +148,9 @@ const SNAPSHOT_FIRST_EVENT_TYPES = new Set([
     'GAME_END',
     'END_TURN',
     'PLAYER_ROLL',
+    'PLAYER_DEATH',
+    'ADD_CURSE',
+    'REMOVE_CURSE',
     'COMBAT_START',
     'COMBAT_END',
     'COMBAT_ADD_MONSTER',
@@ -149,6 +158,7 @@ const SNAPSHOT_FIRST_EVENT_TYPES = new Set([
     'COMBAT_UPDATE_MONSTER',
     'COMBAT_ADD_HELPER',
     'COMBAT_REMOVE_HELPER',
+    'COMBAT_SET_HELPER_TREASURES',
     'COMBAT_SET_MODIFIER',
     'COMBAT_ADD_BONUS',
     'COMBAT_REMOVE_BONUS'
@@ -160,10 +170,11 @@ const SAVEABLE_EVENT_TYPES = new Set([
     'INC_GEAR', 'DEC_GEAR', 'SET_GEAR',
     'SET_CLASS', 'SET_RACE',
     'SET_HALF_BREED', 'SET_SUPER_MUNCHKIN',
+    'PLAYER_DEATH', 'ADD_CURSE', 'REMOVE_CURSE',
     'END_TURN', 'PLAYER_ROLL',
     'COMBAT_START', 'COMBAT_END',
     'COMBAT_ADD_MONSTER', 'COMBAT_REMOVE_MONSTER', 'COMBAT_UPDATE_MONSTER',
-    'COMBAT_ADD_HELPER', 'COMBAT_REMOVE_HELPER',
+    'COMBAT_ADD_HELPER', 'COMBAT_REMOVE_HELPER', 'COMBAT_SET_HELPER_TREASURES',
     'COMBAT_SET_MODIFIER', 'COMBAT_ADD_BONUS', 'COMBAT_REMOVE_BONUS'
 ]);
 
@@ -172,10 +183,24 @@ const IN_GAME_ONLY_EVENTS = new Set([
     'INC_GEAR', 'DEC_GEAR', 'SET_GEAR',
     'SET_CLASS', 'SET_RACE',
     'SET_HALF_BREED', 'SET_SUPER_MUNCHKIN',
+    'PLAYER_DEATH', 'ADD_CURSE', 'REMOVE_CURSE',
     'END_TURN',
     'COMBAT_START', 'COMBAT_END',
     'COMBAT_ADD_MONSTER', 'COMBAT_REMOVE_MONSTER', 'COMBAT_UPDATE_MONSTER',
-    'COMBAT_ADD_HELPER', 'COMBAT_REMOVE_HELPER',
+    'COMBAT_ADD_HELPER', 'COMBAT_REMOVE_HELPER', 'COMBAT_SET_HELPER_TREASURES',
+    'COMBAT_SET_MODIFIER', 'COMBAT_ADD_BONUS', 'COMBAT_REMOVE_BONUS'
+]);
+
+const UNDOABLE_EVENT_TYPES = new Set([
+    'INC_LEVEL', 'DEC_LEVEL', 'SET_LEVEL',
+    'INC_GEAR', 'DEC_GEAR', 'SET_GEAR',
+    'SET_CLASS', 'SET_RACE', 'SET_GENDER',
+    'SET_HALF_BREED', 'SET_SUPER_MUNCHKIN',
+    'PLAYER_DEATH', 'ADD_CURSE', 'REMOVE_CURSE',
+    'END_TURN',
+    'COMBAT_START', 'COMBAT_END',
+    'COMBAT_ADD_MONSTER', 'COMBAT_REMOVE_MONSTER', 'COMBAT_UPDATE_MONSTER',
+    'COMBAT_ADD_HELPER', 'COMBAT_REMOVE_HELPER', 'COMBAT_SET_HELPER_TREASURES',
     'COMBAT_SET_MODIFIER', 'COMBAT_ADD_BONUS', 'COMBAT_REMOVE_BONUS'
 ]);
 
@@ -230,6 +255,7 @@ function createAppServer(options = {}) {
     const games = new Map(); // gameId -> GameRoom
     const gamesByCode = new Map(); // UPPERCASE joinCode -> GameRoom
     const clientGames = new Map(); // ws -> { gameId, playerId }
+    const spectatorGames = new Map(); // ws -> gameId
     const pendingSaves = new Map(); // gameId -> timeoutHandle
 
     // Rate limiting maps (bounded with O(1) LRU eviction)
@@ -599,14 +625,18 @@ function createAppServer(options = {}) {
     const {
         getNextTurnPlayerId,
         clearRoomLifecycleTimers,
-        syncTurnTimer
+        syncTurnTimer,
+        pauseTurnTimer,
+        resumeTurnTimer
     } = createTurnManager({ games, db, logger, cancelPendingSave });
 
     const { calculateCombatResult } = createCombatManager();
 
     const {
         handleCatalogSearch,
-        handleCatalogAdd
+        handleCatalogAdd,
+        handleCatalogUpdate,
+        handleCatalogDelete
     } = createCatalogManager({ db, sendError, safeSend, logger });
 
     function scrubDeletedAccount(deletedUserId) {
@@ -711,11 +741,81 @@ function createAppServer(options = {}) {
             this.tiesGoToMonsters = true;
             this.levelTenOnlyCombat = true;
             this.allowLevelTenOverride = false;
+            this.expansionsEnabled = false;
             this.turnTimerSeconds = 0;
             this.turnEndsAt = null;
+            this.turnTimerPausedRemainingMs = null;
             this.turnTimerHandle = null;
             this.turnTimerKey = null;
             this.turnTimerNonce = 0;
+            this.turnCount = 1;
+            /** @type {Set<AppWebSocket>} */
+            this.spectators = new Set();
+            /** @type {Array<any>} */
+            this.undoStack = [];
+        }
+
+        captureUndoSnapshot() {
+            const players = {};
+            for (const [pid, p] of this.players) {
+                players[pid] = {
+                    gender: p.gender,
+                    level: p.level,
+                    gear: p.gear,
+                    tempCombatBonus: p.tempCombatBonus,
+                    treasures: p.treasures,
+                    characterClass: p.characterClass,
+                    characterRace: p.characterRace,
+                    secondaryClass: p.secondaryClass,
+                    secondaryRace: p.secondaryRace,
+                    hasHalfBreed: p.hasHalfBreed,
+                    hasSuperMunchkin: p.hasSuperMunchkin,
+                    activeCurses: Array.isArray(p.activeCurses) ? p.activeCurses.map(c => ({ ...c })) : [],
+                    reachedMaxLevelViaCombat: p.reachedMaxLevelViaCombat === true
+                };
+            }
+            return {
+                phase: this.phase,
+                winnerId: this.winnerId,
+                turnPlayerId: this.turnPlayerId,
+                combat: this.combat ? JSON.parse(JSON.stringify(this.combat)) : null,
+                players
+            };
+        }
+
+        pushUndoSnapshot(snapshot = null) {
+            const snap = snapshot || this.captureUndoSnapshot();
+            this.undoStack.push(snap);
+            while (this.undoStack.length > MAX_UNDO_HISTORY) {
+                this.undoStack.shift();
+            }
+        }
+
+        popUndoSnapshot() {
+            const snap = this.undoStack.pop();
+            if (!snap) return false;
+            this.phase = snap.phase;
+            this.winnerId = snap.winnerId;
+            this.turnPlayerId = snap.turnPlayerId;
+            this.combat = snap.combat;
+            for (const [pid, saved] of Object.entries(snap.players || {})) {
+                const live = this.players.get(pid);
+                if (!live) continue;
+                live.gender = saved.gender;
+                live.level = saved.level;
+                live.gear = saved.gear;
+                live.tempCombatBonus = saved.tempCombatBonus;
+                live.treasures = saved.treasures;
+                live.characterClass = saved.characterClass;
+                live.characterRace = saved.characterRace;
+                live.secondaryClass = saved.secondaryClass;
+                live.secondaryRace = saved.secondaryRace;
+                live.hasHalfBreed = saved.hasHalfBreed;
+                live.hasSuperMunchkin = saved.hasSuperMunchkin;
+                live.activeCurses = Array.isArray(saved.activeCurses) ? saved.activeCurses : [];
+                live.reachedMaxLevelViaCombat = saved.reachedMaxLevelViaCombat === true;
+            }
+            return true;
         }
 
         broadcast(message, excludePlayerId = null) {
@@ -726,7 +826,17 @@ function createAppServer(options = {}) {
                     sentCount++;
                 }
             }
-            logger.info(`📢 Broadcast ${message.type} to ${sentCount} players`);
+            if (this.spectators && this.spectators.size > 0) {
+                for (const specWs of Array.from(this.spectators)) {
+                    if (safeSend(specWs, data)) {
+                        sentCount++;
+                    } else if (!specWs || specWs.readyState > WebSocket.OPEN) {
+                        this.spectators.delete(specWs);
+                        spectatorGames.delete(specWs);
+                    }
+                }
+            }
+            logger.info(`📢 Broadcast ${message.type} to ${sentCount} clients`);
         }
 
         buildGameState() {
@@ -749,7 +859,8 @@ function createAppServer(options = {}) {
                     characterClass: player.characterClass || 'NONE',
                     characterRace: player.characterRace || 'HUMAN',
                     secondaryClass: player.secondaryClass || 'NONE',
-                    secondaryRace: player.secondaryRace || 'HUMAN'
+                    secondaryRace: player.secondaryRace || 'HUMAN',
+                    activeCurses: Array.isArray(player.activeCurses) ? player.activeCurses : []
                 };
             }
 
@@ -758,6 +869,43 @@ function createAppServer(options = {}) {
                     `📦 buildingGameState: Sending Combat State with ${this.combat.tempBonuses.length} bonuses ` +
                     `and mods H:${this.combat.heroModifier}/M:${this.combat.monsterModifier}`
                 );
+            }
+
+            let matchSummary = null;
+            if (this.phase === 'FINISHED') {
+                const stats = [];
+                let mvpSlayerId = null;
+                let maxKills = 0;
+                let bestHelperId = null;
+                let maxHelps = 0;
+                let mostDeathsId = null;
+                let maxDeaths = 0;
+                for (const [pid, p] of this.players) {
+                    const kills = p.monstersKilled || 0;
+                    const helps = p.combatsHelped || 0;
+                    const deaths = p.deaths || 0;
+                    if (kills > maxKills) { maxKills = kills; mvpSlayerId = pid; }
+                    if (helps > maxHelps) { maxHelps = helps; bestHelperId = pid; }
+                    if (deaths > maxDeaths) { maxDeaths = deaths; mostDeathsId = pid; }
+                    stats.push({
+                        playerId: pid,
+                        name: p.name,
+                        finalLevel: p.level || 1,
+                        monstersKilled: kills,
+                        combatsHelped: helps,
+                        biggestCombat: p.biggestCombat || 0,
+                        deaths,
+                        escapes: p.escapes || 0
+                    });
+                }
+                matchSummary = {
+                    durationMs: Math.max(0, Date.now() - (this.createdAt || Date.now())),
+                    totalTurns: this.turnCount || 1,
+                    playerStats: stats,
+                    mvpSlayerId,
+                    bestHelperId,
+                    mostDeathsId
+                };
             }
 
             return {
@@ -773,6 +921,10 @@ function createAppServer(options = {}) {
                 winnerId: this.winnerId,
                 turnPlayerId: this.turnPlayerId,
                 turnEndsAt: this.turnEndsAt,
+                turnTimerPausedRemainingMs: this.turnTimerPausedRemainingMs ?? null,
+                spectatorCount: this.spectators ? this.spectators.size : 0,
+                canUndo: Array.isArray(this.undoStack) && this.undoStack.length > 0,
+                matchSummary,
                 playerOrder: Array.isArray(this.playerOrder) && this.playerOrder.length > 0
                     ? this.playerOrder
                     : Array.from(this.players.keys()),
@@ -783,6 +935,7 @@ function createAppServer(options = {}) {
                     tiesGoToMonsters: this.tiesGoToMonsters,
                     levelTenOnlyCombat: this.levelTenOnlyCombat,
                     allowLevelTenOverride: this.allowLevelTenOverride,
+                    expansionsEnabled: this.expansionsEnabled === true,
                     turnTimerSeconds: this.turnTimerSeconds || 0
                 }
             };
@@ -817,6 +970,12 @@ function createAppServer(options = {}) {
             secondaryRace: 'HUMAN',
             hasHalfBreed: false,
             hasSuperMunchkin: false,
+            activeCurses: [],
+            monstersKilled: 0,
+            combatsHelped: 0,
+            biggestCombat: 0,
+            deaths: 0,
+            escapes: 0,
             lastRoll: null,
             reachedMaxLevelViaCombat: false,
             isConnected: true,
@@ -835,7 +994,7 @@ function createAppServer(options = {}) {
             return;
         }
 
-        const { playerMeta, superMunchkin, turnTimerSeconds } = message;
+        const { playerMeta, superMunchkin, turnTimerSeconds, expansionsEnabled } = message;
         if (!isPlainObject(playerMeta) || typeof playerMeta.name !== 'string') {
             sendError(ws, 'INVALID_DATA', 'Datos de jugador invalidos');
             return;
@@ -872,6 +1031,7 @@ function createAppServer(options = {}) {
         if (superMunchkin === true) {
             game.maxLevel = 20;
         }
+        game.expansionsEnabled = expansionsEnabled === true;
         game.turnTimerSeconds = clampInt(turnTimerSeconds, 0, MAX_TURN_TIMER_SECONDS, 0);
 
         const player = createPlayerState(ws, playerMeta, hostName);
@@ -1259,6 +1419,10 @@ function createAppServer(options = {}) {
                     sendError(ws, 'INVALID_DATA', 'Clase inválida');
                     return null;
                 }
+                if (!game.expansionsEnabled && EXPANSION_CLASSES.has(event.newClass)) {
+                    sendError(ws, 'INVALID_DATA', 'Las clases de expansión no están activadas en esta sala');
+                    return null;
+                }
                 const isSecondary = event.isSecondary === true;
                 if (isSecondary) {
                     if (!player.hasSuperMunchkin) {
@@ -1284,6 +1448,10 @@ function createAppServer(options = {}) {
                     sendError(ws, 'INVALID_DATA', 'Raza inválida');
                     return null;
                 }
+                if (!game.expansionsEnabled && EXPANSION_RACES.has(event.newRace)) {
+                    sendError(ws, 'INVALID_DATA', 'Las razas de expansión no están activadas en esta sala');
+                    return null;
+                }
                 const isSecondary = event.isSecondary === true;
                 if (isSecondary) {
                     if (!player.hasHalfBreed) {
@@ -1301,6 +1469,42 @@ function createAppServer(options = {}) {
                     targetPlayerId: playerId,
                     newRace: event.newRace,
                     isSecondary
+                });
+                break;
+            }
+            case 'PLAYER_DEATH': {
+                player.gear = 0;
+                player.deaths = (player.deaths || 0) + 1;
+                player.activeCurses = (player.activeCurses || []).filter(c => c && c.clearOnDeath === false);
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    targetPlayerId: playerId
+                });
+                break;
+            }
+            case 'ADD_CURSE': {
+                if (!Array.isArray(player.activeCurses)) player.activeCurses = [];
+                if (player.activeCurses.length >= MAX_CURSES_PER_PLAYER) {
+                    sendError(ws, 'VALIDATION_FAILED', `Máximo ${MAX_CURSES_PER_PLAYER} maldiciones activas`);
+                    return null;
+                }
+                const curse = sanitizeCurse(event.curse);
+                if (!curse) {
+                    sendError(ws, 'INVALID_DATA', 'Maldición inválida');
+                    return null;
+                }
+                player.activeCurses.push(curse);
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    targetPlayerId: playerId,
+                    curse
+                });
+                break;
+            }
+            case 'REMOVE_CURSE': {
+                const curseId = typeof event.curseId === 'string' ? event.curseId : '';
+                player.activeCurses = (player.activeCurses || []).filter(c => c && c.id !== curseId);
+                sanitizedEvent = baseSanitizedEvent(event, playerId, {
+                    targetPlayerId: playerId,
+                    curseId
                 });
                 break;
             }
@@ -1393,6 +1597,7 @@ function createAppServer(options = {}) {
                 game.combat = {
                     mainPlayerId,
                     helperPlayerId: null,
+                    helperTreasureShare: null,
                     monsters,
                     tempBonuses: [],
                     heroModifier: 0,
@@ -1450,6 +1655,7 @@ function createAppServer(options = {}) {
                     return null;
                 }
                 game.combat.helperPlayerId = event.helperId;
+                game.combat.helperTreasureShare = null;
                 sanitizedEvent = baseSanitizedEvent(event, playerId, { helperId: event.helperId });
                 break;
             }
@@ -1457,7 +1663,22 @@ function createAppServer(options = {}) {
                 if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return null; }
                 if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return null; }
                 game.combat.helperPlayerId = null;
+                game.combat.helperTreasureShare = null;
                 sanitizedEvent = baseSanitizedEvent(event, playerId);
+                break;
+            }
+            case 'COMBAT_SET_HELPER_TREASURES': {
+                if (!game.combat) { sendError(ws, 'NO_ACTIVE_COMBAT', 'No hay combate activo'); return null; }
+                if (!canTouchCombat(game, playerId)) { sendError(ws, 'FORBIDDEN', 'No autorizado'); return null; }
+                if (!game.combat.helperPlayerId) {
+                    sendError(ws, 'INVALID_HELPER', 'No hay ayudante en el combate');
+                    return null;
+                }
+                const treasures = event.treasures === null || event.treasures === undefined
+                    ? null
+                    : clampInt(event.treasures, 0, 10, 0);
+                game.combat.helperTreasureShare = treasures;
+                sanitizedEvent = baseSanitizedEvent(event, playerId, { treasures });
                 break;
             }
             case 'COMBAT_SET_MODIFIER': {
@@ -1536,7 +1757,16 @@ function createAppServer(options = {}) {
                             }
                         }
                     }
+                    const mainP = game.players.get(game.combat.mainPlayerId);
+                    const helperP = game.combat.helperPlayerId ? game.players.get(game.combat.helperPlayerId) : null;
+                    const wasRealEscape = monsters.length > 0 && event.cancelled !== true;
                     game.combat = null;
+                    if (wasRealEscape) {
+                        if (mainP) mainP.escapes = (mainP.escapes || 0) + 1;
+                        if (helperP) helperP.escapes = (helperP.escapes || 0) + 1;
+                        consumeCombatCurses(mainP);
+                        consumeCombatCurses(helperP);
+                    }
                     sanitizedEvent = baseSanitizedEvent(event, playerId, {
                         outcome: 'ESCAPE',
                         cancelled: event.cancelled === true,
@@ -1592,17 +1822,26 @@ function createAppServer(options = {}) {
                     const prevMainLevel = mainPlayer.level;
                     mainPlayer.level = Math.min(game.maxLevel, mainPlayer.level + finalLevels);
                     mainPlayer.treasures = (mainPlayer.treasures || 0) + finalTreasures;
+                    mainPlayer.monstersKilled = (mainPlayer.monstersKilled || 0) + monsters.length;
+                    mainPlayer.biggestCombat = Math.max(mainPlayer.biggestCombat || 0, serverResult.monstersPower || 0);
                     markMaxLevelIfReached(game, mainPlayer, prevMainLevel, finalLevels);
 
-                    if (finalHelperLevels > 0 && helperPlayerId) {
+                    if (helperPlayerId) {
                         const helperPlayer = game.players.get(helperPlayerId);
                         if (helperPlayer) {
-                            const prevHelperLevel = helperPlayer.level;
-                            helperPlayer.level = Math.min(game.maxLevel, helperPlayer.level + finalHelperLevels);
-                            markMaxLevelIfReached(game, helperPlayer, prevHelperLevel, finalHelperLevels);
+                            helperPlayer.combatsHelped = (helperPlayer.combatsHelped || 0) + 1;
+                            if (finalHelperLevels > 0) {
+                                const prevHelperLevel = helperPlayer.level;
+                                helperPlayer.level = Math.min(game.maxLevel, helperPlayer.level + finalHelperLevels);
+                                markMaxLevelIfReached(game, helperPlayer, prevHelperLevel, finalHelperLevels);
+                            }
                         }
                     }
                 }
+
+                const helperPlayerForCurses = helperPlayerId ? game.players.get(helperPlayerId) : null;
+                consumeCombatCurses(mainPlayer);
+                consumeCombatCurses(helperPlayerForCurses);
 
                 game.combat = null;
                 sanitizedEvent = baseSanitizedEvent(event, playerId, {
@@ -1668,6 +1907,8 @@ function createAppServer(options = {}) {
                 }
                 const nextPlayerId = getNextTurnPlayerId(game);
                 game.turnPlayerId = nextPlayerId;
+                game.turnCount = (game.turnCount || 1) + 1;
+                game.turnTimerPausedRemainingMs = null;
                 game.combat = null;
                 logger.info(`cw Turn passed to ${game.players.get(nextPlayerId)?.name}`);
                 sanitizedEvent = baseSanitizedEvent(event, playerId);
@@ -1691,7 +1932,12 @@ function createAppServer(options = {}) {
 
     function handleEvent(ws, message) {
         const clientData = clientGames.get(ws);
-        if (!clientData) return;
+        if (!clientData) {
+            if (spectatorGames.has(ws)) {
+                sendError(ws, 'FORBIDDEN', 'Los espectadores no pueden modificar la partida');
+            }
+            return;
+        }
 
         const game = games.get(clientData.gameId);
         if (!game) return;
@@ -1720,9 +1966,17 @@ function createAppServer(options = {}) {
             return;
         }
 
+        const undoSnapshot = (game.phase === 'IN_GAME' && UNDOABLE_EVENT_TYPES.has(event.type))
+            ? game.captureUndoSnapshot()
+            : null;
+
         const result = applyEvent(game, event, playerId, ws);
         if (!result) return;
         if ('handledAsGameOver' in result) return;
+
+        if (undoSnapshot) {
+            game.pushUndoSnapshot(undoSnapshot);
+        }
 
         game.seq++;
         const timerStateChanged = syncTurnTimer(game, `event ${result.type}`);
@@ -1752,6 +2006,125 @@ function createAppServer(options = {}) {
         }
     }
 
+    function handleUndoLast(ws) {
+        const clientData = clientGames.get(ws);
+        if (!clientData) {
+            sendError(ws, 'GENERAL_ERROR', 'No estás en ninguna partida');
+            return;
+        }
+        const game = games.get(clientData.gameId);
+        if (!game || game.ended || game.phase !== 'IN_GAME') {
+            sendError(ws, 'INVALID_DATA', 'La partida no está en curso');
+            return;
+        }
+        const playerId = clientData.playerId;
+        const seatedPlayer = game.players.get(playerId);
+        if (!seatedPlayer || seatedPlayer.ws !== ws) return;
+
+        if (game.hostId !== playerId && game.turnPlayerId !== playerId) {
+            sendError(ws, 'FORBIDDEN', 'Solo el anfitrión o el jugador en turno pueden deshacer');
+            return;
+        }
+
+        if (!game.popUndoSnapshot()) {
+            sendError(ws, 'INVALID_DATA', 'No hay acciones para deshacer');
+            return;
+        }
+
+        game.turnTimerPausedRemainingMs = null;
+        game.seq++;
+        syncTurnTimer(game, 'undo last');
+        logger.info(`↩️ Undo applied in ${game.joinCode} by ${seatedPlayer.name}`);
+        game.broadcast({
+            type: 'STATE_SNAPSHOT',
+            gameState: game.buildGameState(),
+            seq: game.seq
+        });
+        debouncedSaveGame(game);
+    }
+
+    function detachSpectator(ws) {
+        const gameId = spectatorGames.get(ws);
+        if (!gameId) return;
+        spectatorGames.delete(ws);
+        const game = games.get(gameId);
+        if (game && game.spectators) {
+            game.spectators.delete(ws);
+        }
+    }
+
+    function handleWatchGame(ws, message) {
+        const clientIp = ws.clientIp || 'unknown';
+        if (isJoinRateLimited(clientIp)) {
+            sendError(ws, 'RATE_LIMITED', 'Demasiados intentos. Espera un momento.');
+            return;
+        }
+        const { joinCode } = message;
+        if (!joinCode || typeof joinCode !== 'string') {
+            recordJoinAttempt(clientIp, false);
+            sendError(ws, 'INVALID_JOIN_CODE', 'Código de partida inválido');
+            return;
+        }
+        const game = findGameByCode(joinCode);
+        if (!game) {
+            recordJoinAttempt(clientIp, false);
+            sendError(ws, 'INVALID_JOIN_CODE', 'Código de partida inválido');
+            return;
+        }
+        if (game.ended || game.phase === 'FINISHED') {
+            sendError(ws, 'GAME_FINISHED', 'La partida ya ha terminado');
+            return;
+        }
+        if (clientGames.has(ws)) {
+            handleDisconnect(ws);
+        }
+        detachSpectator(ws);
+
+        recordJoinAttempt(clientIp, true);
+        game.spectators.add(ws);
+        spectatorGames.set(ws, game.id);
+        logger.info(`📺 Spectator joined ${game.joinCode} (${game.spectators.size} watching)`);
+        safeSend(ws, {
+            type: 'WELCOME',
+            gameState: game.buildGameState(),
+            yourPlayerId: 'SPECTATOR',
+            reconnectToken: null,
+            isSpectator: true
+        });
+    }
+
+    function handleTimerPauseToggle(ws, shouldPause) {
+        const clientData = clientGames.get(ws);
+        if (!clientData) {
+            sendError(ws, 'GENERAL_ERROR', 'No estás en ninguna partida');
+            return;
+        }
+        const game = games.get(clientData.gameId);
+        if (!game || game.ended || game.phase !== 'IN_GAME') {
+            sendError(ws, 'INVALID_DATA', 'La partida no está en curso');
+            return;
+        }
+        const playerId = clientData.playerId;
+        const seatedPlayer = game.players.get(playerId);
+        if (!seatedPlayer || seatedPlayer.ws !== ws) return;
+
+        if (game.hostId !== playerId && game.turnPlayerId !== playerId) {
+            sendError(ws, 'FORBIDDEN', 'Solo el anfitrión o el jugador en turno pueden pausar el reloj');
+            return;
+        }
+
+        const changed = shouldPause ? pauseTurnTimer(game) : resumeTurnTimer(game);
+        if (!changed) return;
+
+        game.seq++;
+        game.broadcast({
+            type: 'STATE_SNAPSHOT',
+            gameState: game.buildGameState(),
+            seq: game.seq
+        });
+        debouncedSaveGame(game);
+    }
+
     function dispatchMessage(ws, message) {
         if (message.type === 'PING' || message.type === 'PingMessage') {
             logger.debug(`[${ws.connectionId}] 📨 Received: ${message.type}`);
@@ -1771,6 +2144,15 @@ function createAppServer(options = {}) {
             case 'HELLO':
             case 'HelloMessage':
                 handleHello(ws, message);
+                return null;
+            case 'WATCH_GAME':
+                handleWatchGame(ws, message);
+                return null;
+            case 'PAUSE_TURN_TIMER':
+                handleTimerPauseToggle(ws, true);
+                return null;
+            case 'RESUME_TURN_TIMER':
+                handleTimerPauseToggle(ws, false);
                 return null;
             case 'CREATE_GAME':
             case 'CreateGameMessage':
@@ -1800,6 +2182,12 @@ function createAppServer(options = {}) {
             case 'CATALOG_ADD':
                 handleCatalogAdd(ws, message);
                 return null;
+            case 'CATALOG_UPDATE':
+                handleCatalogUpdate(ws, message);
+                return null;
+            case 'CATALOG_DELETE':
+                handleCatalogDelete(ws, message);
+                return null;
             case 'GAME_OVER':
                 handleGameOver(ws, message);
                 return null;
@@ -1815,6 +2203,9 @@ function createAppServer(options = {}) {
                 return handleDeleteAccount(ws, message);
             case 'END_TURN':
                 handleEndTurn(ws);
+                return null;
+            case 'UNDO_LAST':
+                handleUndoLast(ws);
                 return null;
             case 'KICK_PLAYER':
                 handleKickPlayer(ws, message);
@@ -1937,6 +2328,7 @@ function createAppServer(options = {}) {
             if (stopping) return;
             try {
                 logger.info(`[${ws.connectionId}] 🔌 Client disconnected`);
+                detachSpectator(ws);
                 handleDisconnect(ws);
             } catch (e) {
                 logger.error(`[${ws.connectionId}] Error in handleDisconnect:`, e);
@@ -2017,8 +2409,10 @@ function createAppServer(options = {}) {
                 game.lastActivity = saved.lastActivityAt || saved.createdAt || Date.now();
                 game.seq = saved.seq;
                 game.maxLevel = saved.maxLevel || 10;
+                game.expansionsEnabled = saved.expansionsEnabled === true;
                 game.turnTimerSeconds = clampInt(saved.turnTimerSeconds, 0, MAX_TURN_TIMER_SECONDS, 0);
                 game.turnEndsAt = saved.turnEndsAt || null;
+                game.turnTimerPausedRemainingMs = saved.turnTimerPausedRemainingMs ?? null;
                 game.winnerId = saved.winnerId || null;
                 game.originalHostId = saved.originalHostId || saved.hostId;
                 game.hostUserId = saved.hostUserId || null;
@@ -2045,6 +2439,9 @@ function createAppServer(options = {}) {
                         secondaryRace: playerData.secondaryRace || 'HUMAN',
                         hasHalfBreed: playerData.hasHalfBreed || false,
                         hasSuperMunchkin: playerData.hasSuperMunchkin || false,
+                        activeCurses: Array.isArray(playerData.activeCurses)
+                            ? playerData.activeCurses.map(sanitizeCurse).filter(Boolean)
+                            : [],
                         lastRoll: playerData.lastRoll ?? null,
                         reachedMaxLevelViaCombat: playerData.reachedMaxLevelViaCombat === true,
                         isConnected: false,

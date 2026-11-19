@@ -371,4 +371,158 @@ describe('catalogManager, historyManager, and db.js FTS5/pagination/cache tests 
             rank: 1
         });
     });
+
+    test('CATALOG_SEARCH filters (isUndead, minLevel, maxLevel), author-only CATALOG_UPDATE/DELETE, and seed protection (Phase 3)', async () => {
+        const wsAlice = { readyState: 1, userId: userAlice.id };
+        const wsBob = { readyState: 1, userId: userBob.id };
+        const wsAnon = { readyState: 1, userId: null };
+
+        // Filter search by isUndead + level band
+        const undeadSearch = await managers.invoke(managers.catalog.handleCatalogSearch, wsAlice, {
+            query: '__ALL__',
+            expansion: 'exp-alpha-qa',
+            isUndead: true,
+            minLevel: 2,
+            maxLevel: 6
+        });
+        assert.strictEqual(undeadSearch.kind, 'json');
+        assert.ok(undeadSearch.payload.results.length >= 2);
+        for (const m of undeadSearch.payload.results) {
+            assert.strictEqual(m.isUndead, true);
+            assert.ok(m.level >= 2 && m.level <= 6);
+            assert.strictEqual(m.canEdit, true, 'creator must receive canEdit: true');
+            assert.strictEqual('createdBy' in m, false, 'createdBy must never leak');
+        }
+
+        // Bob sees canEdit: false on Alice's monsters
+        const bobView = await managers.invoke(managers.catalog.handleCatalogSearch, wsBob, {
+            query: '__ALL__',
+            expansion: 'exp-alpha-qa'
+        });
+        assert.strictEqual(bobView.kind, 'json');
+        assert.ok(bobView.payload.results.every(m => m.canEdit === false));
+
+        // Add a custom monster as Alice and verify author-only edit & delete
+        const added = await managers.invoke(managers.catalog.handleCatalogAdd, wsAlice, {
+            monster: {
+                name: 'AuthorSlime',
+                level: 5,
+                treasures: 2,
+                levels: 1,
+                isUndead: false,
+                badStuff: 'Pierdes 1 nivel',
+                expansion: 'custom'
+            }
+        });
+        assert.strictEqual(added.kind, 'json');
+        const createdId = added.payload.monster.id;
+        assert.strictEqual(added.payload.monster.canEdit, true);
+
+        // Unauthenticated update rejected
+        const unauthEdit = await managers.invoke(managers.catalog.handleCatalogUpdate, wsAnon, {
+            monsterId: createdId,
+            monster: { name: 'Hacked', level: 5 }
+        });
+        assert.strictEqual(unauthEdit.code, 'UNAUTHORIZED');
+
+        // Bob cannot edit or delete Alice's monster
+        const bobEdit = await managers.invoke(managers.catalog.handleCatalogUpdate, wsBob, {
+            monsterId: createdId,
+            monster: { name: 'BobSlime', level: 6 }
+        });
+        assert.strictEqual(bobEdit.code, 'FORBIDDEN');
+
+        const bobDel = await managers.invoke(managers.catalog.handleCatalogDelete, wsBob, {
+            monsterId: createdId
+        });
+        assert.strictEqual(bobDel.code, 'FORBIDDEN');
+
+        // Seed monsters (created_by IS NULL) cannot be edited or deleted by anyone
+        const seedEdit = await managers.invoke(managers.catalog.handleCatalogUpdate, wsAlice, {
+            monsterId: 'm1-01',
+            monster: { name: 'Edited Seed', level: 1 }
+        });
+        assert.strictEqual(seedEdit.code, 'FORBIDDEN');
+        const seedDel = await managers.invoke(managers.catalog.handleCatalogDelete, wsAlice, {
+            monsterId: 'm1-01'
+        });
+        assert.strictEqual(seedDel.code, 'FORBIDDEN');
+
+        // Alice can update her own monster
+        const aliceEdit = await managers.invoke(managers.catalog.handleCatalogUpdate, wsAlice, {
+            monsterId: createdId,
+            monster: {
+                name: 'AuthorSlimeMk2',
+                level: 8,
+                treasures: 3,
+                levels: 1,
+                isUndead: true,
+                badStuff: '+4 vs Elfo',
+                expansion: 'custom'
+            }
+        });
+        assert.strictEqual(aliceEdit.kind, 'json');
+        assert.strictEqual(aliceEdit.payload.type, 'CATALOG_UPDATE_SUCCESS');
+        assert.strictEqual(aliceEdit.payload.monster.name, 'AuthorSlimeMk2');
+        assert.strictEqual(aliceEdit.payload.monster.level, 8);
+        assert.strictEqual(aliceEdit.payload.monster.isUndead, true);
+        assert.strictEqual(aliceEdit.payload.monster.canEdit, true);
+        assert.ok(aliceEdit.payload.monster.conditionalModifiers.length >= 1, 'conditional modifiers auto-extracted');
+
+        // Alice can delete her own monster
+        const aliceDel = await managers.invoke(managers.catalog.handleCatalogDelete, wsAlice, {
+            monsterId: createdId
+        });
+        assert.strictEqual(aliceDel.kind, 'json');
+        assert.strictEqual(aliceDel.payload.type, 'CATALOG_DELETE_SUCCESS');
+        assert.strictEqual(aliceDel.payload.monsterId, createdId);
+    });
+
+    test('recordGame persists rich per-player stats surfaced in HISTORY_RESULT and LEADERBOARD_RESULT (Phase 3)', async () => {
+        const t = 1_700_000_200_000;
+        await db.recordGame(
+            'hist-stats-1',
+            userAlice.id,
+            t,
+            t + 900_000,
+            [
+                { userId: userAlice.id, playerId: 'p1', joinedAt: t },
+                { userId: userBob.id, playerId: 'p2', joinedAt: t }
+            ],
+            'STATS1',
+            'p1',
+            [
+                { playerId: 'p1', userId: userAlice.id, playerName: 'CatAlice', finalLevel: 10, monstersKilled: 4, combatsHelped: 1, biggestCombat: 27, deaths: 0, escapes: 1 },
+                { playerId: 'p2', userId: userBob.id, playerName: 'CatBob', finalLevel: 7, monstersKilled: 2, combatsHelped: 0, biggestCombat: 16, deaths: 2, escapes: 0 }
+            ]
+        );
+
+        const aliceHist = await managers.invoke(
+            managers.history.handleGetHistory,
+            { readyState: 1, userId: userAlice.id },
+            { userId: userAlice.id }
+        );
+        assert.strictEqual(aliceHist.kind, 'json');
+        const match = aliceHist.payload.games.find(g => g.id === 'hist-stats-1');
+        assert.ok(match);
+        assert.strictEqual(match.durationMs, 900_000);
+        assert.strictEqual(match.finalLevel, 10);
+        assert.strictEqual(match.monstersKilled, 4);
+        assert.strictEqual(match.biggestCombat, 27);
+        assert.strictEqual(match.deaths, 0);
+        assert.strictEqual(match.escapes, 1);
+
+        const board = await managers.invoke(
+            managers.history.handleGetLeaderboard,
+            { readyState: 1, userId: userAlice.id },
+            { type: 'GET_LEADERBOARD' }
+        );
+        assert.strictEqual(board.kind, 'json');
+        const aliceRow = board.payload.leaderboard.find(r => r.id === userAlice.id);
+        const bobRow = board.payload.leaderboard.find(r => r.id === userBob.id);
+        assert.ok(aliceRow && bobRow);
+        assert.ok(aliceRow.totalMonstersKilled >= 4);
+        assert.ok(bobRow.totalDeaths >= 2);
+        assert.strictEqual(aliceRow.currentStreak, 1, 'Alice won the most recent game');
+    });
 });

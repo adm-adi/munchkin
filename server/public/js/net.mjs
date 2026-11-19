@@ -118,10 +118,10 @@ export class GameSocket {
     /**
      * Creates a game and stays connected as its host.
      */
-    async create({ meta, superMunchkin = false, turnTimerSeconds = 0, authToken = null }) {
+    async create({ meta, superMunchkin = false, turnTimerSeconds = 0, expansionsEnabled = false, authToken = null }) {
         this._last = { joinCode: null, meta, authToken };
         const welcome = await this._openSession(
-            messages.createGame(meta, { superMunchkin, turnTimerSeconds }),
+            messages.createGame(meta, { superMunchkin, turnTimerSeconds, expansionsEnabled }),
             authToken
         );
         // Reconnects go through HELLO with the room's join code.
@@ -136,13 +136,26 @@ export class GameSocket {
      */
     async join({ joinCode, meta, reconnectToken = null, authToken = null }) {
         this.reconnectToken = reconnectToken || this.reconnectToken;
-        this._last = { joinCode, meta, authToken };
+        this._last = { joinCode, meta, authToken, isSpectator: false };
         const welcome = await this._openSession(
             messages.hello(joinCode, meta, this.reconnectToken),
             authToken
         );
         this._last.meta = { ...meta, playerId: this.myPlayerId };
         return welcome;
+    }
+
+    /**
+     * Watches a game in read-only spectator/TV mode without taking a seat.
+     */
+    get isSpectator() {
+        return Boolean(this._last?.isSpectator);
+    }
+
+    async watch({ joinCode }) {
+        this.reconnectToken = null;
+        this._last = { joinCode, meta: null, authToken: null, isSpectator: true };
+        return this._openSession(messages.watchGame(joinCode), null);
     }
 
     async _openSession(request, authToken) {
@@ -380,10 +393,10 @@ export class GameSocket {
             if (this._shuttingDown) return;
 
             try {
-                await this._openSession(
-                    messages.hello(this._last.joinCode, this._last.meta, this.reconnectToken),
-                    this._last.authToken
-                );
+                const req = this._last.isSpectator
+                    ? messages.watchGame(this._last.joinCode)
+                    : messages.hello(this._last.joinCode, this._last.meta, this.reconnectToken);
+                await this._openSession(req, this._last.isSpectator ? null : this._last.authToken);
                 return;
             } catch (err) {
                 if (err instanceof ServerError && TERMINAL_ERRORS.has(err.code)) {

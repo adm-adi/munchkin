@@ -121,6 +121,9 @@ internal interface SessionConnection {
     suspend fun kickPlayer(targetPlayerId: PlayerId): Result<Unit>
     suspend fun sendTransferHost(targetPlayerId: PlayerId): Result<Unit>
     suspend fun sendDeleteGame(): Result<Unit>
+    suspend fun sendUndoLast(): Result<Unit>
+    suspend fun sendPauseTurnTimer(): Result<Unit>
+    suspend fun sendResumeTurnTimer(): Result<Unit>
     suspend fun sendSwapPlayers(player1: PlayerId, player2: PlayerId): Result<Unit>
     suspend fun sendGameOver(gameId: String, winnerId: String?): Result<Unit>
     suspend fun addMonsterToCatalog(serverUrl: String, monster: CatalogMonster, authToken: String): Result<CatalogMonster>
@@ -147,6 +150,9 @@ internal class GameClientSessionConnection(
     override suspend fun sendTransferHost(targetPlayerId: PlayerId): Result<Unit> =
         client.sendTransferHost(targetPlayerId)
     override suspend fun sendDeleteGame(): Result<Unit> = client.sendDeleteGame()
+    override suspend fun sendUndoLast(): Result<Unit> = client.sendUndoLast()
+    override suspend fun sendPauseTurnTimer(): Result<Unit> = client.sendPauseTurnTimer()
+    override suspend fun sendResumeTurnTimer(): Result<Unit> = client.sendResumeTurnTimer()
     override suspend fun sendSwapPlayers(player1: PlayerId, player2: PlayerId): Result<Unit> =
         client.sendSwapPlayers(player1, player2)
     override suspend fun sendGameOver(gameId: String, winnerId: String?): Result<Unit> =
@@ -169,7 +175,8 @@ internal interface RemoteGateway {
         playerMeta: PlayerMeta,
         superMunchkin: Boolean,
         turnTimerSeconds: Int,
-        authToken: String?
+        authToken: String?,
+        expansionsEnabled: Boolean = false
     ): Result<Pair<SessionConnection, GameState>>
 
     suspend fun connectSessionConnection(
@@ -178,6 +185,11 @@ internal interface RemoteGateway {
         playerMeta: PlayerMeta,
         reconnectToken: String?,
         authToken: String?
+    ): Result<Pair<SessionConnection, GameState>>
+
+    suspend fun watchSessionConnection(
+        wsUrl: String,
+        joinCode: String
     ): Result<Pair<SessionConnection, GameState>>
 
     suspend fun login(serverUrl: String, email: String, password: String): Result<AuthSuccessMessage>
@@ -213,7 +225,11 @@ internal interface RemoteGateway {
         query: String,
         expansion: String?,
         limit: Int,
-        offset: Int
+        offset: Int,
+        isUndead: Boolean? = null,
+        minLevel: Int? = null,
+        maxLevel: Int? = null,
+        authToken: String? = null
     ): Result<List<CatalogMonster>>
 
     suspend fun addMonsterToCatalog(
@@ -221,6 +237,19 @@ internal interface RemoteGateway {
         monster: CatalogMonster,
         authToken: String
     ): Result<CatalogMonster>
+
+    suspend fun updateMonsterInCatalog(
+        serverUrl: String,
+        monsterId: String,
+        monster: CatalogMonster,
+        authToken: String
+    ): Result<CatalogMonster>
+
+    suspend fun deleteMonsterFromCatalog(
+        serverUrl: String,
+        monsterId: String,
+        authToken: String
+    ): Result<String>
 }
 
 internal class GameClientRemoteGateway(
@@ -232,7 +261,8 @@ internal class GameClientRemoteGateway(
         playerMeta: PlayerMeta,
         superMunchkin: Boolean,
         turnTimerSeconds: Int,
-        authToken: String?
+        authToken: String?,
+        expansionsEnabled: Boolean
     ): Result<Pair<SessionConnection, GameState>> {
         val client = clientFactory()
         return try {
@@ -241,7 +271,8 @@ internal class GameClientRemoteGateway(
                 playerMeta = playerMeta,
                 superMunchkin = superMunchkin,
                 turnTimerSeconds = turnTimerSeconds,
-                authToken = authToken
+                authToken = authToken,
+                expansionsEnabled = expansionsEnabled
             )
             result.fold(
                 onSuccess = { state -> Result.success(GameClientSessionConnection(client) to state) },
@@ -275,6 +306,29 @@ internal class GameClientRemoteGateway(
                 reconnectToken = reconnectToken,
                 authToken = authToken
             )
+            result.fold(
+                onSuccess = { state -> Result.success(GameClientSessionConnection(client) to state) },
+                onFailure = { error ->
+                    runCatching { client.close() }
+                    Result.failure(error)
+                }
+            )
+        } catch (e: CancellationException) {
+            runCatching { client.close() }
+            throw e
+        } catch (e: Exception) {
+            runCatching { client.close() }
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun watchSessionConnection(
+        wsUrl: String,
+        joinCode: String
+    ): Result<Pair<SessionConnection, GameState>> {
+        val client = clientFactory()
+        return try {
+            val result = client.watchGame(wsUrl = wsUrl, joinCode = joinCode)
             result.fold(
                 onSuccess = { state -> Result.success(GameClientSessionConnection(client) to state) },
                 onFailure = { error ->
@@ -344,9 +398,13 @@ internal class GameClientRemoteGateway(
         query: String,
         expansion: String?,
         limit: Int,
-        offset: Int
+        offset: Int,
+        isUndead: Boolean?,
+        minLevel: Int?,
+        maxLevel: Int?,
+        authToken: String?
     ): Result<List<CatalogMonster>> = withOneOffClient {
-        it.searchMonsters(serverUrl, query, expansion, limit, offset)
+        it.searchMonsters(serverUrl, query, expansion, limit, offset, isUndead, minLevel, maxLevel, authToken)
     }
 
     override suspend fun addMonsterToCatalog(
@@ -355,6 +413,23 @@ internal class GameClientRemoteGateway(
         authToken: String
     ): Result<CatalogMonster> = withOneOffClient {
         it.addMonsterToCatalog(serverUrl, monster, authToken)
+    }
+
+    override suspend fun updateMonsterInCatalog(
+        serverUrl: String,
+        monsterId: String,
+        monster: CatalogMonster,
+        authToken: String
+    ): Result<CatalogMonster> = withOneOffClient {
+        it.updateMonsterInCatalog(serverUrl, monsterId, monster, authToken)
+    }
+
+    override suspend fun deleteMonsterFromCatalog(
+        serverUrl: String,
+        monsterId: String,
+        authToken: String
+    ): Result<String> = withOneOffClient {
+        it.deleteMonsterFromCatalog(serverUrl, monsterId, authToken)
     }
 
     private suspend inline fun <T> withOneOffClient(

@@ -8,9 +8,19 @@
  */
 
 import {
-    CLASSES, RACES, GENDERS, PHASES, OUTCOMES, BONUS_TARGETS, LIMITS,
+    CLASSES, BASE_CLASSES, RACES, BASE_RACES, GENDERS, PHASES, OUTCOMES, BONUS_TARGETS, LIMITS,
     uuid, messages, events, playerMeta, monsterInstance, tempBonus
 } from './protocol.mjs';
+import {
+    combatPresetsBar, helperTreasureDealBar, activeCursesSection
+} from './views/combatHelpers.mjs';
+import { renderTvView } from './views/tvView.mjs';
+import { renderOfflineView } from './views/offlineMode.mjs';
+import { openQrScannerModal } from './views/qrScanner.mjs';
+import {
+    isSoundEnabled, setSoundEnabled, isHapticsEnabled, setHapticsEnabled,
+    playDiceRoll, playVictory, playDefeat, playTimerWarning, playUndo, playTap
+} from './sound.mjs';
 import {
     playerList, canStart, tiedPlayerIds, allPlayersRolled,
     combatPower, canBeConfirmedWinner, activeClasses, activeRaces
@@ -23,12 +33,12 @@ import {
 } from './net.mjs';
 import { session } from './session.mjs';
 import {
-    SUPPORTED_LANGS, LANG_LABELS, EXPANSIONS, AVATARS, avatarEmoji,
+    SUPPORTED_LANGS, LANG_NATIVE_NAMES, EXPANSIONS, AVATARS, avatarEmoji,
     getLang, setLang, t, classLabel, raceLabel, genderLabel,
-    avatarName, expansionLabel, abilitiesFor, errorText
+    avatarName, expansionLabel, abilitiesFor, errorText, localizeMonsterName
 } from './i18n.mjs';
 import {
-    h, createQrSvg, createDice3D, patchScreen, fmtSigned, toast,
+    h, svgEl, createQrSvg, createDice3D, patchScreen, fmtSigned, toast,
     openModal, closeAllModals, confirmDialog, hasOpenModals
 } from './ui.mjs';
 
@@ -90,6 +100,8 @@ const app = {
     routeGen: 0,
     routeAbort: new AbortController(),
     lastRenderedRouteKey: null,
+    settingsBackHash: '#/home',
+    catalogBackHash: '#/home',
     drafts: {
         authTab: 'login',
         authEmail: '',
@@ -101,8 +113,10 @@ const app = {
         identityAvatar: initialId.avatarId,
         identityGender: initialId.gender,
         epicMode: false,
+        expansionsEnabled: false,
         turnTimerSeconds: 0,
         joinCode: '',
+        tvCode: '',
         prefillCodeApplied: null
     },
     lobbies: {
@@ -128,6 +142,8 @@ const app = {
     catalog: {
         query: '',
         expansion: '',
+        undeadOnly: false,
+        levelBand: '',
         items: [],
         limit: 20,
         offset: 0,
@@ -172,6 +188,15 @@ function nav(hash) {
     } else {
         location.hash = hash;
     }
+}
+
+function openSettings(currentRouteName) {
+    if (currentRouteName === 'settings') return;
+    const currentHash = location.hash && location.hash.startsWith('#/') ? location.hash : '#/home';
+    if (currentRouteName !== 'catalog') {
+        app.settingsBackHash = currentHash;
+    }
+    nav('#/settings');
 }
 
 /* ==========================================================================
@@ -570,7 +595,14 @@ function sendEvent(builder) {
         return false;
     }
     try {
-        app.socket.sendEvent(builder(app.myPlayerId));
+        const ev = builder(app.myPlayerId);
+        app.socket.sendEvent(ev);
+        if (ev?.type === 'PLAYER_ROLL') playDiceRoll();
+        else if (ev?.type === 'COMBAT_END' && !ev.cancelled) {
+            if (ev.outcome === 'WIN') playVictory();
+            else if (ev.outcome === 'LOSE') playDefeat();
+        } else if (ev?.type === 'PLAYER_DEATH') playDefeat();
+        else if (ev?.type === 'GAME_END') playVictory();
         return true;
     } catch (err) {
         toast(errorText(err), 'err');
@@ -581,6 +613,7 @@ function sendEvent(builder) {
 function sendMessage(msg) {
     try {
         app.socket?.sendMessage(msg);
+        if (msg?.type === 'UNDO_LAST') playUndo();
         return true;
     } catch (err) {
         toast(errorText(err), 'err');
@@ -609,7 +642,7 @@ function currentIdentity() {
     };
 }
 
-async function startGameAsHost({ name, avatarId, gender, epicMode, turnTimerSeconds }) {
+async function startGameAsHost({ name, avatarId, gender, epicMode, expansionsEnabled = false, turnTimerSeconds }) {
     if (app.busy) return;
     app.busy = true;
     render();
@@ -621,10 +654,31 @@ async function startGameAsHost({ name, avatarId, gender, epicMode, turnTimerSeco
         await socket.create({
             meta,
             superMunchkin: epicMode,
+            expansionsEnabled,
             turnTimerSeconds,
             authToken: session.authToken
         });
         nav('#/game');
+    } catch (err) {
+        cleanupGame();
+        toast(errorText(err), 'err');
+    } finally {
+        app.busy = false;
+        render();
+    }
+}
+
+async function watchGameAsSpectator(joinCode) {
+    const cleanCode = String(joinCode || '').trim().toUpperCase().slice(0, LIMITS.JOIN_CODE_LENGTH);
+    if (!cleanCode || app.busy) return;
+    app.busy = true;
+    render();
+    try {
+        const socket = new GameSocket({ url: WS_URL });
+        attachSocket(socket);
+        await socket.watch({ joinCode: cleanCode });
+        app.drafts.tvCode = cleanCode;
+        nav(`#/tv/${encodeURIComponent(cleanCode)}`);
     } catch (err) {
         cleanupGame();
         toast(errorText(err), 'err');
@@ -793,9 +847,9 @@ function maybePromptWinner() {
 
 function langSwitcher() {
     const active = getLang();
-    return h('div', { class: 'lang-switch', role: 'group', 'aria-label': t('lang.label') },
+    return h('div', { class: 'segment-group', role: 'group', 'aria-label': t('lang.label') },
         SUPPORTED_LANGS.map(code => h('button', {
-            class: 'lang-btn',
+            class: 'segment',
             dataset: { key: `lang-${code}` },
             'aria-pressed': active === code ? 'true' : 'false',
             onclick: () => {
@@ -810,7 +864,7 @@ function langSwitcher() {
                 if (app.badStuffModal) app.badStuffModal.setBody(badStuffNodes(app.badStuffMonsters));
                 render();
             }
-        }, LANG_LABELS[code]))
+        }, LANG_NATIVE_NAMES[code]))
     );
 }
 
@@ -825,6 +879,25 @@ function connectionPill() {
     return h('span', { class: 'conn-pill', dataset: { key: 'conn-pill' } },
         h('span', { class: `conn-dot ${dotClass}`, 'aria-hidden': 'true' }),
         h('span', {}, label)
+    );
+}
+
+function settingsGearIcon() {
+    return svgEl('svg', {
+        viewBox: '0 0 24 24',
+        width: '20',
+        height: '20',
+        fill: 'none',
+        stroke: 'currentColor',
+        'stroke-width': '2',
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+        'aria-hidden': 'true'
+    },
+        svgEl('circle', { cx: '12', cy: '12', r: '3' }),
+        svgEl('path', {
+            d: 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z'
+        })
     );
 }
 
@@ -856,7 +929,14 @@ function topbar(routeName) {
                     title: t('board.toggleLog'),
                     onclick: openLogDrawer
                 }, '📜'),
-                langSwitcher(),
+                h('button', {
+                    class: `icon-btn${routeName === 'settings' ? ' is-active' : ''}`,
+                    dataset: { key: 'topbar-settings' },
+                    'aria-label': t('settings.title'),
+                    'aria-current': routeName === 'settings' ? 'page' : null,
+                    title: t('settings.title'),
+                    onclick: () => openSettings(routeName)
+                }, settingsGearIcon()),
                 profile
                     ? h('button', {
                         class: 'user-chip',
@@ -1023,8 +1103,12 @@ function homeView() {
                 }, `🔑 ${t('home.joinGame')}`),
                 h('button', {
                     class: 'btn btn-ghost btn-block',
-                    onclick: () => nav('#/catalog')
-                }, `📖 ${t('home.catalog')}`),
+                    onclick: () => nav('#/offline')
+                }, `📱 ${t('offline.openBtn')}`),
+                h('button', {
+                    class: 'btn btn-ghost btn-block',
+                    onclick: () => nav('#/tv')
+                }, `📺 ${t('tv.openBtn')}`),
                 h('button', {
                     class: 'btn btn-ghost btn-block',
                     onclick: () => nav('#/ranking')
@@ -1604,6 +1688,7 @@ function createView() {
                     avatarId,
                     gender,
                     epicMode: app.drafts.epicMode,
+                    expansionsEnabled: app.drafts.expansionsEnabled,
                     turnTimerSeconds: Number(app.drafts.turnTimerSeconds) || 0
                 });
             }
@@ -1618,6 +1703,17 @@ function createView() {
                 h('div', { class: 'stack-sm' },
                     h('strong', {}, t('create.epicMode')),
                     h('span', { class: 'hint-text' }, t('create.epicDesc'))
+                )
+            ),
+            h('label', { class: 'checkbox-row' },
+                h('input', {
+                    type: 'checkbox',
+                    checked: app.drafts.expansionsEnabled,
+                    onchange: (e) => { app.drafts.expansionsEnabled = e.target.checked; }
+                }),
+                h('div', { class: 'stack-sm' },
+                    h('strong', {}, t('create.expansions')),
+                    h('span', { class: 'hint-text' }, t('create.expansionsHint'))
                 )
             ),
             h('label', { class: 'field' },
@@ -1703,22 +1799,36 @@ function joinView(codeArg) {
         },
             h('label', { class: 'field' },
                 h('span', { class: 'field-label' }, t('join.codeLabel')),
-                h('input', {
-                    class: 'input input-code',
-                    id: 'f-code',
-                    dataset: { focusKey: 'f-code' },
-                    maxlength: String(LIMITS.JOIN_CODE_LENGTH),
-                    value: app.drafts.joinCode,
-                    placeholder: 'ABCD2345',
-                    autocapitalize: 'characters',
-                    autocomplete: 'off',
-                    spellcheck: 'false',
-                    oninput: (e) => {
-                        const up = e.target.value.toUpperCase();
-                        e.target.value = up;
-                        app.drafts.joinCode = up;
-                    }
-                })
+                h('div', { class: 'row' },
+                    h('input', {
+                        class: 'input input-code grow',
+                        id: 'f-code',
+                        dataset: { focusKey: 'f-code' },
+                        maxlength: String(LIMITS.JOIN_CODE_LENGTH),
+                        value: app.drafts.joinCode,
+                        placeholder: 'ABCD2345',
+                        autocapitalize: 'characters',
+                        autocomplete: 'off',
+                        spellcheck: 'false',
+                        oninput: (e) => {
+                            const up = e.target.value.toUpperCase();
+                            e.target.value = up;
+                            app.drafts.joinCode = up;
+                        }
+                    }),
+                    h('button', {
+                        class: 'btn btn-secondary btn-nowrap',
+                        type: 'button',
+                        dataset: { key: 'join-scan-qr' },
+                        onclick: () => openQrScannerModal({
+                            onCodeDetected: (scanned) => {
+                                app.drafts.joinCode = scanned;
+                                playTap();
+                                render();
+                            }
+                        })
+                    }, `📷 ${t('qr.scanBtn')}`)
+                )
             ),
             identityFields(),
             h('button', {
@@ -1904,11 +2014,18 @@ function lobbyView() {
 
 function turnCountdownInfo() {
     const state = app.game;
-    if (!state?.turnEndsAt || !app.socket) return { text: '', urgent: false };
+    if (!state) return { text: '', urgent: false, paused: false };
+    if (state.turnTimerPausedRemainingMs !== null && state.turnTimerPausedRemainingMs !== undefined) {
+        const remaining = Math.max(0, Math.ceil(state.turnTimerPausedRemainingMs / 1000));
+        const minutes = Math.floor(remaining / 60);
+        const seconds = String(remaining % 60).padStart(2, '0');
+        return { text: t('timer.paused', { time: `${minutes}:${seconds}` }), urgent: false, paused: true };
+    }
+    if (!state.turnEndsAt || !app.socket) return { text: '', urgent: false, paused: false };
     const remaining = Math.max(0, Math.ceil((state.turnEndsAt - app.socket.serverNow()) / 1000));
     const minutes = Math.floor(remaining / 60);
     const seconds = String(remaining % 60).padStart(2, '0');
-    return { text: `⏱ ${minutes}:${seconds}`, urgent: remaining <= 10 };
+    return { text: `⏱ ${minutes}:${seconds}`, urgent: remaining <= 10, paused: false };
 }
 
 function openDiceRollerModal({ title = t('dice.title'), autoRoll = false, onRolled = null } = {}) {
@@ -2087,14 +2204,14 @@ function boardView() {
                         class: 'btn btn-outline-danger',
                         onclick: async () => {
                             const ok = await confirmDialog({
-                                title: t('board.dieConfirmTitle'),
-                                message: t('board.dieConfirmText'),
-                                confirmText: t('board.dieResetGear'),
+                                title: t('action.deathConfirmTitle'),
+                                message: t('action.deathConfirmText'),
+                                confirmText: t('action.deathLoot'),
                                 danger: true
                             });
-                            if (ok) sendEvent(actor => buildSetGearEvent(actor, 0));
+                            if (ok) sendEvent(actor => events.playerDeath(actor));
                         }
-                    }, `💀 ${t('board.dieResetGear')}`)
+                    }, `💀 ${t('action.deathLoot')}`)
                 ),
                 !isMe && h('div', { class: 'row-wrap' },
                     h('button', {
@@ -2148,6 +2265,11 @@ function boardView() {
         pageHeader(t('board.title', { code: state.joinCode }), {
             back: leaveCurrentGame,
             right: [
+                state.canUndo && (host || myTurn) && h('button', {
+                    class: 'btn btn-ghost',
+                    'aria-label': t('action.undo'),
+                    onclick: () => sendMessage(messages.undoLast())
+                }, `↩️ ${t('action.undo')}`),
                 host && my && canBeConfirmedWinner(my, state.settings) && h('button', {
                     class: 'btn btn-secondary',
                     onclick: () => sendMessage(messages.gameOver(state.gameId, my.playerId))
@@ -2161,10 +2283,18 @@ function boardView() {
         }),
         turnPlayer && h('div', { class: `turn-banner ${myTurn ? 'is-my-turn' : ''}` },
             h('strong', {}, myTurn ? t('board.yourTurn') : t('board.turnOf', { name: turnPlayer.name })),
-            state.turnEndsAt && h('span', {
-                id: 'turn-countdown',
-                class: `timer-pill tabular ${countdown.urgent ? 'is-urgent' : ''}`
-            }, countdown.text)
+            h('div', { class: 'row-wrap' },
+                countdown.text && h('span', {
+                    id: 'turn-countdown',
+                    class: `timer-pill tabular ${countdown.urgent ? 'is-urgent' : ''} ${countdown.paused ? 'is-paused' : ''}`
+                }, countdown.text),
+                (state.settings?.turnTimerSeconds > 0) && (host || myTurn) && h('button', {
+                    class: 'icon-btn',
+                    'aria-label': countdown.paused ? t('timer.resume') : t('timer.pause'),
+                    title: countdown.paused ? t('timer.resume') : t('timer.pause'),
+                    onclick: () => sendMessage(countdown.paused ? messages.resumeTurnTimer() : messages.pauseTurnTimer())
+                }, countdown.paused ? '▶' : '⏸')
+            )
         ),
         combat && h('button', {
             class: 'banner banner-warn btn-block',
@@ -2190,6 +2320,9 @@ function boardView() {
 
 function heroModalNodes(player) {
     const editable = player.playerId === app.myPlayerId;
+    const expansions = Boolean(app.game?.settings?.expansionsEnabled);
+    const availableClasses = expansions ? CLASSES : BASE_CLASSES;
+    const availableRaces = expansions ? RACES : BASE_RACES;
     const classes = activeClasses(player);
     const races = activeRaces(player);
     const items = [];
@@ -2213,7 +2346,7 @@ function heroModalNodes(player) {
         editable && h('div', { class: 'stack' },
             h('div', { class: 'field' },
                 h('span', { class: 'field-label' }, t('hero.class')),
-                h('div', { class: 'chip-grid' }, CLASSES.map(c => h('button', {
+                h('div', { class: 'chip-grid' }, availableClasses.map(c => h('button', {
                     class: 'chip',
                     'aria-pressed': player.characterClass === c ? 'true' : 'false',
                     onclick: () => sendEvent(actor => events.setClass(actor, c, false))
@@ -2232,7 +2365,7 @@ function heroModalNodes(player) {
             ),
             player.hasSuperMunchkin && h('div', { class: 'field' },
                 h('span', { class: 'field-label' }, t('hero.secondClass')),
-                h('div', { class: 'chip-grid' }, CLASSES.map(c => h('button', {
+                h('div', { class: 'chip-grid' }, availableClasses.map(c => h('button', {
                     class: 'chip',
                     'aria-pressed': player.secondaryClass === c ? 'true' : 'false',
                     onclick: () => sendEvent(actor => events.setClass(actor, c, true))
@@ -2240,7 +2373,7 @@ function heroModalNodes(player) {
             ),
             h('div', { class: 'field' },
                 h('span', { class: 'field-label' }, t('hero.race')),
-                h('div', { class: 'chip-grid' }, RACES.map(r => h('button', {
+                h('div', { class: 'chip-grid' }, availableRaces.map(r => h('button', {
                     class: 'chip',
                     'aria-pressed': player.characterRace === r ? 'true' : 'false',
                     onclick: () => sendEvent(actor => events.setRace(actor, r, false))
@@ -2259,7 +2392,7 @@ function heroModalNodes(player) {
             ),
             player.hasHalfBreed && h('div', { class: 'field' },
                 h('span', { class: 'field-label' }, t('hero.secondRace')),
-                h('div', { class: 'chip-grid' }, RACES.map(r => h('button', {
+                h('div', { class: 'chip-grid' }, availableRaces.map(r => h('button', {
                     class: 'chip',
                     'aria-pressed': player.secondaryRace === r ? 'true' : 'false',
                     onclick: () => sendEvent(actor => events.setRace(actor, r, true))
@@ -2273,6 +2406,13 @@ function heroModalNodes(player) {
                 })
             )
         ),
+        h('hr', { class: 'divider' }),
+        activeCursesSection({
+            player,
+            editable,
+            onAddCurse: (curse) => sendEvent(actor => events.addCurse(actor, curse)),
+            onRemoveCurse: (curseId) => sendEvent(actor => events.removeCurse(actor, curseId))
+        }),
         h('hr', { class: 'divider' }),
         h('div', { class: 'stack-sm' },
             h('h3', { class: 'section-heading' }, t('hero.abilities')),
@@ -2352,6 +2492,11 @@ function combatView() {
         pageHeader(t('combat.title'), {
             back: () => { app.viewBoardDuringCombat = true; render(); },
             right: h('div', { class: 'row-wrap' },
+                state.canUndo && (isHost() || app.myPlayerId === state.turnPlayerId) && h('button', {
+                    class: 'btn btn-ghost',
+                    'aria-label': t('action.undo'),
+                    onclick: () => sendMessage(messages.undoLast())
+                }, `↩️ ${t('action.undo')}`),
                 state.turnEndsAt && h('span', {
                     id: 'turn-countdown',
                     class: `timer-pill tabular ${countdown.urgent ? 'is-urgent' : ''}`
@@ -2378,7 +2523,7 @@ function combatView() {
         ),
         h('div', {
             class: `combat-outcome-pill ${calc.outcome === OUTCOMES.WIN && monsters.length > 0 ? 'is-win' : 'is-lose'}`
-        }, outcomeText),
+        }, calc.orcOverkillBonus ? `${outcomeText} · ${t('combat.orcOverkill')}` : outcomeText),
         h('div', { class: 'card' },
             h('div', { class: 'section-bar' },
                 h('h2', { class: 'section-heading' }, t('combat.monsters')),
@@ -2480,7 +2625,20 @@ function combatView() {
                         'aria-pressed': combat.helperPlayerId === p.playerId ? 'true' : 'false',
                         onclick: () => sendEvent(actor => events.combatAddHelper(actor, p.playerId))
                     }, `${p.name} (${combatPower(p)})`))
-                )
+                ),
+            helperP && helperTreasureDealBar({
+                currentShare: combat.helperTreasureShare,
+                totalTreasures: monsters.reduce((s, m) => s + (m.treasures ?? 1), 0),
+                canEdit: canModify,
+                onChange: (share) => sendEvent(actor => events.combatSetHelperTreasures(actor, share))
+            })
+        ),
+        canModify && h('div', { class: 'card' },
+            combatPresetsBar({
+                disabled: bonusLimitReached,
+                onAddPreset: (side, label, amount) => sendEvent(actor =>
+                    events.combatAddBonus(actor, tempBonus({ label, amount, appliesTo: side })))
+            })
         ),
         h('div', { class: 'card' },
             h('div', { class: 'section-bar' },
@@ -2954,7 +3112,8 @@ function openAddMonsterModal() {
                                             treasures: m.treasures ?? 1,
                                             levels: m.levels ?? 1,
                                             isUndead: Boolean(m.isUndead),
-                                            badStuff: m.badStuff || ''
+                                            badStuff: m.badStuff || '',
+                                            conditionalModifiers: Array.isArray(m.conditionalModifiers) ? m.conditionalModifiers : []
                                         });
                                         modal.close();
                                     }
@@ -3210,11 +3369,20 @@ async function loadCatalogPage({ append = false } = {}) {
     const reqLimit = trimmed.length === 1 ? 50 : cat.limit;
 
     try {
-        const reply = await oneOffRequest(WS_URL, messages.catalogSearch(effectiveQ, {
+        const levelBounds = cat.levelBand === 'low' ? { minLevel: 1, maxLevel: 5 }
+            : cat.levelBand === 'mid' ? { minLevel: 6, maxLevel: 12 }
+            : cat.levelBand === 'boss' ? { minLevel: 13, maxLevel: 20 }
+            : {};
+        const reqMsg = messages.catalogSearch(effectiveQ, {
             expansion: cat.expansion || null,
             limit: reqLimit,
-            offset: nextOffset
-        }));
+            offset: nextOffset,
+            isUndead: cat.undeadOnly ? true : null,
+            ...levelBounds
+        });
+        const reply = session.authToken
+            ? (await authenticatedRequest(WS_URL, session.authToken, reqMsg)).reply
+            : await oneOffRequest(WS_URL, reqMsg);
         if (!isCurrentRoute(gen, signal) || cat.searchSeq !== seq) return;
 
         const raw = reply.results || [];
@@ -3386,6 +3554,72 @@ function openContributeCatalogModal() {
     }
 }
 
+function settingsView() {
+    const backTarget = (app.settingsBackHash === '#/game' && !app.game)
+        ? '#/home'
+        : (app.settingsBackHash || '#/home');
+
+    return h('section', { class: 'screen', dataset: { key: 'view-settings' } },
+        pageHeader(t('settings.title'), { back: () => nav(backTarget) }),
+        h('div', { class: 'card' },
+            h('h2', { class: 'section-heading' }, t('settings.catalogSection')),
+            h('button', {
+                class: 'settings-row',
+                dataset: { key: 'settings-catalog-btn' },
+                onclick: () => {
+                    app.catalogBackHash = '#/settings';
+                    nav('#/catalog');
+                }
+            },
+                h('div', { class: 'row grow' },
+                    h('span', { class: 'settings-icon', 'aria-hidden': 'true' }, '📖'),
+                    h('div', { class: 'stack-xs grow' },
+                        h('strong', {}, t('catalog.title')),
+                        h('span', { class: 'muted-text' }, t('settings.catalogDesc'))
+                    )
+                ),
+                h('span', { class: 'settings-chevron', 'aria-hidden': 'true' }, '›')
+            )
+        ),
+        h('div', { class: 'card' },
+            h('h2', { class: 'section-heading' }, t('settings.sensorySection')),
+            h('label', { class: 'toggle-row' },
+                h('div', { class: 'stack-xs grow' },
+                    h('strong', {}, `🔊 ${t('settings.sound')}`),
+                    h('span', { class: 'muted-text' }, t('settings.soundDesc'))
+                ),
+                h('input', {
+                    type: 'checkbox',
+                    checked: isSoundEnabled(),
+                    onchange: (e) => {
+                        setSoundEnabled(e.target.checked);
+                        if (e.target.checked) playTap();
+                    }
+                })
+            ),
+            h('label', { class: 'toggle-row' },
+                h('div', { class: 'stack-xs grow' },
+                    h('strong', {}, `📳 ${t('settings.haptics')}`),
+                    h('span', { class: 'muted-text' }, t('settings.hapticsDesc'))
+                ),
+                h('input', {
+                    type: 'checkbox',
+                    checked: isHapticsEnabled(),
+                    onchange: (e) => {
+                        setHapticsEnabled(e.target.checked);
+                        if (e.target.checked) playTap();
+                    }
+                })
+            )
+        ),
+        h('div', { class: 'card' },
+            h('h2', { class: 'section-heading' }, t('lang.label')),
+            h('p', { class: 'muted-text settings-copy' }, t('settings.langDesc')),
+            langSwitcher()
+        )
+    );
+}
+
 function catalogView() {
     const cat = app.catalog;
     if (cat.loadedGen !== app.routeGen && !cat.loading) {
@@ -3397,7 +3631,7 @@ function catalogView() {
     }
 
     return h('section', { class: 'screen', dataset: { key: 'view-catalog' } },
-        pageHeader(t('catalog.title'), { back: () => nav('#/home') }),
+        pageHeader(t('catalog.title'), { back: () => nav(app.catalogBackHash || '#/home') }),
         h('div', { class: 'card' },
             h('div', { class: 'catalog-toolbar' },
                 h('input', {
@@ -3432,6 +3666,31 @@ function catalogView() {
                     onclick: openContributeCatalogModal
                 }, `+ ${t('catalog.addBtn')}`)
             ),
+            h('div', { class: 'row-wrap' },
+                h('button', {
+                    class: 'chip',
+                    type: 'button',
+                    'aria-pressed': cat.undeadOnly ? 'true' : 'false',
+                    onclick: () => {
+                        cat.undeadOnly = !cat.undeadOnly;
+                        loadCatalogPage({ append: false });
+                    }
+                }, `🧟 ${t('catalog.filterUndead')}`),
+                [
+                    { id: '', label: t('catalog.filterAllLevels') },
+                    { id: 'low', label: t('catalog.filterLow') },
+                    { id: 'mid', label: t('catalog.filterMid') },
+                    { id: 'boss', label: t('catalog.filterBoss') }
+                ].map(b => h('button', {
+                    class: 'chip',
+                    type: 'button',
+                    'aria-pressed': cat.levelBand === b.id ? 'true' : 'false',
+                    onclick: () => {
+                        cat.levelBand = b.id;
+                        loadCatalogPage({ append: false });
+                    }
+                }, b.label))
+            ),
             cat.query.trim().length === 1 && h('p', { class: 'hint-text' }, t('catalog.searchHintShort'))
         ),
         h('div', { class: 'card' },
@@ -3452,8 +3711,10 @@ function catalogView() {
                                 h('div', { class: 'flat-row', dataset: { key: `cat-${m.id || m.name}` } },
                                     h('div', { class: 'stack-sm grow' },
                                         h('div', { class: 'row-wrap' },
-                                            h('strong', {}, m.name),
+                                            h('strong', {}, localizeMonsterName(m)),
                                             m.isUndead && h('span', { class: 'badge badge-ember' }, t('combat.undeadTag')),
+                                            Array.isArray(m.conditionalModifiers) && m.conditionalModifiers.length > 0 &&
+                                                h('span', { class: 'badge' }, `⚡ ${m.conditionalModifiers.map(cm => fmtSigned(cm.amount)).join('/')}`),
                                             m.expansion && h('span', { class: 'badge' }, expansionLabel(m.expansion))
                                         ),
                                         h('span', { class: 'muted-text tabular' },
@@ -3466,6 +3727,34 @@ function catalogView() {
                                             })),
                                         m.badStuff && h('span', { class: 'hint-text' },
                                             `${t('catalog.badStuffLabel')}: ${m.badStuff}`)
+                                    ),
+                                    m.canEdit && h('div', { class: 'row-wrap' },
+                                        h('button', {
+                                            class: 'btn btn-ghost',
+                                            type: 'button',
+                                            onclick: () => openEditCatalogMonsterModal(m)
+                                        }, t('catalog.editBtn')),
+                                        h('button', {
+                                            class: 'icon-btn icon-btn-danger',
+                                            type: 'button',
+                                            'aria-label': t('common.delete'),
+                                            onclick: async () => {
+                                                const ok = await confirmDialog({
+                                                    title: t('common.delete'),
+                                                    message: t('catalog.deleteConfirm', { name: m.name }),
+                                                    confirmText: t('common.delete'),
+                                                    danger: true
+                                                });
+                                                if (!ok || !session.authToken) return;
+                                                try {
+                                                    await authenticatedRequest(WS_URL, session.authToken, messages.catalogDelete(m.id));
+                                                    toast(t('catalog.deleted'), 'ok');
+                                                    loadCatalogPage({ append: false });
+                                                } catch (err) {
+                                                    toast(errorText(err), 'err');
+                                                }
+                                            }
+                                        }, '🗑')
                                     )
                                 )
                             )),
@@ -3479,6 +3768,80 @@ function catalogView() {
     );
 }
 
+function openEditCatalogMonsterModal(monster) {
+    if (!session.authToken || !monster?.id) return;
+    const form = {
+        name: monster.name || '',
+        level: String(monster.level ?? 1),
+        modifier: String(monster.modifier ?? 0),
+        treasures: String(monster.treasures ?? 1),
+        levels: String(monster.levels ?? 1),
+        isUndead: Boolean(monster.isUndead),
+        expansion: monster.expansion || 'base',
+        badStuff: monster.badStuff || '',
+        busy: false
+    };
+
+    const modal = openModal({
+        title: t('catalog.editTitle'),
+        dismissible: true,
+        body: [
+            h('label', { class: 'field' },
+                h('span', { class: 'field-label' }, t('monsterModal.name')),
+                h('input', { class: 'input', maxlength: '80', value: form.name, oninput: e => { form.name = e.target.value; } })
+            ),
+            h('div', { class: 'grid-2' },
+                h('label', { class: 'field' },
+                    h('span', { class: 'field-label' }, t('monsterModal.levelRange')),
+                    h('input', { class: 'input', type: 'number', min: '1', max: '20', value: form.level, oninput: e => { form.level = e.target.value; } })
+                ),
+                h('label', { class: 'field' },
+                    h('span', { class: 'field-label' }, t('monsterModal.treasures')),
+                    h('input', { class: 'input', type: 'number', min: '0', max: '10', value: form.treasures, oninput: e => { form.treasures = e.target.value; } })
+                )
+            ),
+            h('label', { class: 'checkbox-row' },
+                h('input', { type: 'checkbox', checked: form.isUndead, onchange: e => { form.isUndead = e.target.checked; } }),
+                h('span', {}, `🧟 ${t('monsterModal.undead')}`)
+            ),
+            h('label', { class: 'field' },
+                h('span', { class: 'field-label' }, t('monsterModal.badStuff')),
+                h('input', { class: 'input', maxlength: '200', value: form.badStuff, oninput: e => { form.badStuff = e.target.value; } })
+            ),
+            h('div', { class: 'modal-actions' },
+                h('button', { class: 'btn btn-ghost', type: 'button', onclick: () => modal.close() }, t('common.cancel')),
+                h('button', {
+                    class: 'btn btn-primary',
+                    type: 'button',
+                    onclick: async () => {
+                        if (form.busy || !form.name.trim()) return;
+                        form.busy = true;
+                        try {
+                            await authenticatedRequest(WS_URL, session.authToken, messages.catalogUpdate(monster.id, {
+                                name: form.name.trim(),
+                                level: Number(form.level) || 1,
+                                modifier: Number(form.modifier) || 0,
+                                treasures: Number(form.treasures) || 0,
+                                levels: Number(form.levels) || 1,
+                                isUndead: form.isUndead,
+                                expansion: form.expansion,
+                                badStuff: form.badStuff.trim()
+                            }));
+                            modal.close();
+                            toast(t('catalog.updated'), 'ok');
+                            loadCatalogPage({ append: false });
+                        } catch (err) {
+                            toast(errorText(err), 'err');
+                        } finally {
+                            form.busy = false;
+                        }
+                    }
+                }, t('common.save'))
+            )
+        ]
+    });
+}
+
 /* ==========================================================================
    Views: Results, Ranking, History
    ========================================================================== */
@@ -3489,29 +3852,50 @@ function resultsView() {
     const standings = playerList(state).slice().sort((a, b) =>
         (b.level - a.level) || (combatPower(b) - combatPower(a))
     );
+    const summary = state.matchSummary || null;
+    const statsByPlayer = new Map((summary?.playerStats || []).map(s => [s.playerId, s]));
+    const durationMins = summary ? Math.max(1, Math.round((summary.durationMs || 0) / 60000)) : 0;
 
     return h('section', { class: 'screen', dataset: { key: 'view-results' } },
         h('div', { class: 'hero-banner center-text' },
             h('span', { class: 'hero-eyebrow' }, '🏆'),
             h('h1', { class: 'hero-heading' },
                 winner ? t('results.winnerTitle', { name: winner.name }) : t('results.finishedTitle')),
-            winner && h('p', { class: 'hero-copy' }, avatarEmoji(winner.avatarId, winner.gender))
+            winner && h('p', { class: 'hero-copy' }, avatarEmoji(winner.avatarId, winner.gender)),
+            summary && h('p', { class: 'muted-text tabular' },
+                t('results.duration', { mins: durationMins, turns: summary.totalTurns || 1 }))
+        ),
+        summary && (summary.mvpSlayerId || summary.bestHelperId || summary.mostDeathsId) && h('div', { class: 'card stack-sm' },
+            h('h2', { class: 'section-heading' }, t('results.awards')),
+            h('div', { class: 'row-wrap' },
+                summary.mvpSlayerId && state.players[summary.mvpSlayerId] &&
+                    h('span', { class: 'badge badge-gold' }, `⚔️ ${t('results.mvpSlayer')}: ${state.players[summary.mvpSlayerId].name}`),
+                summary.bestHelperId && state.players[summary.bestHelperId] &&
+                    h('span', { class: 'badge' }, `🤝 ${t('results.bestHelper')}: ${state.players[summary.bestHelperId].name}`),
+                summary.mostDeathsId && state.players[summary.mostDeathsId] &&
+                    h('span', { class: 'badge badge-danger' }, `💀 ${t('results.mostDeaths')}: ${state.players[summary.mostDeathsId].name}`)
+            )
         ),
         h('div', { class: 'card' },
             h('h2', { class: 'section-heading' }, t('results.standings')),
-            h('div', { class: 'list-divide' }, standings.map((p, idx) =>
-                h('div', { class: 'flat-row', dataset: { key: `res-${p.playerId}` } },
+            h('div', { class: 'list-divide' }, standings.map((p, idx) => {
+                const st = statsByPlayer.get(p.playerId);
+                return h('div', { class: 'flat-row', dataset: { key: `res-${p.playerId}` } },
                     h('div', { class: 'row grow' },
                         h('strong', { class: 'rank-num tabular' }, `${idx + 1}.`),
                         avatarBadge(p),
-                        h('strong', {}, p.name)
+                        h('div', { class: 'stack-xs' },
+                            h('strong', {}, p.name),
+                            st && h('span', { class: 'muted-text tabular' },
+                                `${t('results.killsShort', { n: st.monstersKilled || 0 })} · ${t('results.escapesShort', { n: st.escapes || 0 })} · ${t('results.deathsShort', { n: st.deaths || 0 })}`)
+                        )
                     ),
                     h('div', { class: 'row-wrap' },
                         h('span', { class: 'badge tabular' }, t('board.lvlShort', { n: p.level })),
                         h('span', { class: 'muted-text tabular' }, `💰 ${p.treasures || 0}`)
                     )
-                )
-            ))
+                );
+            }))
         ),
         h('button', {
             class: 'btn btn-primary btn-block',
@@ -3595,6 +3979,8 @@ function rankingView() {
                                         h('strong', {}, entry.username)
                                     ),
                                     h('div', { class: 'row-wrap tabular' },
+                                        (entry.currentStreak || 0) >= 2 && h('span', { class: 'badge badge-ember' }, t('ranking.streak', { n: entry.currentStreak })),
+                                        (entry.totalMonstersKilled || 0) > 0 && h('span', { class: 'muted-text' }, `⚔️ ${entry.totalMonstersKilled}`),
                                         h('strong', {}, `🏆 ${entry.wins}`),
                                         h('span', { class: 'muted-text' }, `${winRate(entry)}%`)
                                     )
@@ -3680,7 +4066,9 @@ function historyView() {
                                                     ? t('history.wonBy', { name: game.winnerName })
                                                     : t('history.noWinner'))),
                                             h('span', { class: 'muted-text tabular' },
-                                                `${game.endedAt ? new Date(game.endedAt).toLocaleDateString(getLang()) : '—'} · ${t('history.playersCount', { count: game.playerCount })}`)
+                                                `${game.endedAt ? new Date(game.endedAt).toLocaleDateString(getLang()) : '—'} · ${t('history.playersCount', { count: game.playerCount })}` +
+                                                ((game.monstersKilled || 0) > 0 ? ` · ⚔️ ${game.monstersKilled}` : '') +
+                                                ((game.deaths || 0) > 0 ? ` · 💀 ${game.deaths}` : ''))
                                         )
                                     )
                                 )
@@ -3732,14 +4120,38 @@ function render() {
         case 'auth': view = authView(); break;
         case 'create': view = createView(); break;
         case 'join': view = joinView(arg); break;
+        case 'settings': view = settingsView(); break;
         case 'catalog': view = catalogView(); break;
         case 'game': view = gameView(); break;
+        case 'tv': {
+            if (arg && (!app.game || app.game.joinCode !== arg.toUpperCase()) && !app.busy) {
+                watchGameAsSpectator(arg);
+            }
+            view = renderTvView({
+                state: app.game,
+                countdown: turnCountdownInfo(),
+                joinCodeInput: app.drafts.tvCode || arg || '',
+                onCodeInput: (v) => { app.drafts.tvCode = v; },
+                onWatch: (code) => watchGameAsSpectator(code),
+                onExit: () => {
+                    if (app.myPlayerId === 'SPECTATOR') cleanupGame();
+                    nav('#/home');
+                }
+            });
+            break;
+        }
+        case 'offline':
+            view = renderOfflineView({
+                onBack: () => nav('#/home'),
+                onRender: render
+            });
+            break;
         case 'ranking': view = rankingView(); break;
         case 'history': view = historyView(); break;
         default: view = homeView();
     }
 
-    const isWide = name === 'catalog' || (name === 'game' && app.game?.phase === PHASES.IN_GAME);
+    const isWide = name === 'catalog' || name === 'tv' || (name === 'game' && app.game?.phase === PHASES.IN_GAME);
     const routeKey = [
         name,
         arg || '',
@@ -3764,13 +4176,19 @@ function render() {
     }
 }
 
+let lastWarnedTurnKey = '';
 setInterval(() => {
     if (document.hidden || !app.game?.turnEndsAt) return;
     const el = document.getElementById('turn-countdown');
     if (!el) return;
-    const { text, urgent } = turnCountdownInfo();
+    const { text, urgent, paused } = turnCountdownInfo();
     el.textContent = text;
     el.classList.toggle('is-urgent', urgent);
+    const turnKey = `${app.game.turnPlayerId || ''}:${app.game.turnEndsAt}`;
+    if (urgent && !paused && lastWarnedTurnKey !== turnKey) {
+        lastWarnedTurnKey = turnKey;
+        playTimerWarning();
+    }
 }, 500);
 
 document.addEventListener('visibilitychange', () => {

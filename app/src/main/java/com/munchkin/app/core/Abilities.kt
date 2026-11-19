@@ -17,16 +17,20 @@ import androidx.compose.runtime.Immutable
  */
 enum class AbilityKind { AUTOMATIC, MANUAL }
 
-enum class AbilitySourceKey { WARRIOR, WIZARD, THIEF, CLERIC, ELF, DWARF, HALFLING }
+enum class AbilitySourceKey { WARRIOR, WIZARD, THIEF, CLERIC, BARD, RANGER, ELF, DWARF, HALFLING, ORC, GNOME }
 
 enum class AbilityDescriptionKey {
     WARRIOR_TIES, WARRIOR_BERSERK,
     WIZARD_CHARM, WIZARD_FLIGHT,
     THIEF_BACKSTAB, THIEF_STEAL,
     CLERIC_UNDEAD, CLERIC_RESURRECT,
+    BARD_ENTHRALL, BARD_LUCK,
+    RANGER_TAME, RANGER_HELP,
     ELF_HELP_LEVEL, ELF_RUN_AWAY,
     DWARF_BIG_ITEMS, DWARF_HAND_SIZE,
-    HALFLING_SELL, HALFLING_RUN_AWAY
+    HALFLING_SELL, HALFLING_RUN_AWAY,
+    ORC_OVERKILL, ORC_IGNORE_CURSE,
+    GNOME_ILLUSION, GNOME_NOSE
 }
 
 @Immutable
@@ -93,6 +97,32 @@ object Abilities {
                 kind = AbilityKind.MANUAL
             )
         )
+
+        CharacterClass.BARD -> listOf(
+            Ability(
+                sourceKey = AbilitySourceKey.BARD,
+                descriptionKey = AbilityDescriptionKey.BARD_ENTHRALL,
+                kind = AbilityKind.MANUAL
+            ),
+            Ability(
+                sourceKey = AbilitySourceKey.BARD,
+                descriptionKey = AbilityDescriptionKey.BARD_LUCK,
+                kind = AbilityKind.MANUAL
+            )
+        )
+
+        CharacterClass.RANGER -> listOf(
+            Ability(
+                sourceKey = AbilitySourceKey.RANGER,
+                descriptionKey = AbilityDescriptionKey.RANGER_TAME,
+                kind = AbilityKind.MANUAL
+            ),
+            Ability(
+                sourceKey = AbilitySourceKey.RANGER,
+                descriptionKey = AbilityDescriptionKey.RANGER_HELP,
+                kind = AbilityKind.MANUAL
+            )
+        )
     }
 
     fun forRace(characterRace: CharacterRace): List<Ability> = when (characterRace) {
@@ -137,6 +167,32 @@ object Abilities {
                 kind = AbilityKind.AUTOMATIC
             )
         )
+
+        CharacterRace.ORC -> listOf(
+            Ability(
+                sourceKey = AbilitySourceKey.ORC,
+                descriptionKey = AbilityDescriptionKey.ORC_OVERKILL,
+                kind = AbilityKind.AUTOMATIC
+            ),
+            Ability(
+                sourceKey = AbilitySourceKey.ORC,
+                descriptionKey = AbilityDescriptionKey.ORC_IGNORE_CURSE,
+                kind = AbilityKind.MANUAL
+            )
+        )
+
+        CharacterRace.GNOME -> listOf(
+            Ability(
+                sourceKey = AbilitySourceKey.GNOME,
+                descriptionKey = AbilityDescriptionKey.GNOME_ILLUSION,
+                kind = AbilityKind.MANUAL
+            ),
+            Ability(
+                sourceKey = AbilitySourceKey.GNOME,
+                descriptionKey = AbilityDescriptionKey.GNOME_NOSE,
+                kind = AbilityKind.MANUAL
+            )
+        )
     }
 
     /**
@@ -160,8 +216,15 @@ object Abilities {
     }
 
     /**
-     * Net modifier to a run-away roll from the player's races.
+     * Active curses affecting a player's run-away roll.
+     */
+    fun curseRunAwayModifiers(player: PlayerState): List<Pair<String, Int>> =
+        player.activeCurses.filter { it.runAwayPenalty != 0 }.map { it.name to it.runAwayPenalty }
+
+    /**
+     * Net modifier to a run-away roll from the player's races and active curses.
      */
     fun runAwayBonus(player: PlayerState): Int =
-        runAwayModifiers(player).sumOf { it.second }
+        runAwayModifiers(player).sumOf { it.second } +
+            player.activeCurses.sumOf { it.runAwayPenalty }
 }

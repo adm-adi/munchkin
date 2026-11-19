@@ -15,8 +15,8 @@ android {
         applicationId = "com.munchkin.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 113
-        versionName = "2.21.5"
+        versionCode = 114
+        versionName = "2.22.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

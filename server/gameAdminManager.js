@@ -93,11 +93,23 @@ function createGameAdminManager({
         broadcastSnapshot(game);
 
         const participants = [];
+        const playerStats = [];
         for (const [playerId, player] of game.players) {
             participants.push({
                 userId: player.userId,
                 playerId,
                 joinedAt: player.joinedAt
+            });
+            playerStats.push({
+                playerId,
+                userId: player.userId,
+                playerName: player.name,
+                finalLevel: player.level || 1,
+                monstersKilled: player.monstersKilled || 0,
+                combatsHelped: player.combatsHelped || 0,
+                biggestCombat: player.biggestCombat || 0,
+                deaths: player.deaths || 0,
+                escapes: player.escapes || 0
             });
         }
 
@@ -112,7 +124,8 @@ function createGameAdminManager({
             Date.now(),
             participants,
             game.joinCode,
-            game.originalHostId || game.hostId
+            game.originalHostId || game.hostId,
+            playerStats
         )
             .then(() => logger.info('Game recorded successfully'))
             .catch(err => logger.error('Error recording game:', err))
@@ -204,7 +217,11 @@ function createGameAdminManager({
             return;
         }
 
+        if (typeof game.pushUndoSnapshot === 'function') {
+            game.pushUndoSnapshot();
+        }
         game.turnPlayerId = nextPlayerId;
+        game.turnTimerPausedRemainingMs = null;
         game.combat = null;
         game.seq += 1;
         syncTurnTimer(game, 'direct end turn');

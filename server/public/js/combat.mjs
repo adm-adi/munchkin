@@ -8,8 +8,8 @@
 
 import { activeClasses, activeRaces, hasClass, hasRace, combatPower } from './engine.mjs';
 
-const CLASS_NAMES = new Set(['NONE', 'WARRIOR', 'WIZARD', 'THIEF', 'CLERIC']);
-const RACE_NAMES = new Set(['HUMAN', 'ELF', 'DWARF', 'HALFLING']);
+const CLASS_NAMES = new Set(['NONE', 'WARRIOR', 'WIZARD', 'THIEF', 'CLERIC', 'BARD', 'RANGER']);
+const RACE_NAMES = new Set(['HUMAN', 'ELF', 'DWARF', 'HALFLING', 'ORC', 'GNOME']);
 const GENDER_NAMES = new Set(['M', 'F', 'NA']);
 
 /**
@@ -71,6 +71,14 @@ function intrinsicHeroBonus(monsters, mainPlayer, helperPlayer) {
     return bonus;
 }
 
+export function curseCombatPenalty(player) {
+    if (!player || !Array.isArray(player.activeCurses)) return 0;
+    return player.activeCurses.reduce(
+        (sum, c) => sum + (Number.isFinite(c?.combatPenalty) ? c.combatPenalty : 0),
+        0
+    );
+}
+
 /**
  * CombatCalculator.calculateResult. Returns the CombatResult shape plus
  * marginToWin (power still needed to flip a LOSE into a WIN).
@@ -79,13 +87,14 @@ export function calculateResult(combat, state) {
     const empty = {
         heroesPower: 0, monstersPower: 0, outcome: 'LOSE',
         totalTreasures: 0, totalLevels: 0, warriorTieBreak: false,
-        helperLevelsGained: 0, isWarriorInvolved: false, marginToWin: 1
+        helperLevelsGained: 0, isWarriorInvolved: false, orcOverkillBonus: false, marginToWin: 1
     };
     const mainPlayer = state.players[combat.mainPlayerId];
     if (!mainPlayer) return empty;
     const helperPlayer = combat.helperPlayerId ? state.players[combat.helperPlayerId] : null;
 
     let heroesPower = combatPower(mainPlayer) + (helperPlayer ? combatPower(helperPlayer) : 0);
+    heroesPower += curseCombatPenalty(mainPlayer) + (helperPlayer ? curseCombatPenalty(helperPlayer) : 0);
     heroesPower += conditionalBonus(combat.monsters, mainPlayer, helperPlayer, 'HEROES');
     heroesPower += intrinsicHeroBonus(combat.monsters, mainPlayer, helperPlayer);
     for (const bonus of combat.tempBonuses || []) {
@@ -112,6 +121,7 @@ export function calculateResult(combat, state) {
     let totalLevels = 0;
     let totalTreasures = 0;
     let helperLevelsGained = 0;
+    let orcOverkillBonus = false;
     if (outcome === 'WIN') {
         const monsters = combat.monsters || [];
         for (const monster of monsters) {
@@ -120,6 +130,10 @@ export function calculateResult(combat, state) {
         }
         if (helperPlayer && hasRace(helperPlayer, 'ELF') && monsters.length > 0) {
             helperLevelsGained = monsters.length;
+        }
+        if (!helperPlayer && monsters.length > 0 && hasRace(mainPlayer, 'ORC') && (heroesPower - monstersPower) > 10) {
+            totalLevels += 1;
+            orcOverkillBonus = true;
         }
     }
 
@@ -135,6 +149,7 @@ export function calculateResult(combat, state) {
         warriorTieBreak: heroesPower === monstersPower && isWarriorInvolved,
         helperLevelsGained,
         isWarriorInvolved,
+        orcOverkillBonus,
         marginToWin
     };
 }
@@ -153,6 +168,18 @@ export function getBreakdown(combat, state, labels) {
     const heroSources = [{ label: labels.base(mainPlayer.name), amount: combatPower(mainPlayer) }];
     if (helperPlayer) {
         heroSources.push({ label: labels.helper(helperPlayer.name), amount: combatPower(helperPlayer) });
+    }
+    for (const c of mainPlayer.activeCurses || []) {
+        if (c && c.combatPenalty) {
+            heroSources.push({ label: `${mainPlayer.name}: ${c.name}`, amount: c.combatPenalty });
+        }
+    }
+    if (helperPlayer) {
+        for (const c of helperPlayer.activeCurses || []) {
+            if (c && c.combatPenalty) {
+                heroSources.push({ label: `${helperPlayer.name}: ${c.name}`, amount: c.combatPenalty });
+            }
+        }
     }
 
     const monsterSources = (combat.monsters || []).map(monster => ({
@@ -208,6 +235,11 @@ export function runAwayModifiers(player) {
     const mods = [];
     if (hasRace(player, 'ELF')) mods.push(['ELF', 1]);
     if (hasRace(player, 'HALFLING')) mods.push(['HALFLING', -1]);
+    for (const c of player?.activeCurses || []) {
+        if (c && c.runAwayPenalty) {
+            mods.push([c.name, c.runAwayPenalty]);
+        }
+    }
     return mods;
 }
 

@@ -206,6 +206,7 @@
 
     <!-- Settings -->
     <string name="settings_title">Paramètres</string>
+    <string name="monster_catalog_subtitle">Parcourir et ajouter des monstres de toutes les extensions</string>
     <string name="display">Affichage</string>
     <string name="large_numbers">Grands chiffres</string>
     <string name="large_numbers_subtitle">Agrandir la taille des chiffres de niveau et de combat</string>
@@ -304,10 +305,14 @@
     <string name="class_wizard">Magicien</string>
     <string name="class_thief">Voleur</string>
     <string name="class_cleric">Clerc</string>
+    <string name="class_bard">Barde</string>
+    <string name="class_ranger">Rôdeur</string>
     <string name="race_human">Humain</string>
     <string name="race_elf">Elfe</string>
     <string name="race_dwarf">Nain</string>
     <string name="race_halfling">Halfelin</string>
+    <string name="race_orc">Orque</string>
+    <string name="race_gnome">Gnome</string>
 
     <!-- History & Leaderboard -->
     <string name="winner_label">Gagnant :</string>
@@ -385,6 +390,55 @@
     <string name="ability_dwarf_hand_size">Vous pouvez avoir 6 cartes en main.</string>
     <string name="ability_halfling_sell">Une fois par tour, vous pouvez vendre un objet au double de son prix ; les autres objets conservent leur prix normal.</string>
     <string name="ability_halfling_run_away">-1 au jet de fuite.</string>
+    <string name="ability_bard_enthrall">Charme bardique : défaussez une carte et lancez le dé pour forcer un joueur à vous aider gratuitement.</string>
+    <string name="ability_bard_luck">Chance bardique : si vous gagnez un combat à votre tour, piochez 1 Trésor bonus et défaussez-en 1.</string>
+    <string name="ability_ranger_tame">Domptage : défaussez autant de cartes que de trésors d\'un monstre pour le dompter en monture.</string>
+    <string name="ability_ranger_help">Aide du rôdeur : en aidant un combat, défaussez une carte pour donner +2.</string>
+    <string name="ability_orc_overkill">Massacre : si vous battez un monstre seul avec plus de 10 d\'écart, gagnez 1 niveau bonus.</string>
+    <string name="ability_orc_ignore_curse">Ignorer malédiction : perdez 1 niveau pour ignorer une malédiction (niveau 2+).</string>
+    <string name="ability_gnome_illusion">Illusion : une fois par combat seul, jouez un monstre de votre main pour ajouter son niveau à votre force.</string>
+    <string name="ability_gnome_nose">Nez de gnome : les monstres de niveau 1 ne vous poursuivent pas ; les objets Nez donnent un bonus.</string>
+
+    <!-- Phase 1 enhancements -->
+    <string name="expansions_mode">Races et classes d\'extensions</string>
+    <string name="expansions_mode_desc">Active Orque, Gnome, Barde et Rôdeur</string>
+    <string name="action_undo">Annuler</string>
+    <string name="action_death_loot">Mourir (Piller)</string>
+    <string name="death_loot_confirm_title">Mourir et piller le corps ?</string>
+    <string name="death_loot_confirm_desc">Réinitialise votre Équipement à 0 et retire les malédictions temporaires. Conserve Niveau, Race et Classe.</string>
+    <string name="curses_title">Malédictions actives</string>
+    <string name="curse_add">Ajouter malédiction</string>
+    <string name="curse_none">Aucune malédiction active</string>
+    <string name="curse_preset_sex_change">Changement de sexe (−5 proch. combat)</string>
+    <string name="curse_preset_chicken">Poulet sur la tête (−1 fuite)</string>
+    <string name="curse_preset_no_armor">Sans armure</string>
+    <string name="curse_name_label">Nom de la malédiction</string>
+    <string name="curse_combat_penalty">Malus combat</string>
+    <string name="curse_runaway_penalty">Malus fuite</string>
+    <string name="curse_combats_remaining">Combats (0 = persistant)</string>
+    <string name="curse_persistent">Persistant</string>
+    <string name="combat_helper_treasures">Partage des trésors (Aide)</string>
+    <string name="combat_helper_treasures_deal">L\'aide prend %1$d sur %2$d trésors</string>
+    <string name="combat_presets_title">Cartes rapides</string>
+    <string name="preset_ancient">Ancien (+10)</string>
+    <string name="preset_enraged">Enragé (+5)</string>
+    <string name="preset_baby">Bébé (−5)</string>
+    <string name="preset_potion_2">Potion +2</string>
+    <string name="preset_potion_3">Potion +3</string>
+    <string name="preset_potion_5">Potion +5</string>
+    <string name="orc_overkill_badge">Orque +1 niveau bonus</string>
+
+    <!-- Phase 2 enhancements -->
+    <string name="timer_pause">Mettre en pause</string>
+    <string name="timer_resume">Reprendre</string>
+    <string name="timer_paused_format">En pause %1$s</string>
+    <string name="watch_as_spectator">Regarder en Spectateur (TV)</string>
+    <string name="offline_mode">Partie locale (Hors ligne)</string>
+    <string name="offline_setup_title">Partie locale (1 appareil)</string>
+    <string name="offline_add_player">Ajouter joueur</string>
+    <string name="offline_player_hint">Nom du joueur %1$d</string>
+    <string name="offline_start">Lancer la partie locale</string>
+    <string name="offline_active_seat">Contrôle : %1$s</string>
 
     <!-- Game log drawer -->
     <string name="log_level_up">%1$s est passé au niveau %2$d</string>
@@ -445,4 +499,23 @@
     <string name="victory_dialog_winner">%1$s a gagné la partie !</string>
     <string name="return_to_home">Retour à l\'accueil</string>
     <string name="modifiers_label">Modificateurs (Bonus/Malus) : %1$s</string>
+
+    <!-- Phase 3: Catalog Filters/Edit & Rich Match/Leaderboard Stats -->
+    <string name="catalog_filter_undead">Morts-Vivants</string>
+    <string name="catalog_level_low">Niv 1–5</string>
+    <string name="catalog_level_mid">Niv 6–12</string>
+    <string name="catalog_level_high">Niv 13–20</string>
+    <string name="catalog_edit_monster">Modifier le monstre</string>
+    <string name="catalog_delete_monster">Supprimer le monstre</string>
+    <string name="catalog_delete_confirm">Voulez-vous vraiment supprimer « %1$s » du catalogue global ?</string>
+    <string name="catalog_monster_updated">Monstre « %1$s » mis à jour</string>
+    <string name="catalog_monster_deleted">Monstre supprimé du catalogue</string>
+    <string name="catalog_save_changes">Enregistrer</string>
+    <string name="stats_duration_min">%1$d min</string>
+    <string name="stats_kills_badge">⚔️ %1$d vaincus</string>
+    <string name="stats_deaths_badge">💀 %1$d morts</string>
+    <string name="stats_streak_badge">🔥 Série %1$d</string>
+    <string name="stats_mvp_slayer">⚔️ Chasseur MVP : %1$s</string>
+    <string name="stats_best_helper">🤝 Meilleur allié : %1$s</string>
+    <string name="stats_most_deaths">💀 Plus de morts : %1$s</string>
 </resources>

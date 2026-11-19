@@ -197,6 +197,36 @@ fun HistoryItem(game: GameHistoryItem) {
                     fontWeight = FontWeight.Bold
                 )
             }
+            val durationMin = (game.durationMs / 60_000L).toInt()
+            if (durationMin > 0 || game.monstersKilled > 0 || game.deaths > 0) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (durationMin > 0) {
+                        Text(
+                            text = "⏱️ ${stringResource(R.string.stats_duration_min, durationMin)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (game.monstersKilled > 0) {
+                        Text(
+                            text = stringResource(R.string.stats_kills_badge, game.monstersKilled),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeonSecondary
+                        )
+                    }
+                    if (game.deaths > 0) {
+                        Text(
+                            text = stringResource(R.string.stats_deaths_badge, game.deaths),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = NeonError
+                        )
+                    }
+                }
+            }
         }
     }
 }

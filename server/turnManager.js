@@ -97,8 +97,42 @@ function createTurnManager({ games, db, logger, cancelPendingSave }) {
         const turnPlayer = game.players.get(game.turnPlayerId);
         if (!turnPlayer || turnPlayer.isConnected === false) return null;
         if (hasPendingWinnerConfirmation(game)) return null;
+        if (game.turnTimerPausedRemainingMs !== null && game.turnTimerPausedRemainingMs !== undefined) return null;
 
         return `${game.phase}|${game.turnPlayerId}|${timerSeconds}`;
+    }
+
+    function pauseTurnTimer(game) {
+        if (!game || game.ended || game.phase !== 'IN_GAME') return false;
+        const timerSeconds = clampTimerSeconds(game.turnTimerSeconds);
+        if (timerSeconds <= 0) return false;
+        if (game.turnTimerPausedRemainingMs !== null && game.turnTimerPausedRemainingMs !== undefined) {
+            return false;
+        }
+        const now = Date.now();
+        const remaining = game.turnEndsAt
+            ? Math.max(1000, Math.min(timerSeconds * 1000, game.turnEndsAt - now))
+            : timerSeconds * 1000;
+        clearTurnTimer(game, 'paused');
+        game.turnTimerPausedRemainingMs = remaining;
+        return true;
+    }
+
+    function resumeTurnTimer(game) {
+        if (!game || game.ended || game.phase !== 'IN_GAME') return false;
+        const pausedMs = game.turnTimerPausedRemainingMs;
+        if (pausedMs === null || pausedMs === undefined) return false;
+        const timerSeconds = clampTimerSeconds(game.turnTimerSeconds);
+        if (timerSeconds <= 0) {
+            game.turnTimerPausedRemainingMs = null;
+            return false;
+        }
+        const clampedRemaining = Math.max(1000, Math.min(timerSeconds * 1000, Number(pausedMs) || timerSeconds * 1000));
+        game.turnTimerPausedRemainingMs = null;
+        game.turnEndsAt = Date.now() + clampedRemaining;
+        game.turnTimerKey = null;
+        syncTurnTimer(game, 'resumed');
+        return true;
     }
 
     function syncTurnTimer(game, reason = null) {
@@ -179,7 +213,9 @@ function createTurnManager({ games, db, logger, cancelPendingSave }) {
     return {
         getNextTurnPlayerId,
         clearRoomLifecycleTimers,
-        syncTurnTimer
+        syncTurnTimer,
+        pauseTurnTimer,
+        resumeTurnTimer
     };
 }
 

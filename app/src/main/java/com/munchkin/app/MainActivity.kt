@@ -360,10 +360,10 @@ class MainActivity : ComponentActivity() {
                                         onProfileClick = {
                                             navController.navigate(Routes.PROFILE) { launchSingleTop = true }
                                         },
-                                        userProfile = userProfile,
-                                        onCatalogClick = {
-                                            navController.navigate(Routes.CATALOG) { launchSingleTop = true }
-                                        }
+                                        onStartOfflineGame = { names, superMunchkin, expansions ->
+                                            lobbyViewModel.startOfflineGame(names, superMunchkin, expansions)
+                                        },
+                                        userProfile = userProfile
                                     )
                                 }
 
@@ -372,13 +372,14 @@ class MainActivity : ComponentActivity() {
                                         isLoading = lobbyIsLoading,
                                         error = lobbyError,
                                         userProfile = userProfile,
-                                        onCreateGame = { name, avatarId, gender, timerSeconds, superMunchkin ->
+                                        onCreateGame = { name, avatarId, gender, timerSeconds, superMunchkin, expansionsEnabled ->
                                             lobbyViewModel.createGame(
                                                 name = name,
                                                 avatarId = avatarId,
                                                 gender = gender,
                                                 timerSeconds = timerSeconds,
-                                                superMunchkin = superMunchkin
+                                                superMunchkin = superMunchkin,
+                                                expansionsEnabled = expansionsEnabled
                                             )
                                         },
                                         onBack = { navController.popBackStack() }
@@ -409,6 +410,7 @@ class MainActivity : ComponentActivity() {
                                         onJoinDiscoveredGame = { game, name, avatarId, gender ->
                                             lobbyViewModel.joinDiscoveredGame(game, name, avatarId, gender)
                                         },
+                                        onWatchGame = { code -> lobbyViewModel.watchGame(code) },
                                         onStartDiscovery = { lobbyViewModel.startDiscovery() },
                                         onBack = { navController.popBackStack() }
                                     )
@@ -493,9 +495,6 @@ class MainActivity : ComponentActivity() {
                                             onCombatClick = {
                                                 navController.navigate(Routes.COMBAT) { launchSingleTop = true }
                                             },
-                                            onCatalogClick = {
-                                                navController.navigate(Routes.CATALOG) { launchSingleTop = true }
-                                            },
                                             onSettingsClick = {
                                                 navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
                                             },
@@ -510,6 +509,9 @@ class MainActivity : ComponentActivity() {
                                             onKickPlayer = { gameSessionViewModel.kickPlayer(it) },
                                             onTransferHost = { gameSessionViewModel.transferHost(it) },
                                             onRollDice = { gameSessionViewModel.rollDice(it) },
+                                            onUndoLast = { gameSessionViewModel.undoLastAction() },
+                                            onToggleTimerPause = { gameSessionViewModel.toggleTurnTimerPause() },
+                                            onSwitchOfflineSeat = { gameSessionViewModel.switchOfflineSeat(it) },
                                             logEntries = gameLog,
                                             reconnectAttempt = reconnectAttempt,
                                             onRetryReconnect = { gameSessionViewModel.retryReconnect() }
@@ -537,9 +539,9 @@ class MainActivity : ComponentActivity() {
                                             myPlayerId = pid,
                                             monsterSearchResults = monsterSearchResults,
                                             onStartCombat = { gameSessionViewModel.startCombat() },
-                                            onAddMonster = { name, level, mod, undead, badStuff, treasures, levels ->
+                                            onAddMonster = { name, level, mod, undead, badStuff, treasures, levels, condMods ->
                                                 gameSessionViewModel.addMonster(
-                                                    name, level, mod, undead, badStuff, treasures, levels
+                                                    name, level, mod, undead, badStuff, treasures, levels, condMods
                                                 )
                                             },
                                             onUpdateMonsterModifier = { monsterId, flatModifier ->
@@ -558,6 +560,8 @@ class MainActivity : ComponentActivity() {
                                                 gameSessionViewModel.addTempBonus(target, label, amount)
                                             },
                                             onRemoveTempBonus = { gameSessionViewModel.removeTempBonus(it) },
+                                            onSetHelperTreasures = { gameSessionViewModel.setHelperTreasureShare(it) },
+                                            onUndoLast = { gameSessionViewModel.undoLastAction() },
                                             onModifyModifier = { target, delta ->
                                                 gameSessionViewModel.modifyCombatModifier(target, delta)
                                             },
@@ -603,9 +607,14 @@ class MainActivity : ComponentActivity() {
                                             },
                                             onSetSuperMunchkin = { gameSessionViewModel.setSuperMunchkin(it) },
                                             onSetHalfBreed = { gameSessionViewModel.setHalfBreed(it) },
+                                            onAddCurse = { name, cPen, rPen, combats ->
+                                                gameSessionViewModel.addCurse(name, cPen, rPen, combats)
+                                            },
+                                            onRemoveCurse = { gameSessionViewModel.removeCurse(it) },
                                             onBack = { navController.popBackStack() },
                                             isReadOnly = player.playerId != pid,
-                                            maxLevel = gameState?.settings?.maxLevel ?: 10
+                                            maxLevel = gameState?.settings?.maxLevel ?: 10,
+                                            expansionsEnabled = gameState?.settings?.expansionsEnabled == true
                                         )
                                     } else {
                                         LaunchedEffect(Unit) {
@@ -627,7 +636,10 @@ class MainActivity : ComponentActivity() {
                                         largeNumbersMode = largeNumbersMode,
                                         onToggleLargeNumbersMode = { lobbyViewModel.setLargeNumbersMode(it) },
                                         onBack = { navController.popBackStack() },
-                                        onCheckUpdate = { lobbyViewModel.forceCheckUpdate() }
+                                        onCheckUpdate = { lobbyViewModel.forceCheckUpdate() },
+                                        onCatalogClick = {
+                                            navController.navigate(Routes.CATALOG) { launchSingleTop = true }
+                                        }
                                     )
                                 }
 

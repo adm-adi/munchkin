@@ -10,9 +10,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,11 +50,17 @@ fun PlayerDetailScreen(
     onSetSecondaryRace: (CharacterRace) -> Unit = {},
     onSetSuperMunchkin: (Boolean) -> Unit = {},
     onSetHalfBreed: (Boolean) -> Unit = {},
+    onAddCurse: (name: String, combatPenalty: Int, runAwayPenalty: Int, combatsRemaining: Int) -> Unit = { _, _, _, _ -> },
+    onRemoveCurse: (curseId: String) -> Unit = {},
     isReadOnly: Boolean = false,
-    maxLevel: Int = 10
+    maxLevel: Int = 10,
+    expansionsEnabled: Boolean = false
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var showDeathConfirm by remember { mutableStateOf(false) }
+    var showAddCurseDialog by remember { mutableStateOf(false) }
+    val availableClasses = remember(expansionsEnabled) { CharacterClass.availableFor(expansionsEnabled) }
+    val availableRaces = remember(expansionsEnabled) { CharacterRace.availableFor(expansionsEnabled) }
 
     if (showDeathConfirm && onApplyDeath != null) {
         AlertDialog(
@@ -226,7 +236,7 @@ fun PlayerDetailScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 AppDropdown(
-                    options = CharacterClass.values().toList(),
+                    options = availableClasses,
                     selectedOption = player.characterClass,
                     onOptionSelected = onSetClass,
                     labelMapper = { context.getString(it.labelRes()) }
@@ -263,7 +273,7 @@ fun PlayerDetailScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     AppDropdown(
-                        options = CharacterClass.values().toList(),
+                        options = availableClasses,
                         selectedOption = player.secondaryClass,
                         onOptionSelected = onSetSecondaryClass,
                         labelMapper = { context.getString(it.labelRes()) }
@@ -280,7 +290,7 @@ fun PlayerDetailScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 AppDropdown(
-                    options = CharacterRace.values().toList(),
+                    options = availableRaces,
                     selectedOption = player.characterRace,
                     onOptionSelected = onSetRace,
                     labelMapper = { context.getString(it.labelRes()) }
@@ -317,7 +327,7 @@ fun PlayerDetailScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     AppDropdown(
-                        options = CharacterRace.values().toList(),
+                        options = availableRaces,
                         selectedOption = player.secondaryRace,
                         onOptionSelected = onSetSecondaryRace,
                         labelMapper = { context.getString(it.labelRes()) }
@@ -386,12 +396,258 @@ fun PlayerDetailScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            // Active Curses section
+            ActiveCursesSection(
+                curses = player.activeCurses,
+                isReadOnly = isReadOnly,
+                onAddClick = { showAddCurseDialog = true },
+                onRemoveCurse = onRemoveCurse
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             // Same reminders as in combat: shown for both owner and read-only inspection
             AbilityReminders(listOf(player))
 
             Spacer(modifier = Modifier.height(32.dp))
         }
     }
+
+    if (showAddCurseDialog && !isReadOnly) {
+        AddCurseDialog(
+            onDismiss = { showAddCurseDialog = false },
+            onConfirm = { name, combatPen, runPen, combats ->
+                onAddCurse(name, combatPen, runPen, combats)
+                showAddCurseDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun ActiveCursesSection(
+    curses: List<ActiveCurse>,
+    isReadOnly: Boolean,
+    onAddClick: () -> Unit,
+    onRemoveCurse: (String) -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = NeonSurfaceVariant,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, if (curses.isNotEmpty()) NeonError.copy(alpha = 0.45f) else GlassBorderDim)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.curses_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NeonGray100,
+                    fontWeight = FontWeight.Bold
+                )
+                if (!isReadOnly) {
+                    TextButton(
+                        onClick = onAddClick,
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = NeonSecondary, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(stringResource(R.string.curse_add), color = NeonSecondary, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+
+            if (curses.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.curse_none),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NeonGray400
+                )
+            } else {
+                curses.forEachIndexed { idx, curse ->
+                    if (idx > 0) HorizontalDivider(color = GlassBorderDim)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = curse.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = NeonGray100,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            val effects = buildList {
+                                if (curse.combatPenalty != 0) {
+                                    val s = if (curse.combatPenalty > 0) "+" else ""
+                                    add("$s${curse.combatPenalty} ⚔️")
+                                }
+                                if (curse.runAwayPenalty != 0) {
+                                    val s = if (curse.runAwayPenalty > 0) "+" else ""
+                                    add("$s${curse.runAwayPenalty} 🏃")
+                                }
+                                if (curse.combatsRemaining > 0) {
+                                    add("${curse.combatsRemaining}x")
+                                } else {
+                                    add(stringResource(R.string.curse_persistent))
+                                }
+                            }.joinToString(" • ")
+                            Text(
+                                text = effects,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeonError
+                            )
+                        }
+                        if (!isReadOnly) {
+                            IconButton(
+                                onClick = { onRemoveCurse(curse.id) },
+                                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = stringResource(R.string.close),
+                                    tint = NeonGray300
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddCurseDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (name: String, combatPenalty: Int, runAwayPenalty: Int, combatsRemaining: Int) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var combatPenalty by remember { mutableStateOf("0") }
+    var runAwayPenalty by remember { mutableStateOf("0") }
+    var combatsRemaining by remember { mutableStateOf("0") }
+
+    val sexChangeLabel = stringResource(R.string.curse_preset_sex_change)
+    val chickenLabel = stringResource(R.string.curse_preset_chicken)
+    val noArmorLabel = stringResource(R.string.curse_preset_no_armor)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = NeonSurface,
+        title = { Text(stringResource(R.string.curse_add), color = NeonGray100) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .imePadding(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Quick Munchkin curse presets
+                OutlinedButton(
+                    onClick = { onConfirm(sexChangeLabel, -5, 0, 1) },
+                    modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp),
+                    border = BorderStroke(1.dp, NeonError.copy(alpha = 0.5f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonGray100)
+                ) {
+                    Text(sexChangeLabel)
+                }
+                OutlinedButton(
+                    onClick = { onConfirm(chickenLabel, 0, -1, 0) },
+                    modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp),
+                    border = BorderStroke(1.dp, NeonWarning.copy(alpha = 0.5f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonGray100)
+                ) {
+                    Text(chickenLabel)
+                }
+                OutlinedButton(
+                    onClick = { onConfirm(noArmorLabel, 0, 0, 0) },
+                    modifier = Modifier.fillMaxWidth().sizeIn(minHeight = 48.dp),
+                    border = BorderStroke(1.dp, GlassBorder),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonGray100)
+                ) {
+                    Text(noArmorLabel)
+                }
+
+                HorizontalDivider(color = GlassBorderDim)
+
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it.take(40) },
+                    label = { Text(stringResource(R.string.curse_name_label)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = combatPenalty,
+                        onValueChange = { v ->
+                            combatPenalty = if (v.startsWith("-")) "-" + v.drop(1).filter { it.isDigit() }.take(2)
+                            else v.filter { it.isDigit() }.take(2)
+                        },
+                        label = { Text(stringResource(R.string.curse_combat_penalty)) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = runAwayPenalty,
+                        onValueChange = { v ->
+                            runAwayPenalty = if (v.startsWith("-")) "-" + v.drop(1).filter { it.isDigit() }.take(1)
+                            else v.filter { it.isDigit() }.take(1)
+                        },
+                        label = { Text(stringResource(R.string.curse_runaway_penalty)) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                }
+                OutlinedTextField(
+                    value = combatsRemaining,
+                    onValueChange = { combatsRemaining = it.filter { c -> c.isDigit() }.take(2) },
+                    label = { Text(stringResource(R.string.curse_combats_remaining)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (name.isNotBlank()) {
+                        onConfirm(
+                            name.trim(),
+                            (combatPenalty.toIntOrNull() ?: 0).coerceIn(-20, 20),
+                            (runAwayPenalty.toIntOrNull() ?: 0).coerceIn(-5, 5),
+                            (combatsRemaining.toIntOrNull() ?: 0).coerceIn(0, 10)
+                        )
+                    }
+                },
+                enabled = name.isNotBlank(),
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = NeonPrimary, contentColor = NeonWhite)
+            ) {
+                Text(stringResource(R.string.curse_add))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            ) {
+                Text(stringResource(R.string.cancel), color = NeonGray300)
+            }
+        }
+    )
 }
 
 @Composable

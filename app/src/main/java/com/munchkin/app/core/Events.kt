@@ -197,6 +197,35 @@ data class SetRace(
     val isSecondary: Boolean = false
 ) : GameEvent()
 
+@Serializable
+@SerialName("PLAYER_DEATH")
+data class PlayerDeath(
+    override val eventId: String,
+    override val actorId: PlayerId,
+    override val timestamp: Long,
+    override val targetPlayerId: PlayerId
+) : GameEvent()
+
+@Serializable
+@SerialName("ADD_CURSE")
+data class AddCurse(
+    override val eventId: String,
+    override val actorId: PlayerId,
+    override val timestamp: Long,
+    override val targetPlayerId: PlayerId,
+    val curse: ActiveCurse
+) : GameEvent()
+
+@Serializable
+@SerialName("REMOVE_CURSE")
+data class RemoveCurse(
+    override val eventId: String,
+    override val actorId: PlayerId,
+    override val timestamp: Long,
+    override val targetPlayerId: PlayerId,
+    val curseId: String
+) : GameEvent()
+
 // ============== Combat Events ==============
 
 @Serializable
@@ -227,6 +256,16 @@ data class CombatRemoveHelper(
     override val actorId: PlayerId,
     override val timestamp: Long,
     override val targetPlayerId: PlayerId? = null
+) : GameEvent()
+
+@Serializable
+@SerialName("COMBAT_SET_HELPER_TREASURES")
+data class CombatSetHelperTreasures(
+    override val eventId: String,
+    override val actorId: PlayerId,
+    override val timestamp: Long,
+    override val targetPlayerId: PlayerId? = null,
+    val treasures: Int? = null
 ) : GameEvent()
 
 @Serializable

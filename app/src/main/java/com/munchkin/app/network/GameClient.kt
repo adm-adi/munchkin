@@ -232,7 +232,8 @@ class GameClient : Closeable {
         playerMeta: PlayerMeta,
         superMunchkin: Boolean = false,
         turnTimerSeconds: Int = 0,
-        authToken: String? = null
+        authToken: String? = null,
+        expansionsEnabled: Boolean = false
     ): Result<GameState> = withContext(Dispatchers.IO) {
         try {
             reconnectJob?.cancel()
@@ -281,7 +282,8 @@ class GameClient : Closeable {
                             val createRequest = CreateGameRequest(
                                 playerMeta = playerMeta,
                                 superMunchkin = superMunchkin,
-                                turnTimerSeconds = turnTimerSeconds
+                                turnTimerSeconds = turnTimerSeconds,
+                                expansionsEnabled = expansionsEnabled
                             )
                             send(json.encodeToString<WsMessage>(createRequest))
                             DLog.i(TAG, "Waiting for welcome...")
@@ -967,6 +969,114 @@ class GameClient : Closeable {
         }
     }
 
+    suspend fun sendUndoLast(): Result<Unit> {
+        val currentSession = session ?: return Result.failure(Exception("No conectado"))
+
+        return try {
+            val jsonStr = json.encodeToString<WsMessage>(UndoLastMessage)
+            currentSession.send(jsonStr)
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun sendPauseTurnTimer(): Result<Unit> {
+        val currentSession = session ?: return Result.failure(Exception("No conectado"))
+        return try {
+            currentSession.send(json.encodeToString<WsMessage>(PauseTurnTimerMessage))
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun sendResumeTurnTimer(): Result<Unit> {
+        val currentSession = session ?: return Result.failure(Exception("No conectado"))
+        return try {
+            currentSession.send(json.encodeToString<WsMessage>(ResumeTurnTimerMessage))
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Connect to a room in read-only spectator/TV mode without taking a player seat.
+     */
+    suspend fun watchGame(
+        wsUrl: String,
+        joinCode: String
+    ): Result<GameState> = withContext(Dispatchers.IO) {
+        reconnectJob?.cancel()
+        reconnectJob = null
+        lifecycleMutex.withLock {
+            if (isClosed) {
+                return@withContext Result.failure(IllegalStateException("GameClient has been closed"))
+            }
+            try {
+                beginSession()
+                resetActiveSessionLocked()
+                _connectionState.value = ConnectionState.CONNECTING
+                val normalizedUrl = buildWsUrl(wsUrl)
+                    ?: return@withContext Result.failure(Exception("URL inválida: $wsUrl"))
+                val httpClient = getOrCreateHttpClient()
+                val scope = ensureScope()
+                val resultDeferred = CompletableDeferred<Result<GameState>>()
+                activeSessionJob = scope.launch {
+                    try {
+                        httpClient.webSocket(urlString = normalizedUrl) {
+                            session = this
+                            send(json.encodeToString<WsMessage>(WatchGameMessage(joinCode.trim().uppercase())))
+                            val welcomeResult = waitForWelcome()
+                            if (welcomeResult.isFailure) {
+                                _connectionState.value = ConnectionState.DISCONNECTED
+                                resultDeferred.complete(
+                                    Result.failure(welcomeResult.exceptionOrNull() ?: Exception("Watch failed"))
+                                )
+                                return@webSocket
+                            }
+                            val watchedState = synchronized(stateLock) { _gameState.value }
+                            if (watchedState == null) {
+                                _connectionState.value = ConnectionState.DISCONNECTED
+                                resultDeferred.complete(Result.failure(Exception("No game state")))
+                                return@webSocket
+                            }
+                            _connectionState.value = ConnectionState.CONNECTED
+                            resultDeferred.complete(Result.success(watchedState))
+                            startClockSync(this)
+                            handleIncomingMessages()
+                        }
+                    } catch (e: CancellationException) {
+                        if (!resultDeferred.isCompleted) resultDeferred.cancel(e)
+                        throw e
+                    } catch (e: Exception) {
+                        if (!resultDeferred.isCompleted) {
+                            resultDeferred.complete(Result.failure(e))
+                            if (!isShuttingDown) _connectionState.value = ConnectionState.DISCONNECTED
+                        }
+                    } finally {
+                        if (!resultDeferred.isCompleted) {
+                            resultDeferred.complete(Result.failure(Exception("Conexión cerrada")))
+                        }
+                    }
+                }
+                resultDeferred.await()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _connectionState.value = ConnectionState.DISCONNECTED
+                Result.failure(e)
+            }
+        }
+    }
+
     /**
      * Disconnect from the server while keeping the client instance reusable.
      * Call [close] when the client is permanently discarded.
@@ -1135,15 +1245,26 @@ class GameClient : Closeable {
         query: String,
         expansion: String? = null,
         limit: Int = 20,
-        offset: Int = 0
+        offset: Int = 0,
+        isUndead: Boolean? = null,
+        minLevel: Int? = null,
+        maxLevel: Int? = null,
+        authToken: String? = null
     ): Result<List<CatalogMonster>> = withContext(Dispatchers.IO) {
         val msg = CatalogSearchRequest(
             query = query,
             expansion = expansion,
             limit = limit,
-            offset = offset
+            offset = offset,
+            isUndead = isUndead,
+            minLevel = minLevel,
+            maxLevel = maxLevel
         )
-        val response = sendOneOffRequest(serverUrl, msg)
+        val response = if (!authToken.isNullOrBlank()) {
+            authenticatedRequest(serverUrl, authToken, msg)
+        } else {
+            sendOneOffRequest(serverUrl, msg)
+        }
 
         response.map {
             if (it is CatalogSearchResult) it.results else emptyList()
@@ -1160,6 +1281,35 @@ class GameClient : Closeable {
 
         response.map {
             if (it is CatalogAddSuccess) it.monster else monster
+        }
+    }
+
+    suspend fun updateMonsterInCatalog(
+        serverUrl: String,
+        monsterId: String,
+        monster: CatalogMonster,
+        authToken: String
+    ): Result<CatalogMonster> = withContext(Dispatchers.IO) {
+        val msg = CatalogUpdateRequest(monsterId = monsterId, monster = monster)
+        val response = authenticatedRequest(serverUrl, authToken, msg)
+
+        response.mapCatching {
+            (it as? CatalogUpdateSuccess)?.monster
+                ?: throw Exception("Respuesta inesperada del servidor")
+        }
+    }
+
+    suspend fun deleteMonsterFromCatalog(
+        serverUrl: String,
+        monsterId: String,
+        authToken: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val msg = CatalogDeleteRequest(monsterId = monsterId)
+        val response = authenticatedRequest(serverUrl, authToken, msg)
+
+        response.mapCatching {
+            (it as? CatalogDeleteSuccess)?.monsterId
+                ?: throw Exception("Respuesta inesperada del servidor")
         }
     }
 

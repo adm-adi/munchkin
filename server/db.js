@@ -4,6 +4,7 @@ const { randomUUID } = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const logger = require('./logger');
+const { sanitizeConditionalModifier, extractConditionalModifiersFromText } = require('./validation');
 
 // Resolved against this file, not the process CWD: starting the server from a
 // different directory used to silently create a second, empty database.
@@ -202,6 +203,22 @@ async function initTables() {
         FOREIGN KEY(user_id) REFERENCES users(id)
     )`);
 
+    // Per-player match statistics (Phase 3 post-game summary & analytics)
+    await run(`CREATE TABLE IF NOT EXISTS game_player_stats (
+        game_id TEXT NOT NULL,
+        player_id TEXT NOT NULL,
+        user_id TEXT,
+        player_name TEXT NOT NULL,
+        final_level INTEGER DEFAULT 1,
+        monsters_killed INTEGER DEFAULT 0,
+        combats_helped INTEGER DEFAULT 0,
+        biggest_combat INTEGER DEFAULT 0,
+        deaths INTEGER DEFAULT 0,
+        escapes INTEGER DEFAULT 0,
+        PRIMARY KEY (game_id, player_id),
+        FOREIGN KEY(game_id) REFERENCES games(id)
+    )`);
+
     // Crowdsourced Monsters Catalog
     await run(`CREATE TABLE IF NOT EXISTS monsters(
         id TEXT PRIMARY KEY,
@@ -213,6 +230,7 @@ async function initTables() {
         is_undead BOOLEAN DEFAULT 0,
         bad_stuff TEXT DEFAULT '',
         expansion TEXT DEFAULT 'base',
+        conditional_modifiers_json TEXT DEFAULT '[]',
         created_by TEXT,
         created_at INTEGER
     )`);
@@ -250,6 +268,10 @@ async function initTables() {
     await runMigration(`ALTER TABLE active_games ADD COLUMN turn_timer_seconds INTEGER DEFAULT 0`, 'active_games.turn_timer_seconds');
     await runMigration(`ALTER TABLE active_games ADD COLUMN turn_ends_at INTEGER DEFAULT NULL`, 'active_games.turn_ends_at');
     await runMigration(`ALTER TABLE active_games ADD COLUMN host_user_id TEXT DEFAULT NULL`, 'active_games.host_user_id');
+    await runMigration(`ALTER TABLE active_games ADD COLUMN expansions_enabled INTEGER DEFAULT 0`, 'active_games.expansions_enabled');
+    await runMigration(`ALTER TABLE active_games ADD COLUMN turn_timer_paused_ms INTEGER DEFAULT NULL`, 'active_games.turn_timer_paused_ms');
+    await runMigration(`ALTER TABLE monsters ADD COLUMN conditional_modifiers_json TEXT DEFAULT '[]'`, 'monsters.conditional_modifiers_json');
+    await runMigration(`ALTER TABLE games ADD COLUMN duration_ms INTEGER DEFAULT 0`, 'games.duration_ms');
 
     // Deduplicate existing monsters by (LOWER(name), level) keeping the minimum id
     await run(
@@ -298,6 +320,22 @@ async function initTables() {
         }
     } else {
         logger.info(`ℹ️ Monsters table has ${countRow ? countRow.count : 0} entries.`);
+    }
+
+    // Backfill structured conditional modifiers for seed/existing monsters
+    const pendingModifiersRows = await all(
+        `SELECT id, bad_stuff FROM monsters
+         WHERE (conditional_modifiers_json IS NULL OR conditional_modifiers_json = '' OR conditional_modifiers_json = '[]')
+           AND bad_stuff IS NOT NULL AND bad_stuff != ''`
+    );
+    for (const row of pendingModifiersRows) {
+        const extracted = extractConditionalModifiersFromText(row.bad_stuff, `cm-${row.id}`);
+        if (extracted.length > 0) {
+            await run(
+                `UPDATE monsters SET conditional_modifiers_json = ? WHERE id = ?`,
+                [JSON.stringify(extracted), row.id]
+            );
+        }
     }
 
     await initFts5Catalog();
@@ -510,8 +548,19 @@ function getUserById(userId) {
 
 // ============== Catalog Operations ==============
 
-function mapMonsterRow(row) {
-    return {
+function mapMonsterRow(row, viewerUserId = null) {
+    let conditionalModifiers = [];
+    if (typeof row.conditional_modifiers_json === 'string' && row.conditional_modifiers_json.trim()) {
+        try {
+            const parsed = JSON.parse(row.conditional_modifiers_json);
+            if (Array.isArray(parsed)) {
+                conditionalModifiers = parsed.map(sanitizeConditionalModifier).filter(Boolean);
+            }
+        } catch {
+            conditionalModifiers = [];
+        }
+    }
+    const mapped = {
         id: row.id,
         name: row.name,
         level: row.level,
@@ -520,8 +569,13 @@ function mapMonsterRow(row) {
         levels: row.levels ?? 1,
         isUndead: !!row.is_undead,
         badStuff: row.bad_stuff || '',
-        expansion: row.expansion || 'base'
+        expansion: row.expansion || 'base',
+        conditionalModifiers
     };
+    if (viewerUserId) {
+        mapped.canEdit = Boolean(row.created_by && row.created_by === viewerUserId);
+    }
+    return mapped;
 }
 
 function buildFtsMatchQuery(rawQuery) {
@@ -536,11 +590,12 @@ function buildFtsMatchQuery(rawQuery) {
 
 /**
  * Searches the monster catalog via FTS5 prefix matching (or LIKE fallback).
+ * Supports optional expansion, undead, and level range filters.
  * @param {string} query
- * @param {number | { expansion?: string, limit?: number, offset?: number }} [limitOrOptions]
+ * @param {number | { expansion?: string, limit?: number, offset?: number, viewerUserId?: string | null, isUndead?: boolean | null, minLevel?: number | null, maxLevel?: number | null }} [limitOrOptions]
  */
 async function searchMonsters(query, limitOrOptions = {}) {
-    /** @type {{ expansion?: string, limit?: number, offset?: number }} */
+    /** @type {{ expansion?: string, limit?: number, offset?: number, viewerUserId?: string | null, isUndead?: boolean | null, minLevel?: number | null, maxLevel?: number | null }} */
     const opts = typeof limitOrOptions === 'number'
         ? { limit: limitOrOptions }
         : (limitOrOptions && typeof limitOrOptions === 'object' ? limitOrOptions : {});
@@ -552,40 +607,70 @@ async function searchMonsters(query, limitOrOptions = {}) {
     const expansion = typeof opts.expansion === 'string' && opts.expansion.trim()
         ? opts.expansion.trim().slice(0, 40)
         : null;
+    const viewerUserId = typeof opts.viewerUserId === 'string' && opts.viewerUserId ? opts.viewerUserId : null;
+    const isUndeadFilter = typeof opts.isUndead === 'boolean' ? opts.isUndead : null;
+    const minLevel = Number.isFinite(Number(opts.minLevel)) && opts.minLevel !== null && opts.minLevel !== undefined
+        ? Math.max(1, Math.min(20, Math.round(Number(opts.minLevel))))
+        : null;
+    const maxLevel = Number.isFinite(Number(opts.maxLevel)) && opts.maxLevel !== null && opts.maxLevel !== undefined
+        ? Math.max(1, Math.min(20, Math.round(Number(opts.maxLevel))))
+        : null;
+
+    const buildFilterClauses = (alias = '') => {
+        const prefix = alias ? `${alias}.` : '';
+        const clauses = [];
+        const params = [];
+        if (expansion) {
+            clauses.push(`LOWER(COALESCE(${prefix}expansion, 'base')) = LOWER(?)`);
+            params.push(expansion);
+        }
+        if (isUndeadFilter !== null) {
+            clauses.push(`COALESCE(${prefix}is_undead, 0) = ?`);
+            params.push(isUndeadFilter ? 1 : 0);
+        }
+        if (minLevel !== null) {
+            clauses.push(`${prefix}level >= ?`);
+            params.push(minLevel);
+        }
+        if (maxLevel !== null) {
+            clauses.push(`${prefix}level <= ?`);
+            params.push(maxLevel);
+        }
+        return { clauses, params };
+    };
 
     const trimmedQuery = typeof query === 'string' ? query.trim().slice(0, 100) : '';
-    const expansionClause = expansion ? `LOWER(COALESCE(expansion, 'base')) = LOWER(?)` : '';
 
     if (!trimmedQuery) {
-        const whereSql = expansionClause ? `WHERE ${expansionClause}` : '';
-        const params = expansion ? [expansion, limit, offset] : [limit, offset];
+        const { clauses, params } = buildFilterClauses('');
+        const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
         const rows = await all(
-            `SELECT id, name, level, modifier, treasures, levels, is_undead, bad_stuff, expansion
+            `SELECT id, name, level, modifier, treasures, levels, is_undead, bad_stuff, expansion, conditional_modifiers_json, created_by
              FROM monsters
              ${whereSql}
              ORDER BY name COLLATE NOCASE ASC, level ASC
              LIMIT ? OFFSET ?`,
-            params
+            [...params, limit, offset]
         );
-        return rows.map(mapMonsterRow);
+        return rows.map(row => mapMonsterRow(row, viewerUserId));
     }
 
     const ftsQuery = buildFtsMatchQuery(trimmedQuery);
     if (ftsQuery) {
         try {
-            const ftsExpansion = expansion ? `AND LOWER(COALESCE(m.expansion, 'base')) = LOWER(?)` : '';
-            const ftsParams = expansion ? [ftsQuery, expansion, limit, offset] : [ftsQuery, limit, offset];
+            const { clauses, params } = buildFilterClauses('m');
+            const ftsExtra = clauses.length > 0 ? `AND ${clauses.join(' AND ')}` : '';
             const rows = await all(
-                `SELECT m.id, m.name, m.level, m.modifier, m.treasures, m.levels, m.is_undead, m.bad_stuff, m.expansion
+                `SELECT m.id, m.name, m.level, m.modifier, m.treasures, m.levels, m.is_undead, m.bad_stuff, m.expansion, m.conditional_modifiers_json, m.created_by
                  FROM monsters_fts f
                  JOIN monsters m ON m.rowid = f.rowid
                  WHERE monsters_fts MATCH ?
-                 ${ftsExpansion}
+                 ${ftsExtra}
                  ORDER BY bm25(monsters_fts, 10.0, 2.0, 1.0), m.name COLLATE NOCASE ASC
                  LIMIT ? OFFSET ?`,
-                ftsParams
+                [ftsQuery, ...params, limit, offset]
             );
-            return rows.map(mapMonsterRow);
+            return rows.map(row => mapMonsterRow(row, viewerUserId));
         } catch (ftsErr) {
             logger.warn(`FTS5 monster search fallback (${trimmedQuery}): ${ftsErr.message}`);
         }
@@ -593,20 +678,18 @@ async function searchMonsters(query, limitOrOptions = {}) {
 
     const escaped = trimmedQuery.replace(/[\\%_]/g, ch => `\\${ch}`);
     const likePattern = `%${escaped}%`;
-    const likeExpansion = expansion ? `AND ${expansionClause}` : '';
-    const likeParams = expansion
-        ? [likePattern, likePattern, expansion, limit, offset]
-        : [likePattern, likePattern, limit, offset];
+    const { clauses, params } = buildFilterClauses('');
+    const likeExtra = clauses.length > 0 ? `AND ${clauses.join(' AND ')}` : '';
     const rows = await all(
-        `SELECT id, name, level, modifier, treasures, levels, is_undead, bad_stuff, expansion
+        `SELECT id, name, level, modifier, treasures, levels, is_undead, bad_stuff, expansion, conditional_modifiers_json, created_by
          FROM monsters
          WHERE (name LIKE ? ESCAPE '\\' OR bad_stuff LIKE ? ESCAPE '\\')
-         ${likeExpansion}
+         ${likeExtra}
          ORDER BY name COLLATE NOCASE ASC, level ASC
          LIMIT ? OFFSET ?`,
-        likeParams
+        [likePattern, likePattern, ...params, limit, offset]
     );
-    return rows.map(mapMonsterRow);
+    return rows.map(row => mapMonsterRow(row, viewerUserId));
 }
 
 function addMonster(monster, userId) {
@@ -619,8 +702,15 @@ function addMonster(monster, userId) {
 
         const id = randomUUID();
         const now = Date.now();
-        const insertSql = `INSERT INTO monsters (id, name, level, modifier, treasures, levels, is_undead, bad_stuff, expansion, created_by, created_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        const explicitMods = Array.isArray(monster.conditionalModifiers)
+            ? monster.conditionalModifiers.slice(0, 10).map(sanitizeConditionalModifier).filter(Boolean)
+            : [];
+        const finalMods = explicitMods.length > 0
+            ? explicitMods
+            : extractConditionalModifiersFromText(monster.badStuff || '', `cm-${id.slice(0, 8)}`);
+
+        const insertSql = `INSERT INTO monsters (id, name, level, modifier, treasures, levels, is_undead, bad_stuff, expansion, conditional_modifiers_json, created_by, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
         try {
             await run(insertSql, [
@@ -633,6 +723,7 @@ function addMonster(monster, userId) {
                 monster.isUndead ? 1 : 0,
                 monster.badStuff || '',
                 monster.expansion || 'base',
+                JSON.stringify(finalMods),
                 userId || null,
                 now
             ]);
@@ -650,25 +741,94 @@ function addMonster(monster, userId) {
     });
 }
 
+/**
+ * Updates a user-contributed monster. Strictly forbids editing seed monsters
+ * (created_by IS NULL) or monsters owned by another account.
+ */
+function updateMonster(monsterId, monster, userId) {
+    return withWriteLock(async () => {
+        if (!userId || !monsterId) return { error: 'FORBIDDEN' };
+        const existing = await get(`SELECT * FROM monsters WHERE id = ?`, [monsterId]);
+        if (!existing) return { error: 'NOT_FOUND' };
+        if (!existing.created_by || existing.created_by !== userId) {
+            return { error: 'FORBIDDEN' };
+        }
+
+        const explicitMods = Array.isArray(monster.conditionalModifiers)
+            ? monster.conditionalModifiers.slice(0, 10).map(sanitizeConditionalModifier).filter(Boolean)
+            : [];
+        const finalMods = explicitMods.length > 0
+            ? explicitMods
+            : extractConditionalModifiersFromText(monster.badStuff || '', `cm-${monsterId.slice(0, 8)}`);
+
+        try {
+            await run(
+                `UPDATE monsters
+                 SET name = ?, level = ?, modifier = ?, treasures = ?, levels = ?,
+                     is_undead = ?, bad_stuff = ?, expansion = ?, conditional_modifiers_json = ?
+                 WHERE id = ? AND created_by = ?`,
+                [
+                    monster.name,
+                    monster.level,
+                    monster.modifier ?? 0,
+                    monster.treasures ?? 1,
+                    monster.levels ?? 1,
+                    monster.isUndead ? 1 : 0,
+                    monster.badStuff || '',
+                    monster.expansion || 'base',
+                    JSON.stringify(finalMods),
+                    monsterId,
+                    userId
+                ]
+            );
+            const updated = await get(`SELECT * FROM monsters WHERE id = ?`, [monsterId]);
+            return { monster: mapMonsterRow(updated, userId) };
+        } catch (err) {
+            if (err && typeof err.message === 'string' && err.message.includes('UNIQUE constraint failed')) {
+                return { error: 'DUPLICATE' };
+            }
+            throw err;
+        }
+    });
+}
+
+/**
+ * Deletes a user-contributed monster. Seed monsters (created_by IS NULL) are protected.
+ */
+function deleteMonster(monsterId, userId) {
+    return withWriteLock(async () => {
+        if (!userId || !monsterId) return { error: 'FORBIDDEN' };
+        const existing = await get(`SELECT id, created_by FROM monsters WHERE id = ?`, [monsterId]);
+        if (!existing) return { error: 'NOT_FOUND' };
+        if (!existing.created_by || existing.created_by !== userId) {
+            return { error: 'FORBIDDEN' };
+        }
+        await run(`DELETE FROM monsters WHERE id = ? AND created_by = ?`, [monsterId, userId]);
+        return { deleted: true, id: monsterId };
+    });
+}
+
 // ============== Game History Operations ==============
 
 /**
- * Records a finished game plus its participants.
+ * Records a finished game plus its participants and rich per-player match stats.
  */
-function recordGame(gameId, winnerId, startTime, endTime, participants, joinCode = null, hostId = null) {
+function recordGame(gameId, winnerId, startTime, endTime, participants, joinCode = null, hostId = null, playerStats = []) {
     return withWriteLock(async () => {
         await run("BEGIN IMMEDIATE TRANSACTION");
         try {
+            const durationMs = Math.max(0, (Number(endTime) || Date.now()) - (Number(startTime) || Date.now()));
             await run(
-                `INSERT INTO games (id, join_code, host_id, started_at, ended_at, winner_id)
-                 VALUES (?, ?, ?, ?, ?, ?)
+                `INSERT INTO games (id, join_code, host_id, started_at, ended_at, winner_id, duration_ms)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(id) DO UPDATE SET
                      join_code = excluded.join_code,
                      host_id = excluded.host_id,
                      started_at = excluded.started_at,
                      ended_at = excluded.ended_at,
-                     winner_id = excluded.winner_id`,
-                [gameId, joinCode, hostId, startTime, endTime, winnerId]
+                     winner_id = excluded.winner_id,
+                     duration_ms = excluded.duration_ms`,
+                [gameId, joinCode, hostId, startTime, endTime, winnerId, durationMs]
             );
 
             for (const p of (participants || [])) {
@@ -677,6 +837,27 @@ function recordGame(gameId, winnerId, startTime, endTime, participants, joinCode
                     `INSERT OR REPLACE INTO participants (game_id, user_id, player_id, joined_at)
                      VALUES (?, ?, ?, ?)`,
                     [gameId, userId, p.playerId, p.joinedAt || startTime]
+                );
+            }
+
+            for (const st of (playerStats || [])) {
+                const userId = st.userId && st.userId !== "anon" ? st.userId : null;
+                await run(
+                    `INSERT OR REPLACE INTO game_player_stats
+                     (game_id, player_id, user_id, player_name, final_level, monsters_killed, combats_helped, biggest_combat, deaths, escapes)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        gameId,
+                        st.playerId,
+                        userId,
+                        String(st.playerName || 'Jugador').slice(0, 20),
+                        Number(st.finalLevel) || 1,
+                        Number(st.monstersKilled) || 0,
+                        Number(st.combatsHelped) || 0,
+                        Number(st.biggestCombat) || 0,
+                        Number(st.deaths) || 0,
+                        Number(st.escapes) || 0
+                    ]
                 );
             }
 
@@ -699,7 +880,7 @@ function getUserHistory(userId, limit = 20) {
     const safeLimit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(100, Math.round(rawLimit))) : 20;
     return all(
         `WITH user_games AS (
-             SELECT g.id, g.ended_at, g.winner_id
+             SELECT g.id, g.ended_at, g.winner_id, COALESCE(g.duration_ms, 0) AS duration_ms
              FROM games g
              JOIN participants p ON g.id = p.game_id
              WHERE p.user_id = ?
@@ -710,13 +891,20 @@ function getUserHistory(userId, limit = 20) {
              ug.id,
              ug.ended_at,
              ug.winner_id,
+             ug.duration_ms,
              w.username AS winner_name,
              (ug.winner_id IS NOT NULL AND ug.winner_id = ?) AS did_i_win,
-             (SELECT COUNT(*) FROM participants p2 WHERE p2.game_id = ug.id) AS player_count
+             (SELECT COUNT(*) FROM participants p2 WHERE p2.game_id = ug.id) AS player_count,
+             COALESCE(gps.final_level, 0) AS final_level,
+             COALESCE(gps.monsters_killed, 0) AS monsters_killed,
+             COALESCE(gps.biggest_combat, 0) AS biggest_combat,
+             COALESCE(gps.deaths, 0) AS deaths,
+             COALESCE(gps.escapes, 0) AS escapes
          FROM user_games ug
          LEFT JOIN users w ON w.id = ug.winner_id
+         LEFT JOIN game_player_stats gps ON gps.game_id = ug.id AND gps.user_id = ?
          ORDER BY ug.ended_at DESC`,
-        [userId, safeLimit, userId]
+        [userId, safeLimit, userId, userId]
     );
 }
 
@@ -738,7 +926,9 @@ async function getLeaderboard(limit = 20) {
              u.avatar_id,
              u.gender,
              COUNT(DISTINCT p.game_id) AS games_played,
-             COUNT(DISTINCT CASE WHEN g.winner_id = u.id THEN g.id END) AS wins
+             COUNT(DISTINCT CASE WHEN g.winner_id = u.id THEN g.id END) AS wins,
+             COALESCE((SELECT SUM(s.monsters_killed) FROM game_player_stats s WHERE s.user_id = u.id), 0) AS total_monsters_killed,
+             COALESCE((SELECT SUM(s.deaths) FROM game_player_stats s WHERE s.user_id = u.id), 0) AS total_deaths
          FROM users u
          JOIN participants p ON p.user_id = u.id
          JOIN games g ON g.id = p.game_id
@@ -747,6 +937,26 @@ async function getLeaderboard(limit = 20) {
          LIMIT ?`,
         [safeLimit]
     );
+
+    // Compute current win streak for returned leaderboard accounts
+    for (const row of rows) {
+        const recent = await all(
+            `SELECT g.winner_id
+             FROM participants p
+             JOIN games g ON g.id = p.game_id
+             WHERE p.user_id = ?
+             ORDER BY g.ended_at DESC
+             LIMIT 20`,
+            [row.id]
+        );
+        let streak = 0;
+        for (const r of recent) {
+            if (r.winner_id === row.id) streak++;
+            else break;
+        }
+        row.current_streak = streak;
+    }
+
     leaderboardCache.set(safeLimit, { ts: Date.now(), rows });
     return rows;
 }
@@ -802,6 +1012,7 @@ function saveActiveGame(game) {
                 secondaryRace: player.secondaryRace || 'HUMAN',
                 hasHalfBreed: player.hasHalfBreed,
                 hasSuperMunchkin: player.hasSuperMunchkin,
+                activeCurses: Array.isArray(player.activeCurses) ? player.activeCurses : [],
                 lastRoll: player.lastRoll ?? null,
                 reachedMaxLevelViaCombat: player.reachedMaxLevelViaCombat === true,
                 isConnected: player.isConnected !== false,
@@ -812,8 +1023,8 @@ function saveActiveGame(game) {
         const sql = `INSERT INTO active_games
             (id, join_code, host_id, host_name, phase, turn_player_id, players_json, player_order_json, combat_json,
              created_at, last_activity_at, seq, turn_timer_seconds, turn_ends_at, max_level, winner_id, original_host_id,
-             host_user_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             host_user_id, expansions_enabled, turn_timer_paused_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 join_code = excluded.join_code,
                 host_id = excluded.host_id,
@@ -830,7 +1041,9 @@ function saveActiveGame(game) {
                 max_level = excluded.max_level,
                 winner_id = excluded.winner_id,
                 original_host_id = excluded.original_host_id,
-                host_user_id = excluded.host_user_id`;
+                host_user_id = excluded.host_user_id,
+                expansions_enabled = excluded.expansions_enabled,
+                turn_timer_paused_ms = excluded.turn_timer_paused_ms`;
 
         db.run(sql, [
             game.id,
@@ -850,7 +1063,9 @@ function saveActiveGame(game) {
             game.maxLevel || 10,
             game.winnerId || null,
             game.originalHostId || game.hostId,
-            game.hostUserId || null
+            game.hostUserId || null,
+            game.expansionsEnabled ? 1 : 0,
+            game.turnTimerPausedRemainingMs ?? null
         ], function (err) {
             if (err) {
                 logger.error('❌ Error saving game:', err);
@@ -918,8 +1133,10 @@ function loadActiveGames() {
                     seq: row.seq,
                     turnTimerSeconds: row.turn_timer_seconds || 0,
                     turnEndsAt: row.turn_ends_at || null,
+                    turnTimerPausedRemainingMs: row.turn_timer_paused_ms ?? null,
                     maxLevel: row.max_level || 10,
-                    winnerId: row.winner_id || null
+                    winnerId: row.winner_id || null,
+                    expansionsEnabled: row.expansions_enabled === 1
                 });
                 return acc;
             }, []);
@@ -994,6 +1211,8 @@ module.exports = {
     deleteAccount,
     searchMonsters,
     addMonster,
+    updateMonster,
+    deleteMonster,
     recordGame,
     getUserHistory,
     getLeaderboard,

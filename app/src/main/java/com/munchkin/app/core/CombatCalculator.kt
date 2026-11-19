@@ -19,8 +19,10 @@ object CombatCalculator {
 
         val helperPlayer = combatState.helperPlayerId?.let { gameState.players[it] }
 
-        // Calculate base hero power
-        val heroBasePower = mainPlayer.combatPower + (helperPlayer?.combatPower ?: 0)
+        // Calculate base hero power + active curses
+        val cursePenalty = mainPlayer.activeCurses.sumOf { it.combatPenalty } +
+            (helperPlayer?.activeCurses?.sumOf { it.combatPenalty } ?: 0)
+        val heroBasePower = mainPlayer.combatPower + (helperPlayer?.combatPower ?: 0) + cursePenalty
 
         // Calculate conditional modifiers for heroes (Data Driven)
         val heroConditionalBonus = calculateConditionalBonus(
@@ -78,6 +80,7 @@ object CombatCalculator {
         var levels = 0
         var treasures = 0
         var helperLevels = 0
+        var orcOverkill = false
 
         if (outcome == CombatOutcome.WIN) {
             levels = combatState.monsters.sumOf { it.levels }
@@ -86,6 +89,15 @@ object CombatCalculator {
             // Elf Helper Bonus: Helper gains 1 level per monster defeated if they help and win
             if (combatState.monsters.isNotEmpty() && helperPlayer?.hasRace(CharacterRace.ELF) == true) {
                 helperLevels = combatState.monsters.size
+            }
+            // Orc Overkill: fighting alone and winning by > 10 grants +1 extra level
+            if (helperPlayer == null &&
+                combatState.monsters.isNotEmpty() &&
+                mainPlayer.hasRace(CharacterRace.ORC) &&
+                (heroesPower - monstersPower) > 10
+            ) {
+                levels += 1
+                orcOverkill = true
             }
         }
 
@@ -98,7 +110,8 @@ object CombatCalculator {
             warriorTieBreak = heroesPower == monstersPower && isWarriorInvolved,
             helperLevelsGained = helperLevels,
             isWarriorInvolved = isWarriorInvolved,
-            heroesWinTies = heroesWinTies
+            heroesWinTies = heroesWinTies,
+            orcOverkillBonus = orcOverkill
         )
     }
 
@@ -230,6 +243,18 @@ object CombatCalculator {
                     amount = it.combatPower
                 )
             )
+        }
+
+        // Active curses combat penalties
+        for (curse in mainPlayer.activeCurses) {
+            if (curse.combatPenalty != 0) {
+                heroSources.add(PowerSource("${mainPlayer.name}: ${curse.name}", curse.combatPenalty))
+            }
+        }
+        helperPlayer?.activeCurses?.forEach { curse ->
+            if (curse.combatPenalty != 0) {
+                heroSources.add(PowerSource("${helperPlayer.name}: ${curse.name}", curse.combatPenalty))
+            }
         }
 
         // Monster bases
