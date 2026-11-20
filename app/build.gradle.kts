@@ -152,7 +152,7 @@ dependencies {
     ksp("androidx.room:room-compiler:$roomVersion")
     
     // QR Code Generation
-    implementation("com.google.zxing:core:3.5.3")
+    implementation("com.google.zxing:core:3.5.4")
     
     // CameraX for QR Scanning
     val cameraXVersion = "1.3.1"
