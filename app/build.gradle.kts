@@ -164,7 +164,7 @@ dependencies {
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
     
     // Accompanist Permissions (for camera in QR scanner)
-    implementation("com.google.accompanist:accompanist-permissions:0.34.0")
+    implementation("com.google.accompanist:accompanist-permissions:0.37.3")
     
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
