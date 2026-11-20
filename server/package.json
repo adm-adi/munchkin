@@ -12,7 +12,7 @@
     "check": "node --check server.js && node --check db.js && node --check validation.js && node --check authManager.js && node --check catalogManager.js && node --check combatManager.js && node --check gameAdminManager.js && node --check historyManager.js && node --check turnManager.js && node --check logger.js && node --check staticFiles.js && node --check testServer.js && node --check public/js/protocol.mjs && node --check public/js/engine.mjs && node --check public/js/combat.mjs && node --check public/js/net.mjs && node --check public/js/session.mjs && node --check public/js/i18n.mjs && node --check public/js/ui.mjs && node --check public/js/sound.mjs && node --check public/js/views/combatHelpers.mjs && node --check public/js/views/tvView.mjs && node --check public/js/views/offlineMode.mjs && node --check public/js/views/qrScanner.mjs && node --check public/js/app.mjs && tsc --noEmit -p jsconfig.json"
   },
   "dependencies": {
-    "bcryptjs": "^2.4.3",
+    "bcryptjs": "^3.0.3",
     "helmet": "^7.1.0",
     "sqlite3": "^5.1.7",
     "winston": "^3.11.0",
@@ -20,7 +20,7 @@
     "ws": "^8.17.1"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
+    "@types/bcryptjs": "^3.0.0",
     "@types/node": "^22.15.0",
     "@types/ws": "^8.18.2",
     "typescript": "^5.9.3"
