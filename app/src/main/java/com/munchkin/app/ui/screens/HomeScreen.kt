@@ -1,4 +1,4 @@
-﻿package com.munchkin.app.ui.screens
+package com.munchkin.app.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
@@ -247,7 +247,7 @@ fun HomeScreen(
                             )
                     )
                     Text(
-                        text = "âš”ï¸",
+                        text = "⚔️",
                         fontSize = 72.sp
                     )
                 }
@@ -587,7 +587,7 @@ private fun HostedGameCard(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "${game.playerCount} ${stringResource(R.string.players).lowercase()} â€¢ ${game.phase}",
+                    text = "${game.playerCount} ${stringResource(R.string.players).lowercase()} • ${game.phase}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

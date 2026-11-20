@@ -1,4 +1,4 @@
-﻿package com.munchkin.app.ui.screens
+package com.munchkin.app.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
@@ -314,7 +314,7 @@ fun CombatScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(text = "âš”ï¸", style = MaterialTheme.typography.displayMedium)
+                        Text(text = "⚔️", style = MaterialTheme.typography.displayMedium)
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = stringResource(R.string.combat_start_prompt),
@@ -372,9 +372,9 @@ fun CombatScreen(
                                 }
                                 if (result.outcome == CombatOutcome.WIN) {
                                     Text(
-                                        text = "ðŸ’° ${stringResource(R.string.treasures_format, result.totalTreasures)} â€¢ â­ ${stringResource(R.string.levels_format, result.totalLevels)}" +
+                                        text = "💰 ${stringResource(R.string.treasures_format, result.totalTreasures)} • ⭐ ${stringResource(R.string.levels_format, result.totalLevels)}" +
                                             (if (result.helperLevelsGained > 0) " (+${result.helperLevelsGained} ${stringResource(R.string.race_elf)})" else "") +
-                                            (if (result.orcOverkillBonus) " â€¢ ${stringResource(R.string.orc_overkill_badge)}" else ""),
+                                            (if (result.orcOverkillBonus) " • ${stringResource(R.string.orc_overkill_badge)}" else ""),
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = NeonSuccess,
                                         fontWeight = FontWeight.SemiBold
@@ -400,12 +400,12 @@ fun CombatScreen(
                                         color = NeonGray100
                                     )
                                     Text(
-                                        text = "${player.characterRace.label()} â€¢ ${player.characterClass.label()}",
+                                        text = "${player.characterRace.label()} • ${player.characterClass.label()}",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = NeonGray300
                                     )
                                     Text(
-                                        text = "âš”ï¸ ${stringResource(R.string.power)}: ${player.combatPower}",
+                                        text = "⚔️ ${stringResource(R.string.power)}: ${player.combatPower}",
                                         style = MaterialTheme.typography.bodyLarge,
                                         fontWeight = FontWeight.Bold,
                                         color = NeonGray100
@@ -432,12 +432,12 @@ fun CombatScreen(
                                         )
                                         if (helper != null) {
                                             Text(
-                                                text = "${stringResource(R.string.level)} ${helper.level} â€¢ ${helper.characterRace.label()} â€¢ ${helper.characterClass.label()}",
+                                                text = "${stringResource(R.string.level)} ${helper.level} • ${helper.characterRace.label()} • ${helper.characterClass.label()}",
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 color = NeonGray300
                                             )
                                             Text(
-                                                text = "âš”ï¸ ${stringResource(R.string.power)}: ${helper.combatPower}",
+                                                text = "⚔️ ${stringResource(R.string.power)}: ${helper.combatPower}",
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 fontWeight = FontWeight.Bold,
                                                 color = NeonGray100
@@ -532,13 +532,13 @@ fun CombatScreen(
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
-                                                text = monster.name + if (monster.isUndead) " ðŸ§Ÿ" else "",
+                                                text = monster.name + if (monster.isUndead) " 🧟" else "",
                                                 style = MaterialTheme.typography.bodyLarge,
                                                 fontWeight = FontWeight.SemiBold,
                                                 color = NeonGray100
                                             )
                                             Text(
-                                                text = "ðŸ’° ${stringResource(R.string.treasures_format, monster.treasures)} â€¢ â­ ${stringResource(R.string.levels_format, monster.levels)}",
+                                                text = "💰 ${stringResource(R.string.treasures_format, monster.treasures)} • ⭐ ${stringResource(R.string.levels_format, monster.levels)}",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = NeonGray300
                                             )
@@ -621,7 +621,7 @@ fun CombatScreen(
 
                                     if (monster.badStuff.isNotEmpty()) {
                                         Text(
-                                            text = "âš ï¸ ${stringResource(R.string.combat_bad_stuff_label)}: ${monster.badStuff}",
+                                            text = "⚠️ ${stringResource(R.string.combat_bad_stuff_label)}: ${monster.badStuff}",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = NeonError,
                                             modifier = Modifier.padding(top = 4.dp)
@@ -1003,7 +1003,7 @@ fun CombatScreen(
                 onDismissRequest = { showDiceResult = null },
                 containerColor = NeonSurface,
                 icon = {
-                    Text(text = "ðŸŽ²", style = MaterialTheme.typography.displayLarge)
+                    Text(text = "🎲", style = MaterialTheme.typography.displayLarge)
                 },
                 title = {
                     Text(
@@ -1044,7 +1044,7 @@ fun CombatScreen(
             )
         }
 
-        // Run Away dialog â€” resolves Elf/Halfling bonus for the ACTUAL rolling player (myPlayerId or mainPlayerId when host helps)
+        // Run Away dialog — resolves Elf/Halfling bonus for the ACTUAL rolling player (myPlayerId or mainPlayerId when host helps)
         if (showRunAwayDialog) {
             val isParticipant = combatState != null &&
                 (myPlayerId == combatState.mainPlayerId || myPlayerId == combatState.helperPlayerId)
